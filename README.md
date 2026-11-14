@@ -27,16 +27,6 @@ without writing installer logic.
   <img src="docs/images/install-dark.png" width="440" alt="The same window in dark mode, in German">
 </p>
 
-> [!NOTE]
-> Bach is early and in active development: **0.1.0**, a pre-release, came out
-> on 13 November 2026, and [`main`](https://github.com/usebach/bach/commits/main)
-> has moved on since. Requirement
-> checks, self-updates from the app, extra shortcuts, logs, the archive
-> checksum, "close and continue", keyboard navigation, `bach feed`,
-> `bach winget`, project detection in `bach init`, `bach version`,
-> `bach workflow` and the `@usebach/cli` package on npm are on `main` and ship
-> in the next release; [build from source](#build-from-source) to use them today.
-
 ## Quick start
 
 Install the `bach` command. No Rust needed, no administrator rights:
