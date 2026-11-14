@@ -12,6 +12,49 @@ There are two ways to update:
   newer setup file in the background and installs it when the app is closed.
   The rest of this page is about that.
 
+## How an installed app knows what is new
+
+The installed app doesn't guess. It asks one small file, the **update feed**
+(`latest.json`), whose address is baked into every setup file by
+`[updates]` in `bach.toml`. The feed says which version is newest and where
+to download it:
+
+```json latest.json
+{
+  "version": "1.4.0",
+  "url": "https://github.com/owner/repo/releases/download/v1.4.0/Hello-Setup-1.4.0.exe",
+  "sha256": "<sha-256 of the setup file>",
+  "notes": "Faster start",
+  "size": 10187776
+}
+```
+
+The whole loop, step by step:
+
+1. **You publish.** `bach build` writes the setup file and `latest.json`
+   next to it; you (or the release workflow) upload both to a place with a
+   fixed address for the feed.
+2. **The app asks.** The scheduled task (every four hours) or your app
+   (`uninstall.exe --check-update`) fetches the feed and compares its
+   `version` with the installed version. Only a higher version counts.
+3. **It downloads.** The setup file from `url`, into the background folder,
+   checked against `sha256`.
+4. **It installs** when the app isn't running.
+
+So there is no server of yours to run: any place that serves two static
+files over https works. See [where to host it](#where-to-host-updates). The
+online installer uses the same feed, so publishing a release updates
+installed apps *and* what new users get.
+
+## Where to host updates
+
+| You have | Set | Notes |
+| --- | --- | --- |
+| A public GitHub repository | `github = "owner/repo"` | The release workflow does everything. The repository must be public. |
+| Static hosting: Cloudflare R2 or Pages, S3, Netlify, your own web server | `feed` and `download_url` | Upload the setup file and `latest.json` to fixed addresses. Nothing else to run. |
+| Two places for safety | `mirrors = [...]` | More feeds, asked when the main one is down. |
+| A private server | `[access]` with `send_key = true` | The server checks `Authorization: Bearer <key>`. See [private updates](#private-updates). |
+
 ## Publish updates from GitHub
 
 Add one line to `bach.toml`:
@@ -118,7 +161,7 @@ scheduled task:
 
 | Command | Result |
 | --- | --- |
-| `--check-update` | Says whether a newer version is out. Exit code `10`: yes, `0`: up to date. |
+| `--check-update` | Says whether a newer version is out. Exit code `10`: yes, `0`: up to date (or a [staged rollout](#staged-rollouts) hasn't reached this computer). |
 | `--check-update --json` | The same as one line of JSON: `app`, `current`, `latest`, `available`, `downloaded`, `notes`, `size`. |
 | `--download-update` | Downloads it into the background folder and keeps it ready. Exit code `10`: ready, `0`: up to date. |
 | `--apply-update` | Installs what was kept ready. `--wait-for PID` lets that process (your app) end first, `--launch` starts the app again after the update. Exit code `0`: installed, or nothing was waiting. |
@@ -134,6 +177,9 @@ A typical app, with the updating done while it isn't in the way:
 The download finishes while the app is used, so closing it costs a few
 seconds. A "Later" button needs no code: leave the update kept, and the next
 start or the scheduled task takes it.
+
+A protected app's update runs read the key kept at install time; to give one
+yourself, use `--key-file FILE` or the `BACH_ACCESS_KEY` environment variable.
 
 Everything the updater does is logged to `%TEMP%\<app id>-update.log`.
 
@@ -168,7 +214,75 @@ Limits, so nobody is surprised:
   damage and a wrong file, not against someone who controls your release
   page. Sign your setup file so Windows shows your name ([signing](signing.md)).
 - The download is the whole setup file each time, no deltas.
-- A private repository can't serve the feed.
+- A private GitHub repository can't serve the feed (the app has no GitHub
+  token to send). Use a server that checks the access key instead: see
+  [private updates](#private-updates).
+
+## Mirrors
+
+If the host of your feed is down, the app can ask another:
+
+```toml
+[updates]
+feed = "https://example.com/hello/latest.json"
+download_url = "https://example.com/hello/{file}"
+mirrors = ["https://mirror.example.net/hello/latest.json"]
+```
+
+A mirror is a full feed with its own download link; write it with
+`bach feed SETUP.exe --url https://mirror.example.net/hello/Hello-Setup-1.4.0.exe --out mirror/latest.json`
+and upload it there. The **first feed that answers decides which version is
+newest.** A mirror can't say "there's a newer one"; it only offers another
+place to download the *same* file (same version and SHA-256), tried when the
+first download fails. That way a weaker mirror can't widen what installed apps
+trust.
+
+## Staged rollouts
+
+To ship a risky release to few people first, write the feed with a rollout:
+
+```bash
+bach feed "dist/Hello-Setup-1.4.0.exe" --rollout 10
+```
+
+```json latest.json
+{ "version": "1.4.0", "url": "…", "sha256": "…", "rollout": 10 }
+```
+
+Each computer has a fixed number from 0 to 99 (made from Windows' machine id and
+the app's id), and takes the update by itself when that number is below the
+rollout. Raise it (`--rollout 50`), then write the feed again without
+`--rollout` for everybody. A computer that was in the first ten percent stays
+in all later steps. Computers outside it say "up to date" for
+`--check-update`, `--download-update` and the scheduled task; `--update`, which
+a person asks for, always installs. The online installer ignores rollouts:
+new installs get the newest. To pull a bad release, publish the feed of the
+last good version again: apps only ever move up, so an app that already took
+the bad one waits for a higher version.
+
+## Private updates
+
+Without [`[access]`](config.md#access), the feed and the setup file must be
+readable by anyone. For a private app, add:
+
+```toml
+[access]                  # encrypts the files with a key, asks for it at install
+get_key_url = "https://example.com/buy"
+
+[updates]
+feed = "https://downloads.example.com/hello/latest.json"
+download_url = "https://downloads.example.com/hello/{file}"
+```
+
+With `send_key` (the default when `[updates]` is set), the installed app sends
+the key it was installed with as `Authorization: Bearer <key>` with every
+request to the feed and the download. Your server decides: answer `401` or
+`403` and the update is refused with "that key doesn't fit". The key is kept
+sealed for the Windows user and goes only to the host it was meant for: a
+redirect to another host (a storage bucket's signed link) is followed without
+it. Because the files are also encrypted with the key, the setup file is safe
+on a public host too. See [`[access]`](config.md#access) for what this does and
+does not protect.
 
 ## Your own server
 
@@ -182,4 +296,5 @@ download_url = "https://example.com/hello/{file}"   # {file}: the setup file's n
 
 `bach build` writes `latest.json` next to the setup file. After signing, write
 it again with `bach feed SETUP.exe` (it reads the link from `bach.toml`, or
-pass `--url`; `--notes` or `--notes-file` says what's new). Upload both files.
+pass `--url`; `--notes` or `--notes-file` says what's new; `--rollout N` is
+a [staged rollout](#staged-rollouts)). Upload both files.

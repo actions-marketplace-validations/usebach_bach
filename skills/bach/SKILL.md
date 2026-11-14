@@ -147,11 +147,22 @@ kind = "webview2"                         # also "dotnet" (version, desktop), "v
 name = "My App Docs"
 target = "docs.exe"
 
+[[run]]                                   # a packaged program setup runs (runtime installers, drivers)
+file = "redist/vc_redist.x64.exe"
+arguments = "/quiet /norestart"
+when = "first_install"                    # or "install" (default), "uninstall" (before removal)
+success_codes = [0, 3010]
+
+[access]                                  # private app: asks for a key, encrypts the files with it
+# The key is never written here: BACH_ACCESS_KEY=... bach build (make keys with `bach key`)
+# get_key_url = "https://example.com/buy"
+
 [updates]                                 # the installed app can update itself
 github = "owner/repo"                     # from that repo's GitHub releases; or:
 # feed = "https://example.com/myapp/latest.json"
 # download_url = "https://example.com/myapp/{file}"
 # auto = true                             # offer "Automatic updates" (false / "always" / "never")
+# mirrors = ["https://mirror.example/myapp/latest.json"]   # fallback feeds
 
 [uninstall]
 data = ['%APPDATA%\My App']               # single quotes keep backslashes
@@ -239,6 +250,17 @@ window speaks several).
   box adds a per-user scheduled task that does it every few hours while the
   app is closed. A good app runs `--download-update` at start and
   `--apply-update --wait-for <pid> --launch` when it quits.
+- An **online installer** (a small setup that downloads the newest version
+  when it runs, so one download link is always current): `online = true` under
+  `[installer]` or `bach build --online`; it needs `[updates]` and is written as
+  `dist/<name>-Web-Setup.exe`. The action signs and publishes it too.
+- To ship a risky release to a share of users first: `bach feed SETUP.exe
+  --rollout 10`, then write the feed again without `--rollout`.
+- A private app: `[access]` asks for a key and encrypts the files. Keep the key
+  out of `bach.toml` (env var `BACH_ACCESS_KEY`, `bach key` makes one). Silent
+  installs take `--key-file FILE`. Updates send the key as a Bearer header, so a
+  private server can refuse anyone without one. Installed files stay readable on
+  the user's disk: for real protection check a license inside the app.
 - To list the app in winget: `bach winget SETUP.exe --url URL --license MIT`,
   then `winget validate` and a pull request to microsoft/winget-pkgs.
 
