@@ -390,7 +390,8 @@
               "dotnet",
               "vcredist",
               "file",
-              "registry"
+              "registry",
+              "windows"
             ]
           },
           "version": {
@@ -412,6 +413,12 @@
           "url": {
             "type": "string",
             "pattern": "^https://"
+          },
+          "build": {
+            "type": "integer",
+            "minimum": 10000,
+            "maximum": 99999,
+            "description": "With kind = \"windows\": the lowest Windows build number that works (10240 Windows 10, 17763 version 1809, 19041 version 2004, 22000 Windows 11)."
           }
         }
       }
@@ -437,6 +444,54 @@
           },
           "description": {
             "type": "string"
+          }
+        }
+      }
+    },
+    "run": {
+      "type": "array",
+      "description": "Programs from your own files that setup runs: a runtime's installer, a driver. They run as the user, never through a shell.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "What setup says it is doing: \"Setting up {name}\". The file name by default."
+          },
+          "file": {
+            "type": "string",
+            "description": "A packaged .exe, relative to the install folder."
+          },
+          "arguments": {
+            "type": "string",
+            "description": "The command line, passed as written."
+          },
+          "when": {
+            "enum": [
+              "install",
+              "first_install",
+              "uninstall"
+            ],
+            "description": "install (default): after the files are in place, on a first install and every update. first_install: not on updates. uninstall: before the files are removed."
+          },
+          "success_codes": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Exit codes that mean it worked. 0 always counts."
+          },
+          "ignore_errors": {
+            "type": "boolean",
+            "description": "Go on when it fails (not with when = \"uninstall\", which never stops removal)."
+          },
+          "component": {
+            "type": "string",
+            "description": "Only run when this optional component is installed."
           }
         }
       }
