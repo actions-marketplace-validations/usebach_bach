@@ -2,6 +2,24 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.5.0 (2026-11-14)
+
+### New
+
+- Add run steps, a Windows version requirement and --help for setup files ([f47decb](https://github.com/usebach/bach/commit/f47decbdfbea01243c16ee9b6c92dc82eae22c93))
+- Add access keys: encrypted setup files, private updates and staged rollouts ([bd9b4c7](https://github.com/usebach/bach/commit/bd9b4c7e48857fbae46da70abda7e49d998d9103))
+- Add the online installer: a small setup that downloads the newest version ([a6bd5ed](https://github.com/usebach/bach/commit/a6bd5eda4ce086b3998733276493b9480dad7d21))
+
+### Improvements
+
+- Send the access key only to the host of the main update feed ([826e769](https://github.com/usebach/bach/commit/826e7692c3659b3a22b8b3dbf52d3fe00b035bdd))
+- Document online installers, access keys, run steps, mirrors and rollouts; publish the online installer with the action ([2052b0e](https://github.com/usebach/bach/commit/2052b0ec50e9c844f8ce74586e5bdb928becf4be))
+- Cover protected apps and run steps in the end-to-end script ([e3ca3e6](https://github.com/usebach/bach/commit/e3ca3e65bca26ec43e68ee7908957c128a9c5a46))
+- Describe run steps and the Windows requirement in the editor schema ([7c8e9c9](https://github.com/usebach/bach/commit/7c8e9c974a5fa83ef4517df7170dd7f598a02e08))
+- Remove the version note from the README ([35a8613](https://github.com/usebach/bach/commit/35a8613274caf3d093d943a6696067b200a360e7))
+
+All changes: [v0.4...v0.5.0](https://github.com/usebach/bach/compare/v0.4...v0.5.0)
+
 ## 0.4.0 (2026-11-14)
 
 ### Improvements
