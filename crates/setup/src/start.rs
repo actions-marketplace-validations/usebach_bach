@@ -49,8 +49,11 @@ pub fn install(manifest: &Manifest) -> Start {
         }
         None => Choices::defaults(manifest),
     };
-    let downgrade = existing.as_ref().is_some_and(|installed| {
-        bach_pack::version::compare(&installed.version, &manifest.app.version) == Some(std::cmp::Ordering::Greater)
-    });
+    // An online installer doesn't know which version it will install until
+    // it has asked the feed, so there is nothing to compare yet.
+    let downgrade = !manifest.online
+        && existing.as_ref().is_some_and(|installed| {
+            bach_pack::version::compare(&installed.version, &manifest.app.version) == Some(std::cmp::Ordering::Greater)
+        });
     Start { existing, previous, dir, choices, downgrade }
 }

@@ -75,6 +75,7 @@ pub fn is_present(check: &Check) -> bool {
                 })
             })
         }
+        Check::Windows { build } => windows_build().is_some_and(|installed| installed >= *build),
         Check::File { path } => expand(path).is_some_and(|path| path.exists()),
         Check::Registry { key } => {
             let (hive, rest) = key.split_once('\\').unwrap_or((key, ""));
@@ -85,6 +86,19 @@ pub fn is_present(check: &Check) -> bool {
             }
         }
     }
+}
+
+/// The build number of this Windows (22631 for Windows 11 23H2), which is
+/// what tells versions apart; `CurrentVersion` stays "6.3" for all of them.
+pub fn windows_build() -> Option<u32> {
+    LOCAL_MACHINE
+        .open(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+        .ok()?
+        .get_string("CurrentBuildNumber")
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 fn has_version(hive: &windows_registry::Key, key: &str) -> bool {
@@ -124,6 +138,10 @@ mod tests {
         let _ = is_present(&Check::Webview2);
         let _ = is_present(&Check::Vcredist);
         let _ = is_present(&Check::Dotnet { version: "8.0".into(), desktop: false });
+        let build = windows_build().expect("Windows reports its build");
+        assert!(build >= 10_240, "this runtime needs Windows 10, so {build} is surprising");
+        assert!(is_present(&Check::Windows { build: 10_240 }));
+        assert!(!is_present(&Check::Windows { build: 99_999 }));
     }
 
     #[test]

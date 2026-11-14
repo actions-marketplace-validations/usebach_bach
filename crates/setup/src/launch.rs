@@ -14,6 +14,9 @@
 //! - `--preview`: the windows, with the work only pretended.
 //! - `--theme light|dark|system` and `--lang <code>` override the payload's
 //!   theme and the user's language.
+//! - A setup file with an access key asks for it. `--key-file FILE` or the
+//!   `BACH_ACCESS_KEY` environment variable give it up front instead (never
+//!   an argument, which other programs can read).
 
 use std::path::{Path, PathBuf};
 
@@ -21,6 +24,35 @@ use bach_pack::manifest::{Theme, UNINSTALLER};
 
 use crate::package::Package;
 use crate::system;
+
+/// What `--help` prints: the flags of a setup file and of `uninstall.exe`.
+pub const HELP: &str = "Setup file and uninstall.exe options
+
+  --silent, /S            Install or remove without a window. Exit code 0 done, 1 failed, 2 wrong options.
+  --dir FOLDER            Where a silent install goes (a first install only).
+  --with IDS              Turn these options on (comma-separated ids: desktop-shortcut, start-menu,
+                          autostart, path, auto-update, or a component id).
+  --without IDS           Turn these options off.
+  --allow-downgrade       Let a silent run install an older version over a newer one.
+  --delete-data           Silent removal: also delete the app's data folders.
+  --key-file FILE         The access key, for a setup file that asks for one (or set BACH_ACCESS_KEY).
+  --log FILE              Write this run's log here (default %TEMP%\\<app id>-setup.log).
+  --lang CODE             Use this language (en, de, fr, ...) instead of Windows'.
+  --theme light|dark|system
+  --preview               Show the window; nothing is installed or removed.
+
+uninstall.exe only
+  --check-update [--json] Say whether a newer version is out (exit code 10: yes, 0: up to date).
+  --download-update       Download it and keep it ready (exit code 10: ready).
+  --apply-update          Install what was kept ready. [--wait-for PID] [--launch]
+  --update                Download the newest version and open its setup (--silent: install it).
+  --auto-update           One background round, as the scheduled task runs it.
+
+  --help, -h, /?          This text.
+";
+
+/// The environment variable that carries an access key to a setup file.
+pub const KEY_ENV: &str = "BACH_ACCESS_KEY";
 
 #[derive(Clone, Debug)]
 pub enum Mode {
@@ -33,6 +65,7 @@ pub enum Mode {
 pub struct Args {
     pub uninstall: bool,
     pub preview: bool,
+    pub help: bool,
     pub silent: bool,
     pub install_dir: Option<PathBuf>,
     /// `--dir`: where a silent install goes.
@@ -44,6 +77,8 @@ pub struct Args {
     pub allow_downgrade: bool,
     /// `--log FILE`: where this run's log goes.
     pub log: Option<PathBuf>,
+    /// `--key-file FILE`: a file holding the access key.
+    pub key_file: Option<PathBuf>,
     /// `--update`: look for a newer version and install it.
     pub update: bool,
     /// `--check-update`: only say whether there is one (exit code 10).
@@ -69,12 +104,29 @@ pub struct Args {
 impl Args {
     /// Whether this run is about updating the installed app, as opposed to
     /// installing, removing or previewing.
+    /// Whether the user asked what the options are.
+    pub fn wants_help(&self) -> bool {
+        self.help
+    }
+
     pub fn updating(&self) -> bool {
         self.update || self.check_update || self.download_update || self.apply_update || self.auto_update
     }
 
     pub fn parse() -> Self {
         Self::from(std::env::args().skip(1).collect())
+    }
+
+    /// The access key given up front: the `--key-file`'s first line, else
+    /// the `BACH_ACCESS_KEY` variable. None when neither is given; an error
+    /// sentence when the file can't be read.
+    pub fn access_key(&self) -> Result<Option<String>, String> {
+        if let Some(file) = &self.key_file {
+            let text = std::fs::read_to_string(file)
+                .map_err(|err| format!("couldn't read the key file {}: {err}", file.display()))?;
+            return Ok(first_line(&text));
+        }
+        Ok(std::env::var(KEY_ENV).ok().and_then(|text| first_line(&text)))
     }
 
     fn from(args: Vec<String>) -> Self {
@@ -93,6 +145,7 @@ impl Args {
         Self {
             uninstall: has(&["--uninstall"]),
             preview: has(&["--preview"]),
+            help: has(&["--help", "-h", "/?", "/help"]),
             // `/S` and `/quiet` are what IT tools try first.
             silent: has(&["--silent", "/s", "/silent", "/quiet", "/q"]),
             install_dir: value_of("--install-dir").map(PathBuf::from),
@@ -102,6 +155,7 @@ impl Args {
             delete_data: has(&["--delete-data"]),
             allow_downgrade: has(&["--allow-downgrade"]),
             log: value_of("--log").map(PathBuf::from),
+            key_file: value_of("--key-file").map(PathBuf::from),
             update: has(&["--update"]),
             check_update: has(&["--check-update"]),
             download_update: has(&["--download-update"]),
@@ -119,7 +173,7 @@ impl Args {
 /// The mode for this package. For the installed uninstaller this hands
 /// over to a temp copy and exits the process.
 pub fn mode(args: &Args, package: &Package) -> Mode {
-    let removing = args.uninstall || !package.has_files();
+    let removing = args.uninstall || !package.is_installer();
     if !removing {
         return Mode::Install;
     }
@@ -175,6 +229,12 @@ fn hand_over_to_temp_copy(dir: &Path, package: &Package, args: &Args) -> bool {
     }
 }
 
+/// The first non-empty line, trimmed: what a key file or variable holds,
+/// whether or not an editor added a newline.
+fn first_line(text: &str) -> Option<String> {
+    text.trim_start_matches('\u{feff}').lines().map(str::trim).find(|line| !line.is_empty()).map(String::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,6 +253,32 @@ mod tests {
         assert_eq!(parsed.lang.as_deref(), Some("de"));
         assert!(args("/S").silent);
         assert!(args("--preview --theme dark").theme == Some(Theme::Dark));
+    }
+
+    #[test]
+    fn keys_are_read_from_files_and_never_from_arguments() {
+        assert_eq!(first_line("K7QF-3MWD\r\n"), Some("K7QF-3MWD".into()));
+        assert_eq!(first_line("\u{feff}  K7QF-3MWD  \n\nsecond"), Some("K7QF-3MWD".into()));
+        assert_eq!(first_line("\n  \n"), None);
+        assert_eq!(first_line(""), None);
+        let parsed = args("--silent --key-file C:\\keys\\hello.txt");
+        assert_eq!(parsed.key_file, Some(PathBuf::from(r"C:\keys\hello.txt")));
+        // A key on the command line would show in every process list.
+        assert!(parsed.access_key().is_err(), "a missing file is an error, not no key");
+        assert!(!format!("{:?}", args("--key K7QF-3MWD")).contains("K7QF"), "--key isn't a flag");
+    }
+
+    #[test]
+    fn help_is_asked_for_the_usual_ways() {
+        for flag in ["--help", "-h", "/?", "/help", "--HELP"] {
+            assert!(args(flag).wants_help(), "{flag}");
+        }
+        assert!(!args("--silent").wants_help());
+        // Every flag the help text names is one the parser knows.
+        for flag in ["--silent", "--dir", "--with", "--without", "--allow-downgrade", "--delete-data", "--key-file", "--log",
+            "--lang", "--theme", "--preview", "--check-update", "--download-update", "--apply-update", "--update", "--auto-update"] {
+            assert!(HELP.contains(flag), "{flag} is missing from the help text");
+        }
     }
 
     #[test]

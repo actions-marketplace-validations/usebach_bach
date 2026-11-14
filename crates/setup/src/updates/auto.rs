@@ -41,7 +41,7 @@ pub fn run(ctx: &Context) -> Result<i32, String> {
 
     let entry = ctx.latest()?;
     ctx.tidy();
-    if !feed::is_newer(&entry.version, &installed.version) {
+    if !feed::is_newer(&entry.version, &installed.version) || !ctx.in_rollout(&entry) {
         crate::log::line("Up to date.");
         return Ok(0);
     }

@@ -24,6 +24,10 @@ use crate::paths;
 /// The default output, relative to `bach.toml`.
 pub const DEFAULT_OUTPUT: &str = "dist/{name}-Setup-{version}.exe";
 
+/// The default output of the online installer: no version in its name, so
+/// one download link keeps pointing at the newest.
+pub const DEFAULT_ONLINE_OUTPUT: &str = "dist/{name}-Web-Setup.exe";
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
@@ -45,7 +49,10 @@ struct File {
     requirements: Vec<extras::RequirementSection>,
     #[serde(default)]
     shortcuts: Vec<extras::ShortcutSection>,
+    #[serde(default)]
+    run: Vec<extras::RunSection>,
     updates: Option<extras::UpdatesSection>,
+    access: Option<extras::AccessSection>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,6 +80,8 @@ struct FilesSection {
 #[serde(deny_unknown_fields)]
 struct InstallerSection {
     output: Option<String>,
+    online: Option<bool>,
+    online_output: Option<String>,
     folder: Option<String>,
     theme: Option<String>,
     accent: Option<String>,
@@ -114,7 +123,17 @@ pub struct Project {
     /// The logo's bytes, read now so the build can't race an edit.
     pub logo: Option<Vec<u8>>,
     pub output: PathBuf,
+    /// Whether `bach build` also writes the online installer (see
+    /// `installer.online`).
+    pub online: bool,
+    /// Where the online installer goes; only written when [`Self::online`].
+    pub online_output: PathBuf,
     pub compression: Compression,
+    /// Whether the files are encrypted (`[access] encrypt`): the build then
+    /// needs the key, from the environment variable [`Self::key_env`].
+    pub encrypt: bool,
+    /// The environment variable the build reads the access key from.
+    pub key_env: String,
     /// Things that build fine but probably aren't meant, one sentence each.
     pub warnings: Vec<String>,
     /// `updates.download_url`: where the setup file will live, for the
@@ -239,6 +258,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         None => (None, None, None),
     };
     let feedback_url = extras::https(&file.uninstall.feedback_url, "uninstall.feedback_url")?;
+    let access = extras::access(file.access.as_ref(), updates.is_some())?;
 
     let output_template = file.installer.output.as_deref().unwrap_or(DEFAULT_OUTPUT);
     let mut output = root.join(fill_template(output_template, &app));
@@ -253,6 +273,26 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         if let Some(name) = output.file_name().map(|name| name.to_string_lossy().into_owned()) {
             output.set_file_name(github_asset_name(&name));
         }
+    }
+
+    let online_template = file.installer.online_output.as_deref().unwrap_or(DEFAULT_ONLINE_OUTPUT);
+    let mut online_output = root.join(fill_template(online_template, &app));
+    if !has_extension(&online_output, "exe") {
+        bail!("installer.online_output must end in .exe; it's \"{online_template}\"");
+    }
+    if update_github.is_some() {
+        if let Some(name) = online_output.file_name().map(|name| name.to_string_lossy().into_owned()) {
+            online_output.set_file_name(github_asset_name(&name));
+        }
+    }
+    if online_output == output {
+        bail!("installer.output and installer.online_output are the same file; give the online installer its own name");
+    }
+    let online = file.installer.online.unwrap_or(false);
+    if online && updates.is_none() {
+        bail!(
+            "installer.online is true, but there's no [updates]; the online installer downloads the newest version through the update feed"
+        );
     }
 
     let source_dir = root.join(&file.files.source);
@@ -299,7 +339,10 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         chosen: None,
         requirements: extras::requirements(&file.requirements)?,
         shortcuts: Vec::new(),
+        run: Vec::new(),
         updates,
+        access: access.as_ref().map(|access| access.manifest.clone()),
+        online: false,
         archive_sha256: None,
     };
     if manifest.install.add_to_path != manifest::Choice::Never {
@@ -312,6 +355,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     }
     let mut manifest = manifest;
     manifest.shortcuts = extras::shortcuts(&file.shortcuts, &manifest.files)?;
+    manifest.run = extras::run_steps(&file.run, &manifest.files, &manifest.components)?;
     manifest.validate()?;
     Ok(Project {
         root: root.to_path_buf(),
@@ -320,7 +364,11 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         icon,
         logo,
         output,
+        online,
+        online_output,
         compression,
+        encrypt: access.as_ref().is_some_and(|access| access.encrypt),
+        key_env: access.as_ref().map_or_else(|| extras::DEFAULT_KEY_ENV.to_string(), |access| access.key_env.clone()),
         warnings,
         update_download_url,
         update_github,

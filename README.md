@@ -27,16 +27,6 @@ without writing installer logic.
   <img src="docs/images/install-dark.png" width="440" alt="The same window in dark mode, in German">
 </p>
 
-> [!NOTE]
-> Bach is early and in active development: **0.1.0**, a pre-release, came out
-> on 13 November 2026, and [`main`](https://github.com/usebach/bach/commits/main)
-> has moved on since. Requirement
-> checks, self-updates from the app, extra shortcuts, logs, the archive
-> checksum, "close and continue", keyboard navigation, `bach feed`,
-> `bach winget`, project detection in `bach init`, `bach version`,
-> `bach workflow` and the `@usebach/cli` package on npm are on `main` and ship
-> in the next release; [build from source](#build-from-source) to use them today.
-
 ## Quick start
 
 Install the `bach` command. No Rust needed, no administrator rights:
@@ -129,6 +119,7 @@ file adds about 10 MB to your app.
 | **Look and words** | Your logo, accent colour and icon; light, dark or system theme; any text, per language; a license page |
 | **Safety** | Free-space check, archive checksum, one setup per app at a time, "close and continue" when the app is open, data deleted only on request |
 | **Automation** | `Setup.exe /S` with `--dir`, `--with`, `--without`, `--log`; quiet uninstall from Settings › Apps |
+| **Online and private** | An online installer that always downloads the newest version; access keys that encrypt the files and keep updates private: see [config](docs/config.md#installer) |
 | **Updates** | Over older installs always; by themselves in the background from GitHub releases (or any https feed), installed when the app is closed, undone cleanly if a power cut interrupts them: see [updates](docs/updates.md) |
 
 Every setting is in the [config reference](docs/config.md).
@@ -142,10 +133,11 @@ Every setting is in the [config reference](docs/config.md).
 | `bach version [patch\|minor\|major\|X.Y.Z]` | Lists the version in every file that has one, or raises it in all of them at once: `bach.toml`, `package.json` and its lock file, `Cargo.toml` and `Cargo.lock`, Tauri's config, `.csproj`. |
 | `bach check` | Validates the config and lists every file and option, with warnings. |
 | `bach preview` | Opens the window without installing; `--uninstall`, `--theme dark`, `--lang de`. |
-| `bach build` | Writes the setup file; `--fast` compresses less, `--out` picks the path, `--app-version v1.4.0` sets the version (from a release tag). |
+| `bach build` | Writes the setup file; `--fast` compresses less, `--out` picks the path, `--app-version v1.4.0` sets the version (from a release tag), `--online` also writes the online installer, `--key-file` gives the access key. |
+| `bach key` | Makes random access keys for an app with `[access]` (`--count N`). |
 | `bach inspect FILE` | Shows what a setup file or an installed `uninstall.exe` carries. |
 | `bach doctor` | Says whether everything a build needs is in place. |
-| `bach feed FILE` | Writes the update feed for a (signed) setup file; the link comes from `bach.toml` (or `--url`), `--notes-file` says what's new. |
+| `bach feed FILE` | Writes the update feed for a (signed) setup file; the link comes from `bach.toml` (or `--url`), `--notes-file` says what's new, `--rollout 10` offers it to 10% of computers first. |
 | `bach winget FILE --url URL` | Writes the manifests that list a setup file in winget. |
 
 ## Other ways to install

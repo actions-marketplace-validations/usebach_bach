@@ -18,9 +18,10 @@
 
 mod apply;
 mod auto;
-mod curl;
-mod feed;
-mod stage;
+pub(crate) mod curl;
+pub(crate) mod feed;
+mod rollout;
+pub(crate) mod stage;
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -44,10 +45,34 @@ pub struct Context<'a> {
     pub args: &'a Args,
     pub package: &'a Package,
     pub texts: Texts,
-    /// The feed's link.
-    pub feed: String,
+    /// The feed's link, then its mirrors'.
+    pub feeds: Vec<String>,
     /// The install folder.
     pub dir: PathBuf,
+    /// The app's access key, when it has one and one is known.
+    pub key: Option<String>,
+}
+
+/// What the feeds offer: the entry to download, and the same version as the
+/// mirrors list it, to fall back on.
+pub struct Offer {
+    pub entry: FeedEntry,
+    pub mirrors: Vec<FeedEntry>,
+}
+
+impl std::ops::Deref for Offer {
+    type Target = FeedEntry;
+
+    fn deref(&self) -> &FeedEntry {
+        &self.entry
+    }
+}
+
+impl Offer {
+    /// Every entry that offers this version, the main feed's first.
+    pub fn entries(&self) -> Vec<FeedEntry> {
+        std::iter::once(self.entry.clone()).chain(self.mirrors.iter().cloned()).collect()
+    }
 }
 
 impl Context<'_> {
@@ -60,10 +85,36 @@ impl Context<'_> {
         system::installed(self.manifest()).map(|installed| installed.version).filter(|v| !v.is_empty()).unwrap_or_else(|| self.manifest().app.version.clone())
     }
 
-    /// The feed's newest version, in a sentence if it can't be had.
-    fn latest(&self) -> Result<FeedEntry, String> {
+    /// The key to send with requests, when the app wants it sent, tied to
+    /// the host of the app's main feed: nowhere else gets it.
+    fn bearer(&self) -> Option<curl::Bearer> {
+        let sends = self.manifest().access.as_ref().is_some_and(|access| access.send_key);
+        let feed = self.feeds.first()?;
+        self.key.as_deref().filter(|_| sends).and_then(|key| curl::Bearer::for_feed(key, feed))
+    }
+
+    /// What the feeds offer, in a sentence if none can be asked.
+    fn latest(&self) -> Result<Offer, String> {
         let work = std::env::temp_dir().join(format!("{}-update", self.manifest().app.id.replace(' ', "-")));
-        feed::fetch(&self.feed, &work).map_err(|error| self.texts.with(Key::error_download, &[("error", &error)]))
+        let mut entries = feed::fetch_offers(&self.feeds, &work, self.bearer().as_ref())
+            .map_err(|error| self.texts.with(Key::error_download, &[("error", &error)]))?;
+        let entry = entries.remove(0);
+        Ok(Offer { entry, mirrors: entries })
+    }
+
+    /// Whether this computer takes `offer` by itself: a staged rollout may
+    /// not have reached it yet. An update somebody asks for (`--update`)
+    /// doesn't check this.
+    fn in_rollout(&self, offer: &Offer) -> bool {
+        let included = rollout::included(rollout::this_computer(&self.manifest().app.id), offer.rollout);
+        if !included {
+            crate::log::line(&format!(
+                "{} is being rolled out to {}% of computers, and not this one yet.",
+                offer.version,
+                offer.rollout.unwrap_or(100)
+            ));
+        }
+        included
     }
 
     /// A staged update that has been installed (or overtaken) is deleted.
@@ -92,7 +143,22 @@ pub fn run(args: &Args, package: &Package) -> i32 {
         return 2;
     };
     let dir = install_dir(package).unwrap_or_default();
-    let ctx = Context { args, package, texts, feed: updates.feed.clone(), dir };
+    let key = match access_key(args, package) {
+        Ok(key) => key,
+        Err(problem) => {
+            eprintln!("{problem}");
+            return 1;
+        }
+    };
+    if manifest.access.as_ref().is_some_and(|access| access.send_key) && key.is_none() {
+        eprintln!(
+            "{} sends an access key to look for updates, and none is saved on this computer. \
+             Run its setup file again to enter it, or give one with --key-file.",
+            manifest.app.name
+        );
+        return 1;
+    }
+    let ctx = Context { args, package, texts, feeds: updates.feeds(), dir, key };
     let result = if args.apply_update {
         apply_ready(&ctx)
     } else if args.auto_update {
@@ -114,6 +180,16 @@ pub fn run(args: &Args, package: &Package) -> i32 {
     }
 }
 
+/// The access key an update run uses: one given on the command line (a key
+/// file, or `BACH_ACCESS_KEY`), else the one kept for this app by its install.
+/// None for an app without `[access]`.
+fn access_key(args: &Args, package: &Package) -> Result<Option<String>, String> {
+    if package.manifest.access.is_none() {
+        return Ok(None);
+    }
+    Ok(args.access_key()?.or_else(|| system::secret::load(&package.manifest.app.id)))
+}
+
 /// The folder this `uninstall.exe` sits in, or else the one Settings › Apps
 /// lists for the app.
 fn install_dir(package: &Package) -> Option<PathBuf> {
@@ -128,7 +204,7 @@ fn install_dir(package: &Package) -> Option<PathBuf> {
 fn check(ctx: &Context) -> Result<i32, String> {
     let entry = ctx.latest()?;
     let current = ctx.current_version();
-    let newer = feed::is_newer(&entry.version, &current);
+    let newer = feed::is_newer(&entry.version, &current) && ctx.in_rollout(&entry);
     let ready = newer
         && stage::read(&stage::folder(&ctx.manifest().app.id))
             .is_some_and(|staged| staged.version == entry.version && staged.sha256 == entry.sha256.trim().to_ascii_lowercase());
@@ -157,7 +233,7 @@ fn check(ctx: &Context) -> Result<i32, String> {
 fn download(ctx: &Context) -> Result<i32, String> {
     let entry = ctx.latest()?;
     ctx.tidy();
-    if !feed::is_newer(&entry.version, &ctx.current_version()) {
+    if !feed::is_newer(&entry.version, &ctx.current_version()) || !ctx.in_rollout(&entry) {
         println!("{} {} is up to date.", ctx.manifest().app.name, ctx.current_version());
         return Ok(0);
     }
@@ -166,9 +242,10 @@ fn download(ctx: &Context) -> Result<i32, String> {
     Ok(UPDATE_AVAILABLE)
 }
 
-fn stage_entry(ctx: &Context, entry: &FeedEntry) -> Result<stage::Staged, String> {
-    crate::log::line(&format!("Downloading {} {}", ctx.manifest().app.name, entry.version));
-    stage::ensure(entry, &ctx.manifest().app.id).map_err(|error| ctx.texts.with(Key::error_download, &[("error", &error)]))
+fn stage_entry(ctx: &Context, offer: &Offer) -> Result<stage::Staged, String> {
+    crate::log::line(&format!("Downloading {} {}", ctx.manifest().app.name, offer.version));
+    stage::ensure_any(&offer.entries(), &ctx.manifest().app.id, ctx.bearer().as_ref(), &mut |_| {})
+        .map_err(|error| ctx.texts.with(Key::error_download, &[("error", &error)]))
 }
 
 /// `--apply-update`: installs the update that was kept ready, once the app
@@ -205,6 +282,10 @@ fn update(ctx: &Context) -> Result<i32, String> {
     let mut command = Command::new(&staged.file);
     if let Some(lang) = &ctx.args.lang {
         command.args(["--lang", lang]);
+    }
+    if let Some(key) = &ctx.key {
+        // So the window doesn't ask for a key this computer already holds.
+        command.env(crate::launch::KEY_ENV, key);
     }
     command.spawn().map_err(|err| err.to_string())?;
     Ok(0)

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bach_pack::i18n::Key;
-use bach_pack::manifest::{Choices, Manifest};
+use bach_pack::manifest::{Choices, Manifest, RunWhen};
 use futures::channel::mpsc;
 use futures::StreamExt;
 use gpui::{Context, FocusHandle, ScrollHandle, SharedString, Task, Window};
@@ -24,6 +24,8 @@ const FINISH_HOLD: Duration = Duration::from_millis(650);
 pub enum Stage {
     /// Something the app needs is missing (a requirement, by index).
     Requirement(usize),
+    /// The access key to enter before anything else.
+    Access,
     /// The license to accept before anything else.
     License,
     /// The first page: options and the go button.
@@ -63,6 +65,14 @@ pub struct SetupView {
     pub delete_data: bool,
     /// The installed version is newer than this one.
     pub downgrade: bool,
+    /// The access key comes after the requirements are met.
+    pub access_pending: bool,
+    /// What has been typed or pasted so far, or the key given up front.
+    pub key: String,
+    /// Why the last key didn't do, as a sentence.
+    pub key_error: Option<SharedString>,
+    /// A key is being checked on the background executor.
+    pub key_checking: bool,
     /// The license comes after the requirements are met.
     pub license_pending: bool,
     /// Waiting for the app to close after "Close and continue".
@@ -81,10 +91,18 @@ pub struct SetupView {
     job: Option<Task<()>>,
     picker: Option<Task<()>>,
     pub(crate) closer: Option<Task<()>>,
+    pub(crate) checker: Option<Task<()>>,
 }
 
 impl SetupView {
-    pub fn new(package: Arc<Package>, texts: Arc<Texts>, mode: Mode, preview: bool, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        package: Arc<Package>,
+        texts: Arc<Texts>,
+        mode: Mode,
+        preview: bool,
+        given_key: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let manifest = &package.manifest;
         let (existing, previous, dir, choices, downgrade) = match &mode {
             Mode::Install => {
@@ -99,6 +117,10 @@ impl SetupView {
             _ => dir,
         };
         let license_pending = needs_license(manifest, previous.as_ref(), &mode, &texts);
+        // A key handed over up front (an update's own, or --key-file) skips
+        // the page; it is still checked when the install starts.
+        let key = given_key.unwrap_or_default();
+        let access_pending = manifest.access.is_some() && matches!(mode, Mode::Install) && key.is_empty();
         let missing = match &mode {
             // Only reads, so a preview shows the page too.
             Mode::Install => crate::start::missing_requirements(manifest).first().copied(),
@@ -106,6 +128,7 @@ impl SetupView {
         };
         let stage = match missing {
             Some(index) => Stage::Requirement(index),
+            None if access_pending => Stage::Access,
             None if license_pending => Stage::License,
             None => Stage::Ready,
         };
@@ -119,6 +142,10 @@ impl SetupView {
             choices,
             delete_data: false,
             downgrade,
+            access_pending,
+            key,
+            key_error: None,
+            key_checking: false,
             license_pending,
             closing_app: false,
             stage,
@@ -129,6 +156,19 @@ impl SetupView {
             job: None,
             picker: None,
             closer: None,
+            checker: None,
+        }
+    }
+
+    /// The first page once nothing is missing: the key, then the license,
+    /// then the choices.
+    pub fn first_page(&self) -> Stage {
+        if self.access_pending {
+            Stage::Access
+        } else if self.license_pending {
+            Stage::License
+        } else {
+            Stage::Ready
         }
     }
 
@@ -216,12 +256,24 @@ impl SetupView {
         let (sender, mut events) = mpsc::unbounded::<Event>();
         let texts = self.texts.clone();
         let job = match (&self.mode, self.preview) {
-            (_, true) => Job::Pretend { removing: self.is_removing() },
+            (_, true) => Job::Pretend {
+                removing: self.is_removing(),
+                online: self.package.manifest.online,
+                tasks: self
+                    .package
+                    .manifest
+                    .run
+                    .iter()
+                    .filter(|step| (step.when == RunWhen::Uninstall) == self.is_removing())
+                    .map(|step| step.name.clone())
+                    .collect(),
+            },
             (Mode::Install, false) => Job::Install(InstallPlan {
                 package: self.package.clone(),
                 texts: texts.clone(),
                 dir: self.dir.clone(),
                 choices: self.choices.clone(),
+                key: (!self.key.is_empty()).then(|| self.key.clone()),
             }),
             (Mode::Remove { .. }, false) => Job::Remove(RemovePlan {
                 package: self.package.clone(),
@@ -243,7 +295,7 @@ impl SetupView {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
                 Job::Install(plan) => work::install(plan, &report),
                 Job::Remove(plan) => work::remove(plan, &report),
-                Job::Pretend { removing } => work::pretend(&texts, *removing, &report),
+                Job::Pretend { removing, online, tasks } => work::pretend(&texts, *removing, *online, tasks, &report),
             }))
             .unwrap_or_else(|_| Err(texts.get(Key::error_damaged)));
             match &result {
@@ -276,6 +328,14 @@ impl SetupView {
                         this.update(cx, |this, cx| {
                             this.stage = match result {
                                 Ok(()) => Stage::Done,
+                                // A key the files don't open (a kept one that a
+                                // newer build changed, say) is asked for again.
+                                Err(message) if message == this.texts.get(Key::access_wrong) => {
+                                    this.key.clear();
+                                    this.access_pending = true;
+                                    this.key_error = Some(message.into());
+                                    Stage::Access
+                                }
                                 Err(message) => Stage::Failed(message.into()),
                             };
                             this.focused = None;
@@ -319,7 +379,7 @@ impl SetupView {
 enum Job {
     Install(InstallPlan),
     Remove(RemovePlan),
-    Pretend { removing: bool },
+    Pretend { removing: bool, online: bool, tasks: Vec<String> },
 }
 
 /// A first install shows the license; an update only when it changed.

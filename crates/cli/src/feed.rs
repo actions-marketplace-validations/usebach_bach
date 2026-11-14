@@ -23,7 +23,7 @@ const MAX_NOTES: usize = 4000;
 pub fn after_build(project: &Project, setup: &Path) -> Result<()> {
     match &project.update_download_url {
         Some(template) => {
-            let written = write(setup, &download_url(template, setup), None, None)?;
+            let written = write(setup, &download_url(template, setup), None, None, None)?;
             field("Update feed", written.display());
         }
         None => crate::output::warnings(&["[updates] has no download_url, so no latest.json was written; \
@@ -43,6 +43,8 @@ pub struct Options<'a> {
     pub config: Option<&'a Path>,
     pub notes: Option<&'a str>,
     pub notes_file: Option<&'a Path>,
+    /// A staged rollout: the percentage of computers that take it by themselves.
+    pub rollout: Option<u8>,
     pub out: Option<&'a Path>,
 }
 
@@ -59,9 +61,12 @@ pub fn command(options: Options) -> Result<()> {
         }
         (None, None) => None,
     };
-    let written = write(options.setup, &url, notes.as_deref(), options.out)?;
+    let written = write(options.setup, &url, notes.as_deref(), options.rollout, options.out)?;
     println!("Wrote {}", written.display());
     field("Download", &url);
+    if let Some(percent) = options.rollout {
+        field("Rollout", format!("{percent}% of computers take it by themselves"));
+    }
     Ok(())
 }
 
@@ -115,7 +120,10 @@ fn setup_version(setup: &Path) -> Result<String> {
     Ok(container::read_manifest(&mut file, &layout)?.app.version)
 }
 
-fn write(setup: &Path, url: &str, notes: Option<&str>, out: Option<&Path>) -> Result<PathBuf> {
+fn write(setup: &Path, url: &str, notes: Option<&str>, rollout: Option<u8>, out: Option<&Path>) -> Result<PathBuf> {
+    if rollout.is_some_and(|percent| percent > 100) {
+        bail!("--rollout is a percentage, from 0 to 100");
+    }
     if !bach_pack::manifest::extras::is_https(url) {
         bail!("the download link \"{url}\" must be an https link");
     }
@@ -125,7 +133,8 @@ fn write(setup: &Path, url: &str, notes: Option<&str>, out: Option<&Path>) -> Re
     };
     let manifest = container::read_manifest(&mut file, &layout)?;
     if !layout.has_archive() {
-        bail!("{} is an uninstaller; point bach feed at the setup file", setup.display());
+        let what = if manifest.online { "an online installer, which carries no files" } else { "an uninstaller" };
+        bail!("{} is {what}; point bach feed at the full setup file", setup.display());
     }
     let bytes = std::fs::read(setup).with_context(|| format!("couldn't read {}", setup.display()))?;
     let notes = notes.map(str::trim).filter(|notes| !notes.is_empty()).map(|notes| notes.chars().take(MAX_NOTES).collect());
@@ -135,6 +144,7 @@ fn write(setup: &Path, url: &str, notes: Option<&str>, out: Option<&Path>) -> Re
         sha256: format!("{:x}", Sha256::digest(&bytes)),
         notes,
         size: Some(bytes.len() as u64),
+        rollout,
     };
     let target = match out {
         Some(out) => out.to_path_buf(),

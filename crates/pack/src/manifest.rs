@@ -15,13 +15,15 @@ use serde::{Deserialize, Serialize};
 use crate::i18n::{self, Key, Localized};
 use crate::paths;
 
+mod access;
 mod choices;
 pub mod extras;
 pub(crate) mod features;
 mod validate;
 
+pub use access::{Access, Encryption};
 pub use choices::{auto_update_setting as choices_auto_update, Choice, Choices, OPTION_AUTO_UPDATE, OPTION_AUTOSTART, OPTION_DESKTOP, OPTION_PATH, OPTION_START_MENU};
-pub use extras::{Check, FeedEntry, Requirement, Shortcut, Updates};
+pub use extras::{Check, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
 pub use features::{Component, FileType, Protocol};
 pub use validate::MAX_LICENSE;
 
@@ -64,9 +66,20 @@ pub struct Manifest {
     /// Start menu shortcuts besides the app's own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shortcuts: Vec<Shortcut>,
+    /// Programs setup runs while installing or removing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub run: Vec<RunStep>,
     /// Where the installed app checks for updates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updates: Option<Updates>,
+    /// Asks for an access key before installing; see [`Access`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<Access>,
+    /// An online installer carries no files. It downloads the newest setup
+    /// file from the update feed when it runs and installs from that, so it
+    /// never installs what was current when it was built.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub online: bool,
     /// SHA-256 of the archive as appended, checked before unpacking. Not
     /// carried by an installed uninstaller, which has no archive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -251,7 +264,13 @@ impl Manifest {
         let mut installed = self.clone();
         installed.files.retain(|file| choices.installs(file));
         installed.chosen = Some(choices.clone());
+        installed.online = false;
         installed.archive_sha256 = None;
+        // The uninstaller has no files to unlock, but an update still
+        // sends the key when `send_key` says so.
+        if let Some(access) = &mut installed.access {
+            access.encryption = None;
+        }
         installed
     }
 
@@ -330,7 +349,10 @@ pub(crate) fn sample() -> Manifest {
         chosen: None,
         requirements: Vec::new(),
         shortcuts: vec![Shortcut { name: "Hello Docs".into(), target: "hello.exe".into(), arguments: Some("--docs".into()), description: None }],
+        run: Vec::new(),
         updates: None,
+        access: None,
+        online: false,
         archive_sha256: None,
     }
 }

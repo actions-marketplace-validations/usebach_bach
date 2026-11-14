@@ -100,6 +100,18 @@ pub const FR: Strings = Strings {
     error_download: "Impossible de télécharger la mise à jour. {error}",
     website: "Site web",
     feedback: "Dites-nous pourquoi",
+    step_finding: "Recherche de la dernière version",
+    step_fetching: "Téléchargement de {name}",
+    error_fetch: "Impossible de télécharger {name}. Vérifiez votre connexion Internet, puis réessayez. {error}",
+    access_title: "Saisissez votre clé d'accès",
+    access_subtitle: "{name} est protégé. Saisissez la clé qui vous a été remise pour continuer.",
+    access_hint: "Clé d'accès",
+    access_button: "Continuer",
+    access_paste: "Coller",
+    access_wrong: "Cette clé ne convient pas. Vérifiez-la, puis réessayez.",
+    access_get: "Obtenir une clé",
+    step_running: "Configuration de {task}",
+    error_run: "{task} n'a pas pu être configuré (code de sortie {code}). Réessayez.",
 };
 
 pub const ES: Strings = Strings {
@@ -200,6 +212,18 @@ pub const ES: Strings = Strings {
     error_download: "No se pudo descargar la actualización. {error}",
     website: "Sitio web",
     feedback: "Cuéntanos por qué",
+    step_finding: "Buscando la última versión",
+    step_fetching: "Descargando {name}",
+    error_fetch: "No se pudo descargar {name}. Comprueba tu conexión a Internet y vuelve a intentarlo. {error}",
+    access_title: "Introduce tu clave de acceso",
+    access_subtitle: "{name} está protegido. Introduce la clave que te dieron para continuar.",
+    access_hint: "Clave de acceso",
+    access_button: "Continuar",
+    access_paste: "Pegar",
+    access_wrong: "Esa clave no es válida. Compruébala y vuelve a intentarlo.",
+    access_get: "Obtener una clave",
+    step_running: "Configurando {task}",
+    error_run: "No se pudo configurar {task} (código de salida {code}). Vuelve a intentarlo.",
 };
 
 pub const IT: Strings = Strings {
@@ -300,6 +324,18 @@ pub const IT: Strings = Strings {
     error_download: "Impossibile scaricare l'aggiornamento. {error}",
     website: "Sito web",
     feedback: "Dicci perché",
+    step_finding: "Ricerca dell'ultima versione",
+    step_fetching: "Download di {name}",
+    error_fetch: "Impossibile scaricare {name}. Controlla la connessione a Internet e riprova. {error}",
+    access_title: "Inserisci la tua chiave di accesso",
+    access_subtitle: "{name} è protetto. Inserisci la chiave che ti è stata fornita per continuare.",
+    access_hint: "Chiave di accesso",
+    access_button: "Continua",
+    access_paste: "Incolla",
+    access_wrong: "Questa chiave non è valida. Controllala e riprova.",
+    access_get: "Ottieni una chiave",
+    step_running: "Configurazione di {task}",
+    error_run: "Impossibile configurare {task} (codice di uscita {code}). Riprova.",
 };
 
 pub const PT: Strings = Strings {
@@ -400,4 +436,16 @@ pub const PT: Strings = Strings {
     error_download: "Não foi possível baixar a atualização. {error}",
     website: "Site",
     feedback: "Conte-nos o motivo",
+    step_finding: "Procurando a versão mais recente",
+    step_fetching: "Baixando {name}",
+    error_fetch: "Não foi possível baixar {name}. Verifique sua conexão com a internet e tente novamente. {error}",
+    access_title: "Digite sua chave de acesso",
+    access_subtitle: "{name} é protegido. Digite a chave que você recebeu para continuar.",
+    access_hint: "Chave de acesso",
+    access_button: "Continuar",
+    access_paste: "Colar",
+    access_wrong: "Essa chave não serve. Confira-a e tente novamente.",
+    access_get: "Obter uma chave",
+    step_running: "Configurando {task}",
+    error_run: "Não foi possível configurar {task} (código de saída {code}). Tente novamente.",
 };

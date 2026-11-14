@@ -29,6 +29,11 @@ const MAX_SCREEN_SHARE: f32 = 0.85;
 
 pub fn main() {
     let args = Args::parse();
+    if args.wants_help() {
+        crate::system::host::attach_parent_console();
+        print!("{}", launch::HELP);
+        return;
+    }
     let package = match Package::load() {
         Ok(Some(package)) => Ok(package),
         Ok(None) if args.preview => Ok(Package::sample()),
@@ -83,8 +88,14 @@ pub fn main() {
             let rows = row_count(&package.manifest, removing);
             let tall = package.manifest.locale.license.is_some() && !removing;
             let package = Arc::new(package);
+            // The key from the command line, else the one an earlier install
+            // of this app kept (so updating by hand doesn't ask again).
+            let given_key = args.access_key().ok().flatten().or_else(|| {
+                let kept = !args.preview && package.manifest.access.is_some();
+                kept.then(|| crate::system::secret::load(&package.manifest.app.id)).flatten()
+            });
             open(Assets { logo_svg }, title, theme, accent, (rows, tall), move |window, cx| {
-                let view = SetupView::new(package, texts, mode, args.preview, cx);
+                let view = SetupView::new(package, texts, mode, args.preview, given_key, cx);
                 window.focus(&view.focus_handle);
                 view
             });

@@ -23,6 +23,7 @@ use bach_pack::container;
 use bach_pack::i18n::Key;
 use bach_pack::manifest::{Choices, Manifest, UNINSTALLER};
 use bach_pack::paths;
+use bach_pack::protect::{KeyError, Unlocked};
 
 use super::place::{self, Transaction};
 use super::{describe, failed, is_disk_full, is_in_use, plain, remove_empty_parents, remove_file_if_present, Report};
@@ -40,9 +41,27 @@ pub struct InstallPlan {
     pub texts: Arc<Texts>,
     pub dir: PathBuf,
     pub choices: Choices,
+    /// The access key, for a setup file that asks for one.
+    pub key: Option<String>,
 }
 
+/// Installs or updates. An online installer first downloads the newest
+/// setup file and installs from that; everything after is the same.
 pub fn install(plan: &InstallPlan, report: Report) -> Result<(), String> {
+    if !plan.package.manifest.online {
+        return install_files(plan, report);
+    }
+    let share = super::online::DOWNLOAD_SHARE;
+    let downloaded = super::online::fetch(plan, &|progress, label| report(progress.min(1.0) * share, label))?;
+    let from_download = super::online::plan_for(plan, downloaded);
+    let result = install_files(&from_download, &|progress, label| report(share + progress * (1.0 - share), label));
+    if result.is_ok() {
+        super::online::forget_download(plan);
+    }
+    result
+}
+
+fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     let package = &plan.package;
     let texts = &plan.texts;
     let manifest = &package.manifest;
@@ -51,6 +70,8 @@ pub fn install(plan: &InstallPlan, report: Report) -> Result<(), String> {
     let Some(layout) = package.layout.filter(|layout| layout.has_archive()) else {
         return Err(texts.get(Key::error_damaged));
     };
+    // A wrong key is found before anything on this computer is touched.
+    let unlocked = unlock(plan)?;
     let _lock = host::SetupLock::acquire(&manifest.app.id).ok_or_else(|| texts.get(Key::error_busy))?;
 
     report(0.02, &texts.get(Key::step_preparing));
@@ -64,7 +85,7 @@ pub fn install(plan: &InstallPlan, report: Report) -> Result<(), String> {
     check_free_space(dir, needed, texts)?;
     verify_archive(package, layout.archive, texts)?;
 
-    unpack(plan, &choices, layout.archive, needed, report)?;
+    unpack(plan, &choices, layout.archive, needed, unlocked.as_ref(), report)?;
 
     report(0.86, &texts.get(Key::step_tidying));
     let installed = manifest.as_installed(&choices);
@@ -75,6 +96,8 @@ pub fn install(plan: &InstallPlan, report: Report) -> Result<(), String> {
     report(0.89, &texts.get(Key::step_uninstaller));
     write_uninstaller(package, &installed, dir, texts)?;
 
+    super::steps::run_install_steps(manifest, dir, previous.is_none(), &choices, texts, (0.895, 0.915), report)?;
+
     report(0.92, &texts.get(Key::step_shortcuts));
     shortcuts(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
     integrate(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
@@ -82,9 +105,50 @@ pub fn install(plan: &InstallPlan, report: Report) -> Result<(), String> {
     report(0.97, &texts.get(Key::step_registering));
     system::register(manifest, dir, needed)
         .map_err(|err| format!("{} {}", texts.get(Key::error_register), plain(&err)))?;
+    keep_key(plan);
     system::notify_shell();
     report(1.0, &texts.get(Key::step_done));
     Ok(())
+}
+
+/// Opens the files with the access key, when they are locked. A missing or
+/// wrong key is the same sentence: nothing is unpacked either way.
+fn unlock(plan: &InstallPlan) -> Result<Option<Unlocked>, String> {
+    let Some(encryption) = plan.package.manifest.access.as_ref().and_then(|access| access.encryption.as_ref()) else {
+        return Ok(None);
+    };
+    let texts = &plan.texts;
+    let Some(key) = plan.key.as_deref() else {
+        return Err(texts.get(Key::access_wrong));
+    };
+    match encryption.unlock(key) {
+        Ok(unlocked) => Ok(Some(unlocked)),
+        Err(KeyError::Wrong) => {
+            crate::log::line("The access key didn't fit.");
+            Err(texts.get(Key::access_wrong))
+        }
+        Err(KeyError::Damaged(why)) => {
+            crate::log::line(&format!("The protection data is unusable: {why}"));
+            Err(texts.get(Key::error_damaged))
+        }
+    }
+}
+
+/// Keeps the access key for this user, so the updater can send it and open
+/// protected updates; takes it back when this version doesn't ask for one.
+/// A key that can't be kept never fails the install: the next update just
+/// asks for it again.
+fn keep_key(plan: &InstallPlan) {
+    let manifest = &plan.package.manifest;
+    match (&manifest.access, plan.key.as_deref()) {
+        (Some(_), Some(key)) if manifest.updates.is_some() => {
+            if let Err(err) = system::secret::store(&manifest.app.id, key) {
+                crate::log::line(&format!("Couldn't keep the access key for updates: {err:#}"));
+            }
+        }
+        (None, _) => system::secret::forget(&manifest.app.id),
+        _ => {}
+    }
 }
 
 fn create_install_dir(dir: &Path, texts: &Texts) -> Result<(), String> {
@@ -134,6 +198,7 @@ fn unpack(
     choices: &Choices,
     archive_section: container::Section,
     needed: u64,
+    unlocked: Option<&Unlocked>,
     report: Report,
 ) -> Result<(), String> {
     let texts = &plan.texts;
@@ -155,7 +220,7 @@ fn unpack(
     let reader = BufReader::new(source.take(archive_section.len));
     let mut transaction = Transaction::default();
     let mut write_error: Option<String> = None;
-    let unpacked = archive::read(reader, &mut |packaged, _size, body| {
+    let mut visit = |packaged: &str, _size: u64, body: &mut dyn Read| {
         if !wanted.contains(packaged) {
             return Ok(());
         }
@@ -173,7 +238,14 @@ fn unpack(
                 });
                 anyhow::anyhow!("{err}")
             })
-    });
+    };
+    let encryption = manifest.access.as_ref().and_then(|access| access.encryption.as_ref());
+    let unpacked = match (encryption, unlocked) {
+        (Some(encryption), Some(unlocked)) => encryption
+            .reader(reader, unlocked)
+            .and_then(|decrypted| archive::read(decrypted, &mut visit)),
+        _ => archive::read(reader, &mut visit),
+    };
     if let Err(err) = unpacked {
         transaction.discard();
         remove_empty_parents(dir, wanted.iter().copied());

@@ -280,6 +280,108 @@ try {
 }
 
 # ---------------------------------------------------------------------------
+# A protected app: encrypted files, an access key that is checked before
+# anything is touched, kept sealed for updates and forgotten on removal, and
+# a program the app asks setup to run after install and before removal.
+# ---------------------------------------------------------------------------
+Write-Host 'A protected app with run steps'
+$pid2 = 'BachE2EProtected'
+$protKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$pid2"
+$protInstall = Join-Path $work 'Installed\BachE2EProtected'
+$access = 'HKCU:\Software\Bach\Access'
+$secret = 'E2E-private-words-ZX91-launch'
+if (Test-Path $protKey) { throw "$pid2 is already installed; remove it first." }
+$protDir = Join-Path $work 'prot'
+New-Item -ItemType Directory -Force -Path (Join-Path $protDir 'app') | Out-Null
+Copy-Item $hello (Join-Path $protDir 'app\hello.exe')
+Copy-Item "$env:SystemRoot\System32\cmd.exe" (Join-Path $protDir 'app\tool.exe')
+Set-Content -Path (Join-Path $protDir 'app\notes.txt') -Value $secret
+@"
+[app]
+name = "Bach E2E Protected"
+id = "$pid2"
+version = "1.0.0"
+publisher = "Bach"
+executable = "hello.exe"
+[files]
+source = "app"
+[installer]
+compression = "fast"
+desktop_shortcut = false
+[access]
+[updates]
+feed = "https://example.invalid/bach-e2e/latest.json"
+auto = false
+[[run]]
+name = "Install marker"
+file = "tool.exe"
+arguments = "/c echo installed> marker-install.txt"
+[[run]]
+name = "Removal marker"
+file = "tool.exe"
+arguments = '/c echo removing> "%TEMP%\bach-e2e-removal.txt"'
+when = "uninstall"
+"@ | Set-Content -Encoding utf8 (Join-Path $protDir 'bach.toml')
+$goodKey = (& $bach key).Trim()
+$badKey = (& $bach key).Trim()
+Set-Content -NoNewline -Path (Join-Path $protDir 'good.txt') -Value $goodKey
+Set-Content -NoNewline -Path (Join-Path $protDir 'bad.txt') -Value $badKey
+try {
+    $env:BACH_ACCESS_KEY = $goodKey
+    & $bach build (Join-Path $protDir 'bach.toml') | Out-Null
+    Remove-Item Env:\BACH_ACCESS_KEY
+    Check ($LASTEXITCODE -eq 0) 'builds with the key from the environment'
+    $setup = Join-Path $protDir 'dist\Bach E2E Protected-Setup-1.0.0.exe'
+    $raw = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($setup))
+    Check (-not $raw.Contains($secret)) 'the packaged file is not readable in the setup file'
+    Check (-not $raw.Contains($goodKey)) 'the key is not in the setup file'
+
+    Write-Host '  keys'
+    Check ((Run $setup @('--silent', '--dir', "`"$protInstall`"")) -eq 2) 'no key: a command-line mistake (2)'
+    Check ((Run $setup @('--silent', '--dir', "`"$protInstall`"", '--key-file', (Join-Path $protDir 'bad.txt'))) -eq 1) 'a wrong key: fails (1)'
+    Check (-not (Test-Path $protInstall)) 'and touched nothing'
+    Check (-not (Test-Path $protKey)) 'and registered nothing'
+
+    Write-Host '  install'
+    Check ((Run $setup @('--silent', '--dir', "`"$protInstall`"", '--key-file', (Join-Path $protDir 'good.txt'))) -eq 0) 'the right key installs'
+    Check ((Get-Content (Join-Path $protInstall 'notes.txt')) -eq $secret) 'the file is decrypted intact'
+    Check (Test-Path (Join-Path $protInstall 'marker-install.txt')) 'the run step ran, in the install folder'
+    Check ($null -ne (Get-ItemProperty $access -Name $pid2 -ErrorAction SilentlyContinue).$pid2) 'the key is kept for updates'
+    $kept = [Text.Encoding]::GetEncoding(28591).GetString((Get-ItemProperty $access).$pid2)
+    Check (-not $kept.Contains($goodKey)) 'and what is kept is sealed, not the key'
+
+    Write-Host '  a tampered setup file'
+    $tampered = Join-Path $protDir 'tampered.exe'
+    Copy-Item $setup $tampered
+    $bytes = [IO.File]::ReadAllBytes($tampered)
+    $end = $bytes.Length
+    $padding = [BitConverter]::ToUInt32($bytes, $end - 28)
+    $archive = [BitConverter]::ToUInt64($bytes, $end - 24)
+    $logo = [BitConverter]::ToUInt64($bytes, $end - 16)
+    $manifestLen = [BitConverter]::ToUInt64($bytes, $end - 8)
+    $start = $end - 40 - $padding - $manifestLen - $logo - $archive
+    $bytes[[int]($start + $archive / 2)] = $bytes[[int]($start + $archive / 2)] -bxor 0xFF
+    [IO.File]::WriteAllBytes($tampered, $bytes)
+    Check ((Run $tampered @('--silent', '--key-file', (Join-Path $protDir 'good.txt'))) -eq 1) 'refused, even with the right key'
+    Check ((Get-Content (Join-Path $protInstall 'notes.txt')) -eq $secret) 'the install is untouched'
+
+    Write-Host '  uninstall'
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:TEMP 'bach-e2e-removal.txt')
+    Check ((Run (Join-Path $protInstall 'uninstall.exe') @('--silent')) -eq 0) 'exits 0'
+    Check (Test-Path (Join-Path $env:TEMP 'bach-e2e-removal.txt')) 'the before-removal step ran'
+    Check (-not (Test-Path $protKey)) 'gone from Settings > Apps'
+    Check ($null -eq (Get-ItemProperty $access -Name $pid2 -ErrorAction SilentlyContinue).$pid2) 'the kept key is forgotten'
+} finally {
+    Remove-Item Env:\BACH_ACCESS_KEY -ErrorAction SilentlyContinue
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:TEMP 'bach-e2e-removal.txt')
+    if (Test-Path $protKey) {
+        $uninstaller = Join-Path $protInstall 'uninstall.exe'
+        if (Test-Path $uninstaller) { Run $uninstaller @('--silent') | Out-Null }
+    }
+    Remove-ItemProperty -Path $access -Name $pid2 -ErrorAction SilentlyContinue
+}
+
+# ---------------------------------------------------------------------------
 # Building for a release: the tag is the version, GitHub names the file.
 # ---------------------------------------------------------------------------
 Write-Host 'A release build: version from the tag, feed from the config'

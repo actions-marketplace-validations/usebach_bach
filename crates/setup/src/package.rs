@@ -31,6 +31,12 @@ impl Package {
     /// runtime.
     pub fn load() -> Result<Option<Self>> {
         let exe = std::env::current_exe().context("couldn't find this setup file")?;
+        Self::load_from(exe)
+    }
+
+    /// The payload of the setup file at `exe`: this executable, or the full
+    /// setup file an online installer downloaded.
+    pub fn load_from(exe: PathBuf) -> Result<Option<Self>> {
         let mut file = File::open(&exe).context("couldn't open this setup file")?;
         let Some(layout) = container::locate(&mut file)? else {
             return Ok(None);
@@ -82,16 +88,24 @@ impl Package {
             chosen: None,
             requirements: Vec::new(),
             shortcuts: Vec::new(),
+            run: Vec::new(),
             updates: None,
+            access: None,
+            online: false,
             archive_sha256: None,
         };
         Self { manifest, exe: PathBuf::new(), layout: None, logo: None }
     }
 
-    /// Whether this is an installer (it carries files) rather than an
-    /// uninstaller.
+    /// Whether this carries files to install.
     pub fn has_files(&self) -> bool {
         self.layout.is_some_and(|layout| layout.has_archive())
+    }
+
+    /// Whether this is an installer rather than an uninstaller: one that
+    /// carries its files, or an online one that downloads them.
+    pub fn is_installer(&self) -> bool {
+        self.has_files() || self.manifest.online
     }
 
     pub fn version(&self) -> &str {

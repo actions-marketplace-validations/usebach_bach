@@ -29,10 +29,11 @@ pub fn command(options: Options) -> Result<()> {
     let Some(layout) = container::locate(&mut file)? else {
         bail!("{} isn't a Bach setup file", options.setup.display());
     };
-    if !layout.has_archive() {
-        bail!("{} is an uninstaller; point bach winget at the setup file", options.setup.display());
-    }
     let manifest = container::read_manifest(&mut file, &layout)?;
+    if !layout.has_archive() {
+        let what = if manifest.online { "an online installer" } else { "an uninstaller" };
+        bail!("{} is {what}; point bach winget at the full setup file", options.setup.display());
+    }
     let bytes = std::fs::read(options.setup)?;
     let sha256 = format!("{:X}", Sha256::digest(&bytes));
     let id = package_id(&manifest);

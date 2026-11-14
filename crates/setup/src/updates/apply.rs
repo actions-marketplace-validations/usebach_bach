@@ -84,6 +84,12 @@ fn run_setup(ctx: &Context, setup: &Path) -> Result<i32, String> {
     if let Some(lang) = &ctx.args.lang {
         command.args(["--lang", lang]);
     }
+    if let Some(key) = &ctx.key {
+        // A protected setup file opens with the key kept at install time.
+        // An environment variable, not an argument: arguments can be read
+        // by other programs.
+        command.env(crate::launch::KEY_ENV, key);
+    }
     let status = command
         .creation_flags(CREATE_NO_WINDOW)
         .status()

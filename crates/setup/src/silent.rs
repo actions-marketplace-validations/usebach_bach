@@ -72,7 +72,22 @@ pub fn run(args: &Args, package: Package) -> i32 {
                 eprintln!("--dir must be a full path, like C:\\Apps\\{}.", manifest.install.folder);
                 return 2;
             }
-            let plan = work::InstallPlan { package: package.clone(), texts: texts.clone(), dir, choices };
+            let key = match args.access_key() {
+                Ok(key) => key,
+                Err(problem) => {
+                    eprintln!("{problem}");
+                    return 2;
+                }
+            };
+            if manifest.access.is_some() && key.is_none() {
+                eprintln!(
+                    "{} asks for an access key. Give it in a file with --key-file FILE, or in the {} environment variable.",
+                    manifest.app.name,
+                    launch::KEY_ENV
+                );
+                return 2;
+            }
+            let plan = work::InstallPlan { package: package.clone(), texts: texts.clone(), dir, choices, key };
             work::install(&plan, &report)
         }
         Mode::Remove { dir } => {

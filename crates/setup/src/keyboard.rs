@@ -21,6 +21,10 @@ pub enum Target {
     Toggle(Toggle),
     /// A link button: the website, or the uninstaller's feedback page.
     Link,
+    /// "Get a key", on the access key page.
+    GetKey,
+    /// "Paste", beside the key field.
+    Paste,
     /// Cancel or Close: the quiet button.
     Cancel,
     /// The second button: Try again on the requirement page.
@@ -41,6 +45,10 @@ impl SetupView {
         };
         match &self.stage {
             Stage::Requirement(_) => vec![Target::Cancel, Target::Secondary, Target::Primary],
+            Stage::Access => {
+                let get_key = self.has_get_key_link().then_some(Target::GetKey);
+                get_key.into_iter().chain([Target::Paste, Target::Cancel, Target::Primary]).collect()
+            }
             Stage::License | Stage::Failed(_) => buttons(true),
             Stage::Ready => self.row_targets().into_iter().flatten().chain(buttons(true)).collect(),
             Stage::Working { .. } => Vec::new(),
@@ -64,6 +72,11 @@ impl SetupView {
         }
     }
 
+    /// Whether the key page links to where people get a key.
+    pub fn has_get_key_link(&self) -> bool {
+        self.package.manifest.access.as_ref().is_some_and(|access| access.get_key_url.is_some())
+    }
+
     /// Whether the last page offers to open the app.
     pub fn has_open_button(&self) -> bool {
         !self.is_removing() && self.package.manifest.install.open_button
@@ -78,6 +91,10 @@ impl SetupView {
     }
 
     pub fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // On the key page, typing goes into the field before anything else.
+        if matches!(self.stage, Stage::Access) && self.type_key(event, cx) {
+            return;
+        }
         let key = event.keystroke.key.as_str();
         let count = self.targets().len();
         match key {
@@ -92,6 +109,8 @@ impl SetupView {
                 self.scroll_focused_into_view();
                 cx.notify();
             }
+            // A key never has a space, and the field isn't a control to press.
+            "space" if matches!(self.stage, Stage::Access) && self.focused_target().is_none() => {}
             "space" => {
                 if let Some(target) = self.focused_target() {
                     self.activate(target, window, cx);
@@ -112,10 +131,13 @@ impl SetupView {
             Target::Toggle(toggle) => self.toggle(toggle, cx),
             Target::Cancel => self.close(cx),
             Target::Secondary => self.recheck_requirements(cx),
+            Target::GetKey => self.open_get_key(),
+            Target::Paste => self.paste_key(cx),
             Target::Link if self.is_removing() => self.open_feedback(),
             Target::Link => self.open_website(),
             Target::Primary => match self.stage {
                 Stage::Requirement(_) => self.get_requirement(),
+                Stage::Access => self.submit_key(cx),
                 Stage::License => self.accept_license(cx),
                 Stage::Failed(_) if self.app_is_open() => self.close_app_and_retry(cx),
                 Stage::Ready | Stage::Failed(_) => self.start(cx),

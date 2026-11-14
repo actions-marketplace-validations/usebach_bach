@@ -75,7 +75,8 @@ inputs:
     default: auto
   sign-command:
     description: >-
-      A PowerShell command that signs the setup file, which is in
+      A PowerShell command that signs the setup file (and the online
+      installer, run again) whose path is in
       $env:BACH_SETUP_FILE (for example: signtool sign /fd sha256 /f cert.pfx
       /p $env:CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256
       $env:BACH_SETUP_FILE). It runs before the update feed is written, so the
@@ -125,6 +126,9 @@ outputs:
   setup:
     description: The path of the setup file bach build wrote.
     value: ${{ steps.build.outputs.setup }}
+  web-setup:
+    description: The path of the online installer, when bach.toml asks for one (installer.online).
+    value: ${{ steps.build.outputs.web-setup }}
   version:
     description: The version the setup file carries.
     value: ${{ steps.build.outputs.version }}
@@ -231,6 +235,9 @@ runs:
           exit 1
         fi
         echo "setup=$setup" >> "$GITHUB_OUTPUT"
+        # The online installer, when the config asks for one.
+        web=$(sed -n 's/^Wrote \(.*\.exe\) (.*), the online installer$/\1/p' "$RUNNER_TEMP/bach-build.log" | head -n 1)
+        echo "web-setup=$web" >> "$GITHUB_OUTPUT"
         echo "version=$(bach inspect "$setup" | sed -n 's/^Installer for .* \([^ ]*\)$/\1/p' | head -n 1)" >> "$GITHUB_OUTPUT"
 
     - name: Sign the setup file
@@ -238,10 +245,17 @@ runs:
       shell: pwsh
       env:
         BACH_SETUP_FILE: ${{ steps.build.outputs.setup }}
+        WEB_SETUP: ${{ steps.build.outputs.web-setup }}
         SIGN_COMMAND: ${{ inputs.sign-command }}
       run: |
         Invoke-Expression $env:SIGN_COMMAND
         if ($LASTEXITCODE -ne 0) { throw "The sign command failed (exit code $LASTEXITCODE)." }
+        # The online installer is signed with the same command.
+        if ($env:WEB_SETUP) {
+          $env:BACH_SETUP_FILE = $env:WEB_SETUP
+          Invoke-Expression $env:SIGN_COMMAND
+          if ($LASTEXITCODE -ne 0) { throw "The sign command failed for the online installer (exit code $LASTEXITCODE)." }
+        }
 
     - name: Write the update feed
       id: feed
@@ -282,6 +296,7 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         GH_REPO: ${{ github.repository }}
         SETUP: ${{ steps.build.outputs.setup }}
+        WEB_SETUP: ${{ steps.build.outputs.web-setup }}
         FEED: ${{ steps.feed.outputs.feed }}
         VERSION: ${{ steps.build.outputs.version }}
         TAG: ${{ inputs.tag }}
@@ -297,10 +312,12 @@ runs:
         if command -v cygpath >/dev/null 2>&1; then
           setup=$(cygpath -u "$SETUP")
           [ -n "$FEED" ] && feed=$(cygpath -u "$FEED") || feed=""
+          [ -n "$WEB_SETUP" ] && web=$(cygpath -u "$WEB_SETUP") || web=""
         else
-          setup="$SETUP"; feed="$FEED"
+          setup="$SETUP"; feed="$FEED"; web="$WEB_SETUP"
         fi
         files=("$setup")
+        [ -n "$web" ] && [ -f "$web" ] && files+=("$web")
         [ -n "$feed" ] && [ -f "$feed" ] && files+=("$feed")
 
         flags=()
@@ -326,6 +343,7 @@ runs:
           echo "### Released $tag"
           echo
           echo "- Setup file: \`$(basename "$setup")\`"
+          [ -n "$web" ] && [ -f "$web" ] && echo "- Online installer: \`$(basename "$web")\`"
           [ ${#files[@]} -gt 1 ] && echo "- Update feed: \`latest.json\`"
           echo "- $url"
         } >> "$GITHUB_STEP_SUMMARY"

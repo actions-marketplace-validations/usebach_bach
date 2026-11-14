@@ -335,6 +335,178 @@ fn an_updating_app_needs_a_comparable_version() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[test]
+fn the_online_installer_needs_a_feed() {
+    let dir = project_dir("online-feed");
+    let err = format!("{:#}", parse(&format!("{MINIMAL}
+[installer]
+online = true"), &dir).unwrap_err());
+    assert!(err.contains("installer.online") && err.contains("[updates]"), "{err}");
+    let ok = format!("{MINIMAL}
+[installer]
+online = true
+[updates]
+github = \"me/hello\"");
+    let project = parse(&ok, &dir).unwrap();
+    assert!(project.online);
+    assert!(!project.manifest.online, "the full setup file isn't the online one");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_online_installer_has_a_name_without_a_version() {
+    let dir = project_dir("online-name");
+    let text = MINIMAL.replace("name = \"Hello\"", "name = \"Hello World\"
+id = \"Hello\"");
+    let project = parse(&text, &dir).unwrap();
+    assert!(!project.online, "off unless asked for");
+    assert_eq!(project.online_output, dir.join("dist/Hello World-Web-Setup.exe"));
+    // GitHub's file names, as for the setup file.
+    let github = parse(&format!("{text}
+[updates]
+github = \"me/hello\""), &dir).unwrap();
+    assert_eq!(github.online_output.file_name().unwrap().to_string_lossy(), "Hello-World-Web-Setup.exe");
+    let custom = parse(&format!("{text}
+[installer]
+online_output = \"out/{{id}}-Web.exe\""), &dir).unwrap();
+    assert_eq!(custom.online_output, dir.join("out/Hello-Web.exe"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_two_installers_never_share_a_file() {
+    let dir = project_dir("online-clash");
+    let text = format!("{MINIMAL}
+[installer]
+output = \"dist/Hello.exe\"
+online_output = \"dist/Hello.exe\"");
+    let err = format!("{:#}", parse(&text, &dir).unwrap_err());
+    assert!(err.contains("online_output"), "{err}");
+    let text = format!("{MINIMAL}
+[installer]
+online_output = \"dist/Hello.txt\"");
+    assert!(format!("{:#}", parse(&text, &dir).unwrap_err()).contains("online_output"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn access_encrypts_by_default_and_sends_the_key_with_updates() {
+    let dir = project_dir("access");
+    let alone = parse(&format!("{MINIMAL}
+[access]
+get_key_url = \"https://example.com/buy\""), &dir).unwrap();
+    assert!(alone.encrypt);
+    assert_eq!(alone.key_env, "BACH_ACCESS_KEY");
+    let access = alone.manifest.access.as_ref().unwrap();
+    assert!(!access.send_key, "nothing to send it to without [updates]");
+    assert_eq!(access.get_key_url.as_deref(), Some("https://example.com/buy"));
+    assert!(access.encryption.is_none(), "the builder makes the protection data, with the key");
+
+    let updating = parse(&format!("{MINIMAL}
+[access]
+key_env = \"HELLO_KEY\"
+[updates]
+github = \"me/hello\""), &dir).unwrap();
+    assert_eq!(updating.key_env, "HELLO_KEY");
+    assert!(updating.manifest.access.as_ref().unwrap().send_key, "private updates by default");
+
+    // No [access], no key.
+    let none = parse(MINIMAL, &dir).unwrap();
+    assert!(!none.encrypt && none.manifest.access.is_none());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn access_mistakes_name_their_setting() {
+    let dir = project_dir("access-mistakes");
+    let updates = "[updates]
+feed = \"https://x/latest.json\"";
+    let cases = [
+        (format!("{MINIMAL}
+[access]
+encrypt = false"), "[access] does nothing"),
+        (format!("{MINIMAL}
+[access]
+send_key = true"), "access.send_key"),
+        (format!("{MINIMAL}
+[access]
+key_env = \"not a name\""), "access.key_env"),
+        (format!("{MINIMAL}
+[access]
+key_env = \"1ABC\""), "access.key_env"),
+        (format!("{MINIMAL}
+[access]
+get_key_url = \"http://x/buy\""), "access.get_key_url"),
+        (format!("{MINIMAL}
+[access]
+key = \"secret\""), "key"),
+        (format!("{MINIMAL}
+[access]
+encrypt = false
+send_key = false
+{updates}"), "[access] does nothing"),
+    ];
+    for (text, expected) in cases {
+        let err = format!("{:#}", parse(&text, &dir).unwrap_err());
+        assert!(err.contains(expected), "{expected}: {err}");
+    }
+    // Sending the key without encrypting is fine: a private server can check it.
+    let gate = format!("{MINIMAL}
+[access]
+encrypt = false
+{updates}");
+    let project = parse(&gate, &dir).unwrap();
+    assert!(!project.encrypt && project.manifest.access.as_ref().unwrap().send_key);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_key_can_never_be_written_into_bach_toml() {
+    let dir = project_dir("no-key-in-config");
+    for key in ["key", "password", "secret", "access_key"] {
+        let text = format!("{MINIMAL}
+[access]
+{key} = \"K7QF-3MWD-9XPA\"");
+        assert!(parse(&text, &dir).is_err(), "[access] {key} must not exist");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn mirrors_are_feeds_of_their_own() {
+    let dir = project_dir("mirrors");
+    let text = format!(
+        "{MINIMAL}
+[updates]
+github = \"me/hello\"
+mirrors = [\"https://mirror.example/hello/latest.json\", \"https://cdn.example/latest.json\"]"
+    );
+    let project = parse(&text, &dir).unwrap();
+    let updates = project.manifest.updates.as_ref().unwrap();
+    assert_eq!(updates.mirrors.len(), 2);
+    assert_eq!(
+        updates.feeds(),
+        [
+            "https://github.com/me/hello/releases/latest/download/latest.json",
+            "https://mirror.example/hello/latest.json",
+            "https://cdn.example/latest.json"
+        ]
+    );
+    for (bad, expected) in [
+        ("mirrors = [\"http://x/latest.json\"]", "https link"),
+        ("mirrors = [\"https://a/l.json\", \"https://a/l.json\"]", "twice"),
+        ("mirrors = [\"https://x/latest.json\"]
+feed = \"https://x/latest.json\"", "twice"),
+    ] {
+        let err = format!("{:#}", parse(&format!("{MINIMAL}
+[updates]
+github = \"me/hello\"
+{bad}"), &dir).unwrap_err());
+        assert!(err.contains(expected), "{bad}: {err}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// The editor schema (schema/bach.schema.json) knows every text and
 /// language, so autocompletion never misses one.
 #[test]
@@ -346,4 +518,52 @@ fn the_schema_knows_every_text() {
     }
     let languages = schema["properties"]["installer"]["properties"]["languages"]["items"]["enum"].as_array().unwrap();
     assert_eq!(languages.len(), crate::i18n::LANGUAGES.len());
+}
+
+#[test]
+fn run_steps_are_checked_against_the_files() {
+    let dir = project_dir("run");
+    std::fs::create_dir_all(dir.join("build/redist")).unwrap();
+    std::fs::write(dir.join("build/redist/vc.exe"), b"MZ").unwrap();
+    let ok = format!(
+        "{MINIMAL}\n[[run]]\nname = \"Visual C++\"\nfile = \"redist/vc.exe\"\narguments = \"/quiet\"\nsuccess_codes = [3010]\n\n[[run]]\nfile = \"redist/vc.exe\"\nwhen = \"uninstall\""
+    );
+    let project = parse(&ok, &dir).unwrap();
+    let steps = &project.manifest.run;
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].name, "Visual C++");
+    assert_eq!(steps[0].success_codes, [0, 3010], "0 always counts");
+    assert_eq!(steps[1].name, "vc", "the file's name by default");
+    assert_eq!(steps[1].when, crate::manifest::RunWhen::Uninstall);
+    project.manifest.validate().unwrap();
+
+    let cases = [
+        ("file = \"redist/missing.exe\"", "no installed file"),
+        ("file = \"../vc.exe\"", "run[0].file"),
+        ("file = \"redist/vc.exe\"\nwhen = \"sometimes\"", "run[0].when"),
+        ("file = \"sub/data.txt\"", "must be an .exe"),
+        ("file = \"redist/vc.exe\"\nsuccess_codes = []", "success_codes"),
+        ("file = \"redist/vc.exe\"\ncomponent = \"ghost\"", "run[0].component"),
+        ("file = \"redist/vc.exe\"\nwhen = \"uninstall\"\nignore_errors = true", "ignore_errors"),
+        ("file = \"redist/vc.exe\"\ncommand = \"cmd /c x\"", "command"),
+    ];
+    for (body, expected) in cases {
+        let err = format!("{:#}", parse(&format!("{MINIMAL}\n[[run]]\n{body}"), &dir).unwrap_err());
+        assert!(err.contains(expected), "{body}: {err}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_windows_requirement_needs_a_build_number() {
+    let dir = project_dir("windows-req");
+    let good = parse(&format!("{MINIMAL}\n[[requirements]]\nkind = \"windows\"\nbuild = 19041"), &dir).unwrap();
+    let requirement = &good.manifest.requirements[0];
+    assert_eq!(requirement.check, crate::manifest::Check::Windows { build: 19041 });
+    assert!(requirement.name.contains("19041") && requirement.url.starts_with("https://"));
+    for body in ["kind = \"windows\"", "kind = \"windows\"\nbuild = 10", "kind = \"windows\"\nbuild = 12345678"] {
+        let err = format!("{:#}", parse(&format!("{MINIMAL}\n[[requirements]]\n{body}"), &dir).unwrap_err());
+        assert!(err.contains("requirements[0].build"), "{body}: {err}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
 }

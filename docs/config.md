@@ -56,7 +56,40 @@ The source folder may not contain symbolic links or a file named
 | `accent` | none (black / white) | A colour like `#2563eb` for buttons, the progress bar and ticked boxes. The button text picks black or white for contrast. |
 | `logo` | your icon, else the Bach mark | An `.svg` or `.png` shown at the top of the window, or `"none"` for no logo at all. An SVG is drawn in one colour that follows the theme; use a PNG for a full-colour logo. A wide PNG (a wordmark) keeps its shape. Give a PNG twice the size it's shown at for sharp results. |
 | `logo_height` | `56` | The logo's height in points, 32 to 96. |
+| `online` | `false` | `true` also builds the **online installer** (see below). Needs [`[updates]`](#updates). `bach build --online` does the same once. |
+| `online_output` | `dist/{name}-Web-Setup.exe` | Where the online installer goes. No version in the name, so one download link keeps pointing at the newest. |
 | `compression` | `best` | `best` makes the smallest file, `normal` and `fast` build quicker. Unpacking is fast either way. `bach build --fast` overrides it once. |
+
+### Online and offline installers
+
+`bach build` writes the **offline installer**: one setup file that carries
+the app, so it installs without a network and always installs the version it
+was built from. With `online = true` (or `bach build --online`) it also writes
+the **online installer**, a small setup file with the same window and
+choices that carries no files. When it runs it reads the update feed, downloads
+the *newest* full setup file, checks it (SHA-256 against the feed, same app
+id, the version the feed names) and installs from that. It installs whatever
+is current, not what was current when it was built, so you publish it once.
+
+```toml
+[installer]
+online = true
+
+[updates]
+github = "owner/repo"
+```
+
+```console
+$ bach build
+Wrote dist\Hello-Setup-1.4.0.exe (9.7 MB)
+Wrote dist\Hello-Web-Setup.exe (8.9 MB), the online installer
+```
+
+The online installer needs a network and the feed; if either is missing it
+says so and "Try again" resumes the download. Choices that a newer version
+added (a new component that is ticked by default) are carried over. The
+feed describes the full setup file, never the online one. The Bach action
+signs and publishes both files.
 
 ### Where it installs
 
@@ -178,10 +211,46 @@ kind = "registry"            # any key under HKLM\ or HKCU\
 key = 'HKLM\SOFTWARE\Vendor\Thing'
 name = "Vendor Thing"
 url = "https://vendor.example/download"
+
+[[requirements]]
+kind = "windows"             # this Windows build number or newer
+build = 19041                # 10240 Windows 10, 17763 1809, 19041 2004, 22000 Windows 11
 ```
 
-`webview2`, `dotnet` and `vcredist` know their name and download page;
-`file` and `registry` need `name` and an `https` `url`.
+`webview2`, `dotnet`, `vcredist` and `windows` know their name and download
+page (`windows` points at microsoft.com/windows); `file` and `registry` need
+`name` and an `https` `url`. `windows` reads the build number from
+`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`.
+
+## [[run]]
+
+Programs setup runs for you: what copying files can't do, like a runtime's
+own installer or a driver. The program is one of your packaged files, so add
+it under `[files] source`.
+
+```toml
+[[run]]
+name = "Visual C++ runtime"            # "Setting up Visual C++ runtime"; the file's name by default
+file = "redist/vc_redist.x64.exe"      # a packaged .exe, relative to [files] source
+arguments = "/quiet /norestart"        # the command line, passed as written
+when = "first_install"                 # "install" (default), "first_install" or "uninstall"
+success_codes = [0, 3010]              # exit codes that mean it worked; 0 always counts
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `file` | required | A packaged `.exe`. Setup never runs anything else, and never through a shell. |
+| `name` | the file's name | What the progress label says: "Setting up {name}" (`[text] step_running`). Shown as written in every language. |
+| `arguments` | none | The command line, passed as written. |
+| `when` | `install` | `install`: after the files are in place, on a first install and on every update. `first_install`: not on updates. `uninstall`: before the files are removed. |
+| `success_codes` | `[0]` | Exit codes that mean it worked (0 always counts). Any other code stops the install with "{name} couldn't be set up (exit code N)". |
+| `ignore_errors` | `false` | Go on when it fails. Not allowed with `when = "uninstall"`, because removing never stops for a failed step. |
+| `component` | the file's component | Only run when this optional component is installed. |
+
+Steps run as the user, in the program's own folder, in the order listed.
+A program that asks for administrator rights fails to start, which is
+reported like any other failure. A step that runs longer than 15 minutes is
+ended. Each run is in the log. `bach inspect` lists them as `Runs`.
 
 ## [[shortcuts]]
 
@@ -221,16 +290,76 @@ download_url = "https://example.com/hello/{file}"   # {file}: the setup file's n
 | `github` | none | `owner/repo`. Updates come from that repository's releases: the feed is `https://github.com/owner/repo/releases/latest/download/latest.json`, and each version's file is downloaded from its own tag, `.../releases/download/v{version}/{file}`. The setup file is named the way GitHub serves it (anything but letters, digits, `.`, `-` and `_` becomes `-`). |
 | `feed` | from `github` | The `https` link of `latest.json`, which the installed app reads. Needed without `github`. |
 | `download_url` | from `github` | The `https` link the setup file will be downloaded from. `{file}` is the setup file's name (encoded for a link), `{version}` the app's version. |
+| `mirrors` | none | More feeds to ask when `feed` can't be reached, each the `https` link of a full feed with its own download link. The first feed that answers decides the newest version; a mirror only offers another place to download the *same* file (same version and SHA-256), so a weaker mirror can't widen what an installed app trusts. |
 | `auto` | `true` | Keep the app up to date in the background: `true` (the install page offers "Automatic updates", ticked), `false` (offered, unticked), `"always"` or `"never"`. |
 
 Either `github` or `feed` is needed, and `app.version` must be numbers like
 `1.4.0` (a suffix like `-beta.1` is fine), because the app compares versions.
+
+To roll an update out to a share of computers first, write the feed with
+`bach feed SETUP.exe --rollout 10`; see [updates](updates.md#staged-rollouts).
 
 Signing changes the setup file, and so its SHA-256: after signing, write the
 feed again with `bach feed SETUP.exe`. The whole story, from publishing with
 the GitHub action to what happens on the user's PC, is in
 [updates](updates.md); the commands are under
 [updating from the app](#updating-from-the-app).
+
+## [access]
+
+Asks for an access key before installing, and encrypts the packaged files
+with it, so a setup file can be handed out or hosted publicly without its
+contents being readable. The key is **never written in `bach.toml`**: the
+build reads it from an environment variable (or `--key-file`).
+
+```toml
+[access]
+get_key_url = "https://example.com/buy"   # optional: the key page gets a "Get a key" button
+```
+
+```bash
+bach key                                   # K7QF-3MWD-9XPA-H2TY-6NBC
+BACH_ACCESS_KEY=K7QF-3MWD-9XPA-H2TY-6NBC bach build
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `encrypt` | `true` | Encrypt the packaged files with the key. |
+| `key_env` | `BACH_ACCESS_KEY` | The environment variable the build reads the key from. `bach build --key-file FILE` reads its first line instead. |
+| `get_key_url` | none | An `https` page where people get a key. |
+| `send_key` | `true` with `[updates]` | Send the key as `Authorization: Bearer <key>` with every request to the host of `[updates] feed` (the feed, and a download on that same host, redirects from it included), so a private server can refuse anyone without one. Mirrors and downloads on other hosts never get it. |
+
+A key is 8 to 128 characters: letters, digits and `- _ . ~ + / = :`.
+`bach key` makes 100-bit random ones (`--count 100` for a batch, say one per
+customer). Build one setup file per key to hand each customer their own, or
+share one key.
+
+Setup asks for the key on its own page before the license (typed or pasted),
+and a wrong key stops before anything on the computer is touched. A silent
+install takes it from `--key-file FILE` or the `BACH_ACCESS_KEY` environment
+variable (never an argument, which other programs can read): without one it
+exits with code 2, with a wrong one with code 1.
+
+The key goes only to the host of the main update feed, which is in the signed
+setup file: a feed can name any download link, so a link on another host is
+fetched without it. Host your private downloads on the feed's host (or redirect to
+a signed storage link from it).
+
+After a successful install the key is kept, sealed with Windows' Data
+Protection API for that Windows user (`HKCU\Software\Bach\Access`), so
+updates can send it and open protected setup files; removing the app deletes
+it. `[access]` with `encrypt = false` only sends the key to your server.
+
+How it is protected: the key goes through Argon2id (64 MiB, 3 passes) into
+a ChaCha20-Poly1305 key, and the archive is encrypted in 64 KiB chunks that are
+each authenticated, so a changed, reordered or cut-short file fails instead of
+unpacking something wrong. What it does **not** hide: file names and sizes
+(the manifest lists them), and anything after install, because an installed
+app's files are ordinary files on the user's disk. The key protects the
+setup file, not a running app: for that, check a license inside your app.
+With the [online installer](#online-and-offline-installers) the files never
+sit in the setup file at all, and with `send_key` the download itself is
+behind your server's check.
 
 ## [text]
 
@@ -293,6 +422,9 @@ a text is given in only one, `bach check` points it out.
 | `close_app`, `error_close_app` | "Close and continue", and what it says when the app won't close. |
 | `requirement_title`, `requirement_subtitle`, `requirement_button` (all `{requirement}`) | The page for a missing requirement. |
 | `step_downloading`, `error_download` (`{error}`) | Updating from the app. |
+| `step_finding`, `step_fetching`, `error_fetch` (`{error}`) | The online installer's labels, and what it says when it can't download. |
+| `access_title`, `access_subtitle`, `access_hint`, `access_button`, `access_paste`, `access_get`, `access_wrong` | The access key page. |
+| `step_running`, `error_run` (`{task}`, `{code}`) | A `[[run]]` step's label and its failure. |
 | `website`, `feedback` | The link buttons on the last page. |
 
 `crates/pack/src/i18n/en.rs` has every English text in full, and the other
@@ -374,7 +506,9 @@ Hello-Setup-1.4.0.exe --silent
 | `--with a,b` / `--without a,b` | Tick or untick options: `desktop-shortcut`, `start-menu`, `autostart`, `path`, `auto-update`, and component ids. Only options the install page would offer. |
 | `--lang CODE` | The language for messages, instead of Windows' own. |
 | `--allow-downgrade` | Install over a newer version (refused otherwise, with exit code 1). |
+| `--key-file FILE` | The access key (first line of the file) for a setup file with [`[access]`](#access). The `BACH_ACCESS_KEY` environment variable does the same. Without a key a silent run exits with code 2. |
 | `--log FILE` | Where the log goes. By default every run writes `%TEMP%\<app id>-setup.log`. |
+| `--help` (also `-h`, `/?`) | Prints every option. |
 
 A silent run accepts the license on the user's behalf and stops when a
 requirement is missing. Settings › Apps runs `uninstall.exe --silent` for a
@@ -397,7 +531,7 @@ knows the feed:
 
 | Flag | Meaning |
 | --- | --- |
-| `--check-update` | Exit code 10 when a newer version is out (it prints which), 0 when up to date, 1 when the feed can't be read. Changes nothing. |
+| `--check-update` | Exit code 10 when a newer version is out (it prints which), 0 when up to date (or when a [staged rollout](updates.md#staged-rollouts) hasn't reached this computer yet), 1 when the feed can't be read. Changes nothing. |
 | `--check-update --json` | Prints one line of JSON instead: `app`, `current`, `latest`, `available`, `downloaded` (kept ready already), `notes`, `size`. |
 | `--download-update` | Downloads a newer version into `%LOCALAPPDATA%\Bach\updates\<app id>` and keeps it ready. Exit code 10: ready, 0: up to date. A cut-off download continues where it stopped. |
 | `--apply-update` | Installs what was kept ready, silently. Exit code 0: installed, or nothing was waiting; 1: it couldn't be installed yet (it stays ready). |

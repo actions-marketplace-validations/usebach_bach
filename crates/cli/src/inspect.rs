@@ -17,10 +17,16 @@ pub fn inspect(path: &Path) -> Result<()> {
     };
     let manifest = container::read_manifest(&mut file, &layout)?;
     let app = &manifest.app;
-    let kind = if layout.has_archive() { "Installer" } else { "Uninstaller" };
+    let kind = if layout.has_archive() {
+        "Installer"
+    } else if manifest.online {
+        "Online installer"
+    } else {
+        "Uninstaller"
+    };
     println!("{kind} for {} {}", app.name, app.version);
     field("App id", &app.id);
-    details(&manifest);
+    details(&manifest, manifest.access.as_ref().is_some_and(|access| access.encryption.is_some()));
     if layout.has_archive() {
         field("Packed", output::size(layout.archive.len));
     }
@@ -45,7 +51,8 @@ pub fn inspect(path: &Path) -> Result<()> {
 }
 
 /// Publisher, program, files, folder, options, languages and the rest.
-pub fn details(manifest: &Manifest) {
+/// `encrypted` says whether the files are (or will be) locked with a key.
+pub fn details(manifest: &Manifest, encrypted: bool) {
     let install = &manifest.install;
     field("Publisher", &manifest.app.publisher);
     field("Program", &manifest.app.executable);
@@ -105,11 +112,34 @@ pub fn details(manifest: &Manifest) {
     for requirement in &manifest.requirements {
         field("Requires", &requirement.name);
     }
+    for step in &manifest.run {
+        let when = match step.when {
+            bach_pack::manifest::RunWhen::Install => "on install and update",
+            bach_pack::manifest::RunWhen::FirstInstall => "on first install",
+            bach_pack::manifest::RunWhen::Uninstall => "before removal",
+        };
+        let args = step.arguments.as_deref().map(|args| format!(" {args}")).unwrap_or_default();
+        field("Runs", format!("{} ({}{args}), {when}", step.name, step.file));
+    }
     for shortcut in &manifest.shortcuts {
         field("Shortcut", format!("{} → {}", shortcut.name, shortcut.target));
     }
     if let Some(updates) = &manifest.updates {
         field("Updates", &updates.feed);
+    }
+    if manifest.online {
+        field("Online", "downloads the newest version through the update feed");
+    }
+    if let Some(access) = &manifest.access {
+        let mut parts = vec!["asks for a key".to_string()];
+        parts.push(if encrypted { "files encrypted".into() } else { "files not encrypted".into() });
+        if access.send_key {
+            parts.push("key sent with updates".into());
+        }
+        field("Access", parts.join(", "));
+        if let Some(url) = &access.get_key_url {
+            field("Get a key", url);
+        }
     }
     if !manifest.uninstall.data.is_empty() {
         field("Data", manifest.uninstall.data.join(", "));

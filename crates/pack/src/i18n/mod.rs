@@ -86,6 +86,9 @@ texts! {
     downgrade_title, downgrade_subtitle, downgrade_button, close_app, error_close_app,
     requirement_title, requirement_subtitle, requirement_button, step_downloading, error_download,
     website, feedback,
+    step_finding, step_fetching, error_fetch,
+    access_title, access_subtitle, access_hint, access_button, access_paste, access_wrong, access_get,
+    step_running, error_run,
 }
 
 /// A language the setup window speaks.
@@ -122,7 +125,7 @@ pub fn language(code: &str) -> Option<&'static Language> {
 /// Placeholders every text may use.
 pub const COMMON_PLACEHOLDERS: &[&str] = &["name", "version", "publisher"];
 /// Placeholders some texts fill in; harmless (left as is) elsewhere.
-pub const OTHER_PLACEHOLDERS: &[&str] = &["old_version", "path", "size", "free", "error", "description", "requirement"];
+pub const OTHER_PLACEHOLDERS: &[&str] = &["old_version", "path", "size", "free", "error", "description", "requirement", "task", "code"];
 
 /// Picks the language to show: the first of the user's `preferred`
 /// languages (like `de-DE`, most preferred first) that the app `offers`,

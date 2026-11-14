@@ -47,6 +47,28 @@ so a newer setup file still reads the uninstaller an older one installed.
 Everything is per user, so nothing asks for administrator rights. The
 window can't be closed while files are moving.
 
+## The online installer
+
+`bach build --online` also writes a setup file that is the same runtime with
+the same manifest and no archive. When it runs it asks the update feed, downloads
+the newest full setup file into `%LOCALAPPDATA%\Bach\updates\<app id>` (resuming
+if it was cut off), checks it exactly like an update (SHA-256 against the
+feed, same app id, the feed's version) and then installs from that file. The
+rest is the normal install, with the downloaded runtime. The download is deleted
+once the app is installed. Nothing in the online installer says which version
+it will install, so it never shows the "older version" page.
+
+## Access keys
+
+An app with `[access]` carries encryption settings in its manifest (salt, nonce,
+Argon2id costs and a hash that tells a right key from a wrong one), and its
+archive is encrypted in authenticated chunks (see
+[`[access]`](config.md#access)). Setup derives the key on a background thread,
+checks it against the manifest before touching the disk, and decrypts while
+unpacking, so the all-or-nothing install is unchanged. A manifest that asks for
+more memory than 256 MiB or an unknown scheme is refused. The key kept for
+updates is sealed with DPAPI, tied to the Windows user and the app's id.
+
 ## Updates from the app
 
 With `[updates]`, the installed `uninstall.exe` (the runtime with the
@@ -128,6 +150,12 @@ started it can wait for its exit code.
   changed or deleted.
 - The C runtime is linked in, so setup files start on a fresh Windows
   without the Visual C++ redistributable.
+
+## Run steps
+
+`[[run]]` programs start only from the app's own packaged files, found through
+`paths.rs`, with no shell and no elevation, and are waited for (15 minutes at
+most). Steps that run before removal can fail without stopping the removal.
 
 ## Signing
 
