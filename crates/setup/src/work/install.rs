@@ -96,6 +96,8 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     report(0.89, &texts.get(Key::step_uninstaller));
     write_uninstaller(package, &installed, dir, texts)?;
 
+    super::steps::run_install_steps(manifest, dir, previous.is_none(), &choices, texts, (0.895, 0.915), report)?;
+
     report(0.92, &texts.get(Key::step_shortcuts));
     shortcuts(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
     integrate(manifest, previous.as_ref(), &choices, dir, &program, texts)?;

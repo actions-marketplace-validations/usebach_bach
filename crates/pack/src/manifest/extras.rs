@@ -32,6 +32,9 @@ pub enum Check {
     File { path: String },
     /// A registry key, like `HKLM\SOFTWARE\Vendor\Thing`.
     Registry { key: String },
+    /// Windows itself, this build number or newer (Windows 10 is 10240,
+    /// 1809 is 17763, 2004 is 19041, Windows 11 is 22000).
+    Windows { build: u32 },
 }
 
 impl Check {
@@ -44,8 +47,65 @@ impl Check {
             Self::Vcredist => {
                 Some(("Microsoft Visual C++ Redistributable", "https://aka.ms/vs/17/release/vc_redist.x64.exe"))
             }
-            Self::File { .. } | Self::Registry { .. } => None,
+            Self::File { .. } | Self::Registry { .. } | Self::Windows { .. } => None,
         }
+    }
+}
+
+/// A program from the app's own files that setup runs: something the app
+/// needs set up (a runtime's installer, a driver) rather than copied.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunStep {
+    /// What setup says it is doing: "Setting up {name}".
+    pub name: String,
+    /// The program, a packaged file, relative to the install folder.
+    pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<String>,
+    pub when: RunWhen,
+    /// Exit codes that mean it worked. Always at least `0`.
+    #[serde(default = "zero")]
+    pub success_codes: Vec<i32>,
+    /// Go on when it fails (installing and updating only: removing never
+    /// stops for a failed step).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ignore_errors: bool,
+    /// Only when this optional component is installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component: Option<String>,
+}
+
+fn zero() -> Vec<i32> {
+    vec![0]
+}
+
+/// When a [`RunStep`] runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunWhen {
+    /// After the files are in place, on a first install and on every update.
+    Install,
+    /// Like `Install`, but not on an update.
+    FirstInstall,
+    /// Before the files are removed.
+    Uninstall,
+}
+
+impl RunWhen {
+    pub fn parse(word: &str) -> Option<Self> {
+        match word.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+            "install" => Some(Self::Install),
+            "first_install" => Some(Self::FirstInstall),
+            "uninstall" => Some(Self::Uninstall),
+            _ => None,
+        }
+    }
+}
+
+impl RunStep {
+    /// Whether the exit code `code` means success.
+    pub fn succeeded(&self, code: i32) -> bool {
+        self.success_codes.contains(&code)
     }
 }
 
@@ -75,7 +135,9 @@ pub struct Updates {
     #[serde(default)]
     pub auto: Choice,
     /// More feeds to ask when `feed` can't be reached, each a full feed with
-    /// its own download link. The newest version any of them offers wins.
+    /// its own download link. The first feed that answers decides the newest
+    /// version; the others only serve as other places to download the same
+    /// file (same version and SHA-256) from.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mirrors: Vec<String>,
 }
@@ -132,6 +194,17 @@ mod tests {
         let requirement: Requirement = serde_json::from_str(json).unwrap();
         assert_eq!(requirement.check, Check::Dotnet { version: "8.0".into(), desktop: true });
         assert_eq!(serde_json::to_string(&requirement).unwrap(), json);
+    }
+
+    #[test]
+    fn run_steps_read_their_defaults() {
+        let step: RunStep = serde_json::from_str(r#"{"name":"VC++","file":"redist/vc.exe","when":"first_install"}"#).unwrap();
+        assert_eq!(step.when, RunWhen::FirstInstall);
+        assert_eq!(step.success_codes, [0]);
+        assert!(!step.ignore_errors && step.arguments.is_none() && step.component.is_none());
+        assert!(step.succeeded(0) && !step.succeeded(3010));
+        assert_eq!(RunWhen::parse(" First-Install "), Some(RunWhen::FirstInstall));
+        assert_eq!(RunWhen::parse("later"), None);
     }
 
     #[test]

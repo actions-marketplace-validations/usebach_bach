@@ -49,6 +49,8 @@ struct File {
     requirements: Vec<extras::RequirementSection>,
     #[serde(default)]
     shortcuts: Vec<extras::ShortcutSection>,
+    #[serde(default)]
+    run: Vec<extras::RunSection>,
     updates: Option<extras::UpdatesSection>,
     access: Option<extras::AccessSection>,
 }
@@ -289,7 +291,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     let online = file.installer.online.unwrap_or(false);
     if online && updates.is_none() {
         bail!(
-            "installer.online is true, but there's no [updates]; the online installer downloads the newest              version through the update feed"
+            "installer.online is true, but there's no [updates]; the online installer downloads the newest version through the update feed"
         );
     }
 
@@ -337,6 +339,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         chosen: None,
         requirements: extras::requirements(&file.requirements)?,
         shortcuts: Vec::new(),
+        run: Vec::new(),
         updates,
         access: access.as_ref().map(|access| access.manifest.clone()),
         online: false,
@@ -352,6 +355,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     }
     let mut manifest = manifest;
     manifest.shortcuts = extras::shortcuts(&file.shortcuts, &manifest.files)?;
+    manifest.run = extras::run_steps(&file.run, &manifest.files, &manifest.components)?;
     manifest.validate()?;
     Ok(Project {
         root: root.to_path_buf(),

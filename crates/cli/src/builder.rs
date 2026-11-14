@@ -99,7 +99,7 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     }
     if project.online && project.manifest.updates.is_none() {
         bail!(
-            "an online installer downloads the newest version through the update feed,              so bach.toml needs an [updates] section (github = \"owner/repo\" or feed = \"https://…\")"
+            "an online installer downloads the newest version through the update feed, so bach.toml needs an [updates] section (github = \"owner/repo\" or feed = \"https://…\")"
         );
     }
     let output = out.map(Path::to_path_buf).unwrap_or_else(|| project.output.clone());

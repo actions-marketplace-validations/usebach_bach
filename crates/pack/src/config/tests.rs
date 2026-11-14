@@ -519,3 +519,51 @@ fn the_schema_knows_every_text() {
     let languages = schema["properties"]["installer"]["properties"]["languages"]["items"]["enum"].as_array().unwrap();
     assert_eq!(languages.len(), crate::i18n::LANGUAGES.len());
 }
+
+#[test]
+fn run_steps_are_checked_against_the_files() {
+    let dir = project_dir("run");
+    std::fs::create_dir_all(dir.join("build/redist")).unwrap();
+    std::fs::write(dir.join("build/redist/vc.exe"), b"MZ").unwrap();
+    let ok = format!(
+        "{MINIMAL}\n[[run]]\nname = \"Visual C++\"\nfile = \"redist/vc.exe\"\narguments = \"/quiet\"\nsuccess_codes = [3010]\n\n[[run]]\nfile = \"redist/vc.exe\"\nwhen = \"uninstall\""
+    );
+    let project = parse(&ok, &dir).unwrap();
+    let steps = &project.manifest.run;
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].name, "Visual C++");
+    assert_eq!(steps[0].success_codes, [0, 3010], "0 always counts");
+    assert_eq!(steps[1].name, "vc", "the file's name by default");
+    assert_eq!(steps[1].when, crate::manifest::RunWhen::Uninstall);
+    project.manifest.validate().unwrap();
+
+    let cases = [
+        ("file = \"redist/missing.exe\"", "no installed file"),
+        ("file = \"../vc.exe\"", "run[0].file"),
+        ("file = \"redist/vc.exe\"\nwhen = \"sometimes\"", "run[0].when"),
+        ("file = \"sub/data.txt\"", "must be an .exe"),
+        ("file = \"redist/vc.exe\"\nsuccess_codes = []", "success_codes"),
+        ("file = \"redist/vc.exe\"\ncomponent = \"ghost\"", "run[0].component"),
+        ("file = \"redist/vc.exe\"\nwhen = \"uninstall\"\nignore_errors = true", "ignore_errors"),
+        ("file = \"redist/vc.exe\"\ncommand = \"cmd /c x\"", "command"),
+    ];
+    for (body, expected) in cases {
+        let err = format!("{:#}", parse(&format!("{MINIMAL}\n[[run]]\n{body}"), &dir).unwrap_err());
+        assert!(err.contains(expected), "{body}: {err}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_windows_requirement_needs_a_build_number() {
+    let dir = project_dir("windows-req");
+    let good = parse(&format!("{MINIMAL}\n[[requirements]]\nkind = \"windows\"\nbuild = 19041"), &dir).unwrap();
+    let requirement = &good.manifest.requirements[0];
+    assert_eq!(requirement.check, crate::manifest::Check::Windows { build: 19041 });
+    assert!(requirement.name.contains("19041") && requirement.url.starts_with("https://"));
+    for body in ["kind = \"windows\"", "kind = \"windows\"\nbuild = 10", "kind = \"windows\"\nbuild = 12345678"] {
+        let err = format!("{:#}", parse(&format!("{MINIMAL}\n[[requirements]]\n{body}"), &dir).unwrap_err());
+        assert!(err.contains("requirements[0].build"), "{body}: {err}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

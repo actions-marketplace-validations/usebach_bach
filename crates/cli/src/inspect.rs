@@ -112,6 +112,15 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
     for requirement in &manifest.requirements {
         field("Requires", &requirement.name);
     }
+    for step in &manifest.run {
+        let when = match step.when {
+            bach_pack::manifest::RunWhen::Install => "on install and update",
+            bach_pack::manifest::RunWhen::FirstInstall => "on first install",
+            bach_pack::manifest::RunWhen::Uninstall => "before removal",
+        };
+        let args = step.arguments.as_deref().map(|args| format!(" {args}")).unwrap_or_default();
+        field("Runs", format!("{} ({}{args}), {when}", step.name, step.file));
+    }
     for shortcut in &manifest.shortcuts {
         field("Shortcut", format!("{} → {}", shortcut.name, shortcut.target));
     }

@@ -42,7 +42,7 @@ pub fn fetch(plan: &InstallPlan, report: Report) -> Result<Package, String> {
 
     report(0.02, &texts.get(Key::step_finding));
     let scratch = std::env::temp_dir().join(format!("{}-online", app_id.replace(' ', "-")));
-    let mut offers = feed::fetch_newest(&updates.feeds(), &scratch, bearer).map_err(refused)?;
+    let mut offers = feed::fetch_offers(&updates.feeds(), &scratch, bearer).map_err(refused)?;
     crate::log::line(&format!("The feed offers {} {}", manifest.app.name, offers[0].version));
 
     let label = texts.get(Key::step_fetching);

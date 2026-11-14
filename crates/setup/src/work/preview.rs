@@ -10,15 +10,20 @@ use super::Report;
 use crate::texts::Texts;
 
 /// Walks through the labels a real job shows, with pauses instead of work.
-pub fn pretend(texts: &Texts, removing: bool, online: bool, report: Report) -> Result<(), String> {
+pub fn pretend(texts: &Texts, removing: bool, online: bool, tasks: &[String], report: Report) -> Result<(), String> {
     let copying = texts.get(Key::step_copying);
     let steps: Vec<(f32, String, u64)> = if removing {
-        vec![
-            (0.1, texts.get(Key::step_removing), 420),
-            (0.4, texts.get(Key::step_removing_shortcuts), 420),
-            (0.6, texts.get(Key::step_unregistering), 420),
-            (0.9, texts.get(Key::step_cleaning), 420),
-        ]
+        // The app's own "before removal" steps come first, as in a real removal.
+        tasks
+            .iter()
+            .map(|task| (0.05, texts.with(Key::step_running, &[("task", task)]), 700))
+            .chain([
+                (0.1, texts.get(Key::step_removing), 420),
+                (0.4, texts.get(Key::step_removing_shortcuts), 420),
+                (0.6, texts.get(Key::step_unregistering), 420),
+                (0.9, texts.get(Key::step_cleaning), 420),
+            ])
+            .collect()
     } else {
         let fetching = texts.get(Key::step_fetching);
         let download: Vec<(f32, String, u64)> = if online {
@@ -38,6 +43,9 @@ pub fn pretend(texts: &Texts, removing: bool, online: bool, report: Report) -> R
             .chain([
                 (scale(0.86), texts.get(Key::step_tidying), 300),
                 (scale(0.89), texts.get(Key::step_uninstaller), 420),
+            ])
+            .chain(tasks.iter().map(|task| (scale(0.9), texts.with(Key::step_running, &[("task", task)]), 700)))
+            .chain([
                 (scale(0.92), texts.get(Key::step_shortcuts), 420),
                 (scale(0.97), texts.get(Key::step_registering), 420),
             ])

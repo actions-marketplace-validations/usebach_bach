@@ -29,6 +29,11 @@ const MAX_SCREEN_SHARE: f32 = 0.85;
 
 pub fn main() {
     let args = Args::parse();
+    if args.wants_help() {
+        crate::system::host::attach_parent_console();
+        print!("{}", launch::HELP);
+        return;
+    }
     let package = match Package::load() {
         Ok(Some(package)) => Ok(package),
         Ok(None) if args.preview => Ok(Package::sample()),

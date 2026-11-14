@@ -4,7 +4,7 @@ use anyhow::{bail, Result};
 use serde::Deserialize;
 
 use crate::manifest::extras::{is_https, is_valid_shortcut_name};
-use crate::manifest::{Access, Check, Choice, FileEntry, Requirement, Shortcut, Updates};
+use crate::manifest::{Access, Check, Choice, Component, FileEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
 use crate::paths;
 
 #[derive(Debug, Deserialize)]
@@ -16,8 +16,27 @@ pub struct RequirementSection {
     desktop: bool,
     path: Option<String>,
     key: Option<String>,
+    build: Option<u32>,
     name: Option<String>,
     url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunSection {
+    /// What setup says it is doing ("Setting up {name}"); the file's name by default.
+    name: Option<String>,
+    /// A packaged .exe, relative to the install folder.
+    file: String,
+    arguments: Option<String>,
+    /// `"install"` (default), `"first_install"` or `"uninstall"`.
+    when: Option<String>,
+    /// Exit codes that mean it worked; `[0]` by default.
+    success_codes: Option<Vec<i32>>,
+    #[serde(default)]
+    ignore_errors: bool,
+    /// Only when this optional component is installed.
+    component: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,14 +131,31 @@ pub fn requirements(sections: &[RequirementSection]) -> Result<Vec<Requirement>>
                     }
                     Check::Registry { key: key.to_string() }
                 }
-                other => bail!("{at}.kind is \"{other}\"; use \"webview2\", \"dotnet\", \"vcredist\", \"file\" or \"registry\""),
+                "windows" => {
+                    let Some(build) = section.build.filter(|build| (10_000..=99_999).contains(build)) else {
+                        bail!(
+                            "{at}.build is missing or isn't a Windows build number; use 10240 (Windows 10), \
+                             17763 (1809), 19041 (2004) or 22000 (Windows 11)"
+                        );
+                    };
+                    Check::Windows { build }
+                }
+                other => bail!(
+                    "{at}.kind is \"{other}\"; use \"webview2\", \"dotnet\", \"vcredist\", \"file\", \"registry\" or \"windows\""
+                ),
             };
             let defaults = check.defaults();
-            let name = section.name.clone().or_else(|| defaults.map(|(name, _)| name.to_string()));
+            let name = section.name.clone().or_else(|| match &check {
+                Check::Windows { build } => Some(format!("Windows (build {build} or newer)")),
+                _ => defaults.map(|(name, _)| name.to_string()),
+            });
             let Some(name) = name.filter(|name| !name.trim().is_empty()) else {
                 bail!("{at}.name is missing; say what it is, like \"Hello Runtime\"");
             };
-            let url = section.url.clone().or_else(|| defaults.map(|(_, url)| url.to_string()));
+            let url = section.url.clone().or_else(|| match &check {
+                Check::Windows { .. } => Some("https://www.microsoft.com/windows".to_string()),
+                _ => defaults.map(|(_, url)| url.to_string()),
+            });
             let Some(url) = url.filter(|url| is_https(url)) else {
                 bail!("{at}.url must be an https link where people can get {name}");
             };
@@ -147,6 +183,62 @@ pub fn shortcuts(sections: &[ShortcutSection], files: &[FileEntry]) -> Result<Ve
                 arguments: super::optional(&section.arguments),
                 description: super::optional(&section.description),
             })
+        })
+        .collect()
+}
+
+pub fn run_steps(sections: &[RunSection], files: &[FileEntry], components: &[Component]) -> Result<Vec<RunStep>> {
+    sections
+        .iter()
+        .enumerate()
+        .map(|(index, section)| {
+            let at = format!("run[{index}]");
+            let file = paths::normalize(section.file.trim()).map_err(|err| anyhow::anyhow!("{at}.file: {err}"))?;
+            if !file.to_ascii_lowercase().ends_with(".exe") {
+                bail!("{at}.file is \"{file}\"; it must be an .exe");
+            }
+            let Some(entry) = files.iter().find(|entry| entry.path.eq_ignore_ascii_case(&file)) else {
+                bail!("{at}.file is \"{file}\", but no installed file has that path (is it excluded?)");
+            };
+            let name = match section.name.as_deref().map(str::trim) {
+                Some(name) if !name.is_empty() => name.to_string(),
+                _ => file.rsplit('/').next().unwrap_or(&file).trim_end_matches(".exe").trim_end_matches(".EXE").to_string(),
+            };
+            if name.len() > 100 || name.chars().any(char::is_control) {
+                bail!("{at}.name is too long or has control characters in it");
+            }
+            let when = match section.when.as_deref() {
+                None => RunWhen::Install,
+                Some(word) => RunWhen::parse(word)
+                    .ok_or_else(|| anyhow::anyhow!("{at}.when is \"{word}\"; use \"install\", \"first_install\" or \"uninstall\""))?,
+            };
+            if section.ignore_errors && when == RunWhen::Uninstall {
+                bail!("{at}.ignore_errors has no effect with when = \"uninstall\": removing never stops for a failed step");
+            }
+            let mut success_codes = section.success_codes.clone().unwrap_or_else(|| vec![0]);
+            if success_codes.is_empty() {
+                bail!("{at}.success_codes is empty; list the exit codes that mean it worked, like [0, 3010]");
+            }
+            if !success_codes.contains(&0) {
+                success_codes.insert(0, 0);
+            }
+            let mut unique = Vec::new();
+            for code in success_codes {
+                if !unique.contains(&code) {
+                    unique.push(code);
+                }
+            }
+            let success_codes = unique;
+            let arguments = super::optional(&section.arguments);
+            if arguments.as_deref().is_some_and(|arguments| arguments.len() > 2000 || arguments.contains('\0')) {
+                bail!("{at}.arguments is too long or has a NUL in it");
+            }
+            let component = match section.component.as_deref().map(str::trim) {
+                None | Some("") => entry.component.clone(),
+                Some(id) if components.iter().any(|known| known.id == id) => Some(id.to_string()),
+                Some(id) => bail!("{at}.component is \"{id}\", but no [[components]] has that id"),
+            };
+            Ok(RunStep { name, file, arguments, when, success_codes, ignore_errors: section.ignore_errors, component })
         })
         .collect()
 }

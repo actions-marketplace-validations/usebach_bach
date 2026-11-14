@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bach_pack::i18n::Key;
-use bach_pack::manifest::{Choices, Manifest};
+use bach_pack::manifest::{Choices, Manifest, RunWhen};
 use futures::channel::mpsc;
 use futures::StreamExt;
 use gpui::{Context, FocusHandle, ScrollHandle, SharedString, Task, Window};
@@ -256,7 +256,18 @@ impl SetupView {
         let (sender, mut events) = mpsc::unbounded::<Event>();
         let texts = self.texts.clone();
         let job = match (&self.mode, self.preview) {
-            (_, true) => Job::Pretend { removing: self.is_removing(), online: self.package.manifest.online },
+            (_, true) => Job::Pretend {
+                removing: self.is_removing(),
+                online: self.package.manifest.online,
+                tasks: self
+                    .package
+                    .manifest
+                    .run
+                    .iter()
+                    .filter(|step| (step.when == RunWhen::Uninstall) == self.is_removing())
+                    .map(|step| step.name.clone())
+                    .collect(),
+            },
             (Mode::Install, false) => Job::Install(InstallPlan {
                 package: self.package.clone(),
                 texts: texts.clone(),
@@ -284,7 +295,7 @@ impl SetupView {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
                 Job::Install(plan) => work::install(plan, &report),
                 Job::Remove(plan) => work::remove(plan, &report),
-                Job::Pretend { removing, online } => work::pretend(&texts, *removing, *online, &report),
+                Job::Pretend { removing, online, tasks } => work::pretend(&texts, *removing, *online, tasks, &report),
             }))
             .unwrap_or_else(|_| Err(texts.get(Key::error_damaged)));
             match &result {
@@ -368,7 +379,7 @@ impl SetupView {
 enum Job {
     Install(InstallPlan),
     Remove(RemovePlan),
-    Pretend { removing: bool, online: bool },
+    Pretend { removing: bool, online: bool, tasks: Vec<String> },
 }
 
 /// A first install shows the license; an update only when it changed.

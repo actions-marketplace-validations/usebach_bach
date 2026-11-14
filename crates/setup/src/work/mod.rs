@@ -8,6 +8,7 @@ mod online;
 mod place;
 mod preview;
 mod remove;
+mod steps;
 
 use std::fs;
 use std::io;

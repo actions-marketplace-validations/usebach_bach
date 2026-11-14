@@ -81,6 +81,28 @@ fn extras(manifest: &Manifest) -> Result<()> {
             bail!("the update mirror \"{mirror}\" isn't an https link");
         }
     }
+    for step in &manifest.run {
+        if step.name.trim().is_empty() || step.name.len() > 100 || step.name.chars().any(char::is_control) {
+            bail!("a step that runs a program has no usable name");
+        }
+        if paths::normalize(&step.file)? != step.file {
+            bail!("the step \"{}\" runs \"{}\", which isn't a canonical path", step.name, step.file);
+        }
+        if !step.file.to_ascii_lowercase().ends_with(".exe") {
+            bail!("the step \"{}\" runs \"{}\", which isn't an .exe", step.name, step.file);
+        }
+        if step.arguments.as_deref().is_some_and(|arguments| arguments.len() > 2000 || arguments.contains('\0')) {
+            bail!("the arguments of the step \"{}\" are damaged", step.name);
+        }
+        if step.success_codes.is_empty() || step.success_codes.len() > 32 {
+            bail!("the step \"{}\" has no exit codes that mean success", step.name);
+        }
+        if let Some(component) = &step.component {
+            if !manifest.components.iter().any(|known| &known.id == component) {
+                bail!("the step \"{}\" belongs to a component, \"{component}\", that doesn't exist", step.name);
+            }
+        }
+    }
     if let Some(access) = &manifest.access {
         if let Some(url) = &access.get_key_url {
             if !is_https(url) {

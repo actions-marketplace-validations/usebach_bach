@@ -41,10 +41,12 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     let current = std::env::current_exe().ok();
     let running_in_place = current.as_deref().is_some_and(|current| same_file(current, &uninstaller));
 
-    report(0.1, &texts.get(Key::step_removing));
     // An update cut short earlier is undone first, so what's on disk is
     // what the manifest lists.
     super::place::recover(dir);
+    // The app's own "before removal" steps run while its files are still there.
+    super::steps::run_removal_steps(manifest, dir, texts, report, 0.05);
+    report(0.1, &texts.get(Key::step_removing));
     let program = manifest.executable_in(dir);
     remove_waiting(&program, texts, Key::error_still_open)?;
     for file in &manifest.files {

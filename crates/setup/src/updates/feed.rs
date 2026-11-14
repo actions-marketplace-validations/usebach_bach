@@ -21,11 +21,17 @@ pub fn fetch(url: &str, work: &Path, bearer: Option<&str>) -> Result<FeedEntry, 
     result
 }
 
-/// Asks every feed (the main one and its mirrors) and gives the entries that
-/// offer the newest version, the one asked first leading. One feed that
-/// can't be reached is no problem while another answers; when none does, the
-/// first one's complaint is the answer.
-pub fn fetch_newest(urls: &[String], work: &Path, bearer: Option<&str>) -> Result<Vec<FeedEntry>, String> {
+/// Asks every feed (the main one, then its mirrors) and gives what they offer.
+///
+/// The first feed that answers decides which version is the newest; a mirror
+/// never gets to say "there's a newer one", because a mirror is often the
+/// weaker host and must not be able to widen what an installed app trusts. The
+/// rest of the answers are kept only when they offer exactly the same file
+/// (same version, same SHA-256): those are other places to download the same
+/// bytes from if the first one is down. One feed that can't be reached is no
+/// problem while another answers; when none does, the first one's complaint is
+/// the answer.
+pub fn fetch_offers(urls: &[String], work: &Path, bearer: Option<&str>) -> Result<Vec<FeedEntry>, String> {
     let mut entries = Vec::new();
     let mut first_error = None;
     for url in urls {
@@ -40,22 +46,29 @@ pub fn fetch_newest(urls: &[String], work: &Path, bearer: Option<&str>) -> Resul
     if entries.is_empty() {
         return Err(first_error.unwrap_or_else(|| "there is no update feed to ask".to_string()));
     }
-    Ok(newest(entries))
+    Ok(agreeing(entries))
 }
 
-/// The entries with the highest version, in their order.
-pub fn newest(entries: Vec<FeedEntry>) -> Vec<FeedEntry> {
-    let best = entries
-        .iter()
-        .map(|entry| entry.version.clone())
-        .reduce(|best, version| if is_newer(&version, &best) { version } else { best });
-    match best {
-        Some(best) => entries
-            .into_iter()
-            .filter(|entry| bach_pack::version::compare(&entry.version, &best) == Some(Ordering::Equal))
-            .collect(),
-        None => entries,
+/// The first entry, then the others that offer the same version with the
+/// same SHA-256 (the first one leads, and no other can change what it says).
+pub fn agreeing(entries: Vec<FeedEntry>) -> Vec<FeedEntry> {
+    let mut entries = entries.into_iter();
+    let Some(first) = entries.next() else {
+        return Vec::new();
+    };
+    let same = |other: &FeedEntry| {
+        bach_pack::version::compare(&other.version, &first.version) == Some(Ordering::Equal)
+            && other.sha256.trim().eq_ignore_ascii_case(first.sha256.trim())
+    };
+    let mut offers = vec![first.clone()];
+    for other in entries {
+        if same(&other) {
+            offers.push(other);
+        } else {
+            crate::log::line(&format!("A mirror offers {} instead of {}; ignoring it.", other.version, first.version));
+        }
     }
+    offers
 }
 
 /// Reads feed text, refusing anything an update couldn't safely use.
@@ -112,6 +125,38 @@ mod tests {
         assert!(parse(&with("nightly", "https://x/y.exe", SHA)).is_err(), "no version to compare");
         assert!(parse(&with("1.0", "http://x/y.exe", SHA)).is_err(), "not https");
         assert!(parse(&with("1.0", "https://x/y.exe", "abc")).is_err(), "short hash");
+    }
+
+    fn entry(version: &str, url: &str, sha: &str) -> FeedEntry {
+        FeedEntry { version: version.into(), url: url.into(), sha256: sha.into(), notes: None, size: None, rollout: None }
+    }
+
+    #[test]
+    fn a_mirror_can_never_offer_a_newer_version_than_the_main_feed() {
+        let main = entry("1.0.0", "https://main/a.exe", SHA);
+        let evil = entry("9.9.9", "https://mirror/evil.exe", &"ab".repeat(32));
+        let offers = agreeing(vec![main.clone(), evil]);
+        assert_eq!(offers, [main], "a bigger number on a mirror changes nothing");
+    }
+
+    #[test]
+    fn mirrors_may_only_serve_the_same_file() {
+        let main = entry("1.0.0", "https://main/a.exe", SHA);
+        let same = entry("1.0.0", "https://mirror/a.exe", &SHA.to_uppercase());
+        let other_hash = entry("1.0.0", "https://mirror/b.exe", &"cd".repeat(32));
+        let same_number = entry("1.0", "https://cdn/a.exe", SHA);
+        let offers = agreeing(vec![main.clone(), other_hash, same.clone(), same_number.clone()]);
+        assert_eq!(offers, [main, same, same_number]);
+    }
+
+    #[test]
+    fn when_the_main_feed_is_down_the_first_mirror_leads() {
+        // fetch_offers drops feeds that didn't answer, so the first answer is
+        // what `agreeing` sees first.
+        let first = entry("2.0.0", "https://mirror/a.exe", SHA);
+        let later = entry("3.0.0", "https://other/a.exe", &"ab".repeat(32));
+        assert_eq!(agreeing(vec![first.clone(), later]), [first]);
+        assert!(agreeing(Vec::new()).is_empty());
     }
 
     #[test]

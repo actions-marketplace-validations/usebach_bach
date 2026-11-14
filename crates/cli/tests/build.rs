@@ -387,3 +387,20 @@ fn the_feed_can_be_rolled_out_to_some_computers_first() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[cfg(windows)]
+#[test]
+fn a_setup_file_explains_its_options() {
+    need_runtime!();
+    let dir = project("help", &config(""));
+    assert!(run(&dir, &["build", "--fast"]).status.success());
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+    for flag in ["--help", "/?"] {
+        let out = Command::new(&setup).arg(flag).output().unwrap();
+        assert!(out.status.success(), "{flag}");
+        let help = text(&out.stdout);
+        assert!(help.contains("--silent") && help.contains("--key-file") && help.contains("--check-update"), "{help}");
+    }
+    assert!(!dir.join("installed").exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

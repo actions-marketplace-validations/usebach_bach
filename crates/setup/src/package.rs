@@ -88,6 +88,7 @@ impl Package {
             chosen: None,
             requirements: Vec::new(),
             shortcuts: Vec::new(),
+            run: Vec::new(),
             updates: None,
             access: None,
             online: false,

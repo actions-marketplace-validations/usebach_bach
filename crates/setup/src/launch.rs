@@ -25,6 +25,32 @@ use bach_pack::manifest::{Theme, UNINSTALLER};
 use crate::package::Package;
 use crate::system;
 
+/// What `--help` prints: the flags of a setup file and of `uninstall.exe`.
+pub const HELP: &str = "Setup file and uninstall.exe options
+
+  --silent, /S            Install or remove without a window. Exit code 0 done, 1 failed, 2 wrong options.
+  --dir FOLDER            Where a silent install goes (a first install only).
+  --with IDS              Turn these options on (comma-separated ids: desktop-shortcut, start-menu,
+                          autostart, path, auto-update, or a component id).
+  --without IDS           Turn these options off.
+  --allow-downgrade       Let a silent run install an older version over a newer one.
+  --delete-data           Silent removal: also delete the app's data folders.
+  --key-file FILE         The access key, for a setup file that asks for one (or set BACH_ACCESS_KEY).
+  --log FILE              Write this run's log here (default %TEMP%\\<app id>-setup.log).
+  --lang CODE             Use this language (en, de, fr, ...) instead of Windows'.
+  --theme light|dark|system
+  --preview               Show the window; nothing is installed or removed.
+
+uninstall.exe only
+  --check-update [--json] Say whether a newer version is out (exit code 10: yes, 0: up to date).
+  --download-update       Download it and keep it ready (exit code 10: ready).
+  --apply-update          Install what was kept ready. [--wait-for PID] [--launch]
+  --update                Download the newest version and open its setup (--silent: install it).
+  --auto-update           One background round, as the scheduled task runs it.
+
+  --help, -h, /?          This text.
+";
+
 /// The environment variable that carries an access key to a setup file.
 pub const KEY_ENV: &str = "BACH_ACCESS_KEY";
 
@@ -39,6 +65,7 @@ pub enum Mode {
 pub struct Args {
     pub uninstall: bool,
     pub preview: bool,
+    pub help: bool,
     pub silent: bool,
     pub install_dir: Option<PathBuf>,
     /// `--dir`: where a silent install goes.
@@ -77,6 +104,11 @@ pub struct Args {
 impl Args {
     /// Whether this run is about updating the installed app, as opposed to
     /// installing, removing or previewing.
+    /// Whether the user asked what the options are.
+    pub fn wants_help(&self) -> bool {
+        self.help
+    }
+
     pub fn updating(&self) -> bool {
         self.update || self.check_update || self.download_update || self.apply_update || self.auto_update
     }
@@ -113,6 +145,7 @@ impl Args {
         Self {
             uninstall: has(&["--uninstall"]),
             preview: has(&["--preview"]),
+            help: has(&["--help", "-h", "/?", "/help"]),
             // `/S` and `/quiet` are what IT tools try first.
             silent: has(&["--silent", "/s", "/silent", "/quiet", "/q"]),
             install_dir: value_of("--install-dir").map(PathBuf::from),
@@ -233,6 +266,19 @@ mod tests {
         // A key on the command line would show in every process list.
         assert!(parsed.access_key().is_err(), "a missing file is an error, not no key");
         assert!(!format!("{:?}", args("--key K7QF-3MWD")).contains("K7QF"), "--key isn't a flag");
+    }
+
+    #[test]
+    fn help_is_asked_for_the_usual_ways() {
+        for flag in ["--help", "-h", "/?", "/help", "--HELP"] {
+            assert!(args(flag).wants_help(), "{flag}");
+        }
+        assert!(!args("--silent").wants_help());
+        // Every flag the help text names is one the parser knows.
+        for flag in ["--silent", "--dir", "--with", "--without", "--allow-downgrade", "--delete-data", "--key-file", "--log",
+            "--lang", "--theme", "--preview", "--check-update", "--download-update", "--apply-update", "--update", "--auto-update"] {
+            assert!(HELP.contains(flag), "{flag} is missing from the help text");
+        }
     }
 
     #[test]

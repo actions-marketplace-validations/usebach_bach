@@ -479,7 +479,7 @@
             "type": "string",
             "pattern": "^https://"
           },
-          "description": "More feeds to ask when the main one can't be reached. Each is a full feed (latest.json) with its own download link; the newest version any of them offers wins."
+          "description": "More feeds to ask when the main one can't be reached. Each is a full feed (latest.json) with its own download link. The first feed that answers decides the newest version; the others only give other places to download the same file (same version and SHA-256)."
         },
         "auto": {
           "description": "Keep the app up to date in the background: true (offered, ticked; the default), false (offered, unticked), \"always\" or \"never\".",
