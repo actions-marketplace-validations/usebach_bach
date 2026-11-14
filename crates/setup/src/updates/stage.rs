@@ -19,7 +19,7 @@ use bach_pack::manifest::FeedEntry;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use super::curl::{self, Fetch};
+use super::curl::{self, Bearer, Fetch};
 use crate::system::host;
 
 /// Room left over after the download, for installing it.
@@ -101,7 +101,7 @@ fn hash_file(path: &Path) -> io::Result<String> {
 pub fn ensure_any(
     entries: &[FeedEntry],
     app_id: &str,
-    bearer: Option<&str>,
+    bearer: Option<&Bearer>,
     progress: &mut dyn FnMut(u64),
 ) -> Result<Staged, String> {
     let mut first_error = None;
@@ -121,7 +121,7 @@ pub fn ensure_any(
 pub fn ensure_with(
     entry: &FeedEntry,
     app_id: &str,
-    bearer: Option<&str>,
+    bearer: Option<&Bearer>,
     progress: &mut dyn FnMut(u64),
 ) -> Result<Staged, String> {
     let dir = folder(app_id);

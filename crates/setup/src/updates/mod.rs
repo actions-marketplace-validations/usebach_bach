@@ -85,15 +85,18 @@ impl Context<'_> {
         system::installed(self.manifest()).map(|installed| installed.version).filter(|v| !v.is_empty()).unwrap_or_else(|| self.manifest().app.version.clone())
     }
 
-    /// The key to send with requests, when the app wants it sent.
-    fn bearer(&self) -> Option<&str> {
-        self.manifest().access.as_ref().filter(|access| access.send_key).and(self.key.as_deref())
+    /// The key to send with requests, when the app wants it sent, tied to
+    /// the host of the app's main feed: nowhere else gets it.
+    fn bearer(&self) -> Option<curl::Bearer> {
+        let sends = self.manifest().access.as_ref().is_some_and(|access| access.send_key);
+        let feed = self.feeds.first()?;
+        self.key.as_deref().filter(|_| sends).and_then(|key| curl::Bearer::for_feed(key, feed))
     }
 
     /// What the feeds offer, in a sentence if none can be asked.
     fn latest(&self) -> Result<Offer, String> {
         let work = std::env::temp_dir().join(format!("{}-update", self.manifest().app.id.replace(' ', "-")));
-        let mut entries = feed::fetch_offers(&self.feeds, &work, self.bearer())
+        let mut entries = feed::fetch_offers(&self.feeds, &work, self.bearer().as_ref())
             .map_err(|error| self.texts.with(Key::error_download, &[("error", &error)]))?;
         let entry = entries.remove(0);
         Ok(Offer { entry, mirrors: entries })
@@ -241,7 +244,7 @@ fn download(ctx: &Context) -> Result<i32, String> {
 
 fn stage_entry(ctx: &Context, offer: &Offer) -> Result<stage::Staged, String> {
     crate::log::line(&format!("Downloading {} {}", ctx.manifest().app.name, offer.version));
-    stage::ensure_any(&offer.entries(), &ctx.manifest().app.id, ctx.bearer(), &mut |_| {})
+    stage::ensure_any(&offer.entries(), &ctx.manifest().app.id, ctx.bearer().as_ref(), &mut |_| {})
         .map_err(|error| ctx.texts.with(Key::error_download, &[("error", &error)]))
 }
 

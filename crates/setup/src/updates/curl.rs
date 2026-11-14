@@ -9,6 +9,11 @@
 //! whatever host a redirect points at, so with a key the redirects are
 //! followed here instead, and the key goes only to the host it was meant
 //! for (see [`resolve`]).
+//!
+//! "The host it was meant for" is the host of the app's main update feed,
+//! which is in the signed setup file's manifest. A feed answer can name any
+//! download link, so the key never goes to a host just because a feed said
+//! so: a download that lives elsewhere is fetched without it.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -30,6 +35,26 @@ impl Fetch {
     pub const FEED: Fetch = Fetch { resume: false, max_seconds: 60, max_bytes: Some(1 << 20) };
     /// A setup file: as long as it takes, resuming where an earlier try stopped.
     pub const SETUP: Fetch = Fetch { resume: true, max_seconds: 3 * 3600, max_bytes: None };
+}
+
+/// An access key and the one origin (`host` or `host:port`) it may be sent to.
+pub struct Bearer {
+    key: String,
+    origin: String,
+}
+
+impl std::fmt::Debug for Bearer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Bearer(.. for {})", self.origin)
+    }
+}
+
+impl Bearer {
+    /// The key, tied to the origin of `feed` (the app's main update feed).
+    /// None when the feed link isn't one a key may be sent to.
+    pub fn for_feed(key: &str, feed: &str) -> Option<Self> {
+        Some(Self { key: key.to_string(), origin: origin(feed).ok()? })
+    }
 }
 
 /// What asking a link gives: its HTTP status and where it redirects (empty
@@ -90,15 +115,16 @@ pub fn download_with(
     url: &str,
     to: &Path,
     how: Fetch,
-    bearer: Option<&str>,
+    bearer: Option<&Bearer>,
     progress: &mut dyn FnMut(u64),
 ) -> Result<(), String> {
-    let Some(key) = bearer else {
+    let Some(bearer) = bearer else {
         return run(url, to, how, None, true, progress);
     };
-    let target = resolve(url, &mut |link, send| probe(link, send.then_some(key)))?;
-    // The final link gets the key only when it is still the original host.
-    let send = same_origin(url, &target).unwrap_or(false);
+    let key = bearer.key.as_str();
+    let target = resolve(url, &bearer.origin, &mut |link, send| probe(link, send.then_some(key)))?;
+    // The final link gets the key only when it is on the key's own host.
+    let send = origin(&target).is_ok_and(|found| found == bearer.origin);
     run(&target, to, how, send.then_some(key), false, progress)
 }
 
@@ -218,13 +244,13 @@ fn parse_probe(text: &str) -> Option<(u16, String)> {
 }
 
 /// Follows redirects from `url` by hand, so a key is only ever sent to the
-/// host it was given for. `ask(link, send_key)` reports a link's HTTP status
-/// and where it redirects; `send_key` says whether the key may go with the
-/// request. Gives the link that finally answers with success.
-fn resolve(url: &str, ask: &mut dyn FnMut(&str, bool) -> Answer) -> Result<String, String> {
+/// host it was given for, `allowed`. `ask(link, send_key)` reports a link's
+/// HTTP status and where it redirects; `send_key` says whether the key may go
+/// with the request. Gives the link that finally answers with success.
+fn resolve(url: &str, allowed: &str, ask: &mut dyn FnMut(&str, bool) -> Answer) -> Result<String, String> {
     let mut current = url.to_string();
     for _ in 0..=MAX_HOPS {
-        let send = same_origin(url, &current)?;
+        let send = origin(&current)? == allowed;
         let (code, next) = ask(&current, send)?;
         match code {
             200..=299 => return Ok(current),
@@ -253,10 +279,6 @@ fn origin(url: &str) -> Result<String, String> {
     Ok(authority.to_ascii_lowercase().trim_end_matches(":443").to_string())
 }
 
-fn same_origin(a: &str, b: &str) -> Result<bool, String> {
-    Ok(origin(a)? == origin(b)?)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,7 +287,7 @@ mod tests {
     fn plain_http_is_refused() {
         let to = std::env::temp_dir().join(format!("bach-curl-{}", std::process::id()));
         assert!(download_with("http://example.com/", &to, Fetch::FEED, None, &mut |_| {}).is_err());
-        assert!(download_with("http://example.com/", &to, Fetch::FEED, Some("secret-key-1234"), &mut |_| {}).is_err());
+        assert!(download_with("http://example.com/", &to, Fetch::FEED, Bearer::for_feed("secret-key-1234", "https://example.com/x").as_ref(), &mut |_| {}).is_err());
         let _ = std::fs::remove_file(to);
     }
 
@@ -301,9 +323,12 @@ mod tests {
         assert!(origin("http://example.com/").is_err());
         assert!(origin("https://").is_err());
         assert!(origin("https://good.com@evil.com/x").is_err(), "a user name in front hides the host");
-        assert!(same_origin("https://a.com/x", "https://a.com/y").unwrap());
-        assert!(!same_origin("https://a.com/x", "https://cdn.a.com/x").unwrap());
-        assert!(!same_origin("https://a.com/x", "https://a.com:8443/x").unwrap());
+        let bearer = |feed: &str| Bearer::for_feed("secret-key-1234", feed).map(|b| b.origin);
+        assert_eq!(bearer("https://A.com/latest.json").as_deref(), Some("a.com"));
+        assert_ne!(bearer("https://a.com/x"), bearer("https://cdn.a.com/x"));
+        assert_ne!(bearer("https://a.com/x"), bearer("https://a.com:8443/x"));
+        assert!(bearer("http://a.com/x").is_none() && bearer("https://u@a.com/x").is_none());
+        assert_eq!(format!("{:?}", Bearer::for_feed("secret-key-1234", "https://a.com/x").unwrap()), "Bearer(.. for a.com)");
     }
 
     #[test]
@@ -317,8 +342,12 @@ mod tests {
 
     /// Plays a server: `answers` by link, and records who got the key.
     fn follow(url: &str, answers: &[(&str, u16, &str)]) -> (Result<String, String>, Vec<(String, bool)>) {
+        follow_allowing(url, "a.com", answers)
+    }
+
+    fn follow_allowing(url: &str, allowed: &str, answers: &[(&str, u16, &str)]) -> (Result<String, String>, Vec<(String, bool)>) {
         let mut asked = Vec::new();
-        let result = resolve(url, &mut |link, send| {
+        let result = resolve(url, allowed, &mut |link, send| {
             asked.push((link.to_string(), send));
             answers
                 .iter()
@@ -331,8 +360,9 @@ mod tests {
 
     #[test]
     fn the_key_goes_only_to_the_host_it_was_meant_for() {
-        let (result, asked) = follow(
+        let (result, asked) = follow_allowing(
             "https://example.com/latest/setup.exe",
+            "example.com",
             &[
                 ("https://example.com/latest/setup.exe", 302, "https://cdn.other.net/blob/1"),
                 ("https://cdn.other.net/blob/1", 206, ""),
@@ -342,6 +372,30 @@ mod tests {
         assert_eq!(
             asked,
             [("https://example.com/latest/setup.exe".to_string(), true), ("https://cdn.other.net/blob/1".to_string(), false)]
+        );
+    }
+
+    /// A feed can name any download link, so a link on a host the app never
+    /// named gets no key: not on the first request, and not on a redirect.
+    #[test]
+    fn a_download_link_a_feed_names_never_gets_the_key() {
+        let (result, asked) = follow_allowing(
+            "https://evil.example/steal.exe",
+            "downloads.example.com",
+            &[("https://evil.example/steal.exe", 206, "")],
+        );
+        assert_eq!(result.unwrap(), "https://evil.example/steal.exe");
+        assert_eq!(asked, [("https://evil.example/steal.exe".to_string(), false)]);
+
+        let (_, asked) = follow_allowing(
+            "https://evil.example/a",
+            "downloads.example.com",
+            &[("https://evil.example/a", 302, "https://downloads.example.com/b"), ("https://downloads.example.com/b", 200, "")],
+        );
+        assert_eq!(
+            asked.iter().map(|(_, send)| *send).collect::<Vec<_>>(),
+            [false, true],
+            "the key may reach its own host again, but nobody else"
         );
     }
 

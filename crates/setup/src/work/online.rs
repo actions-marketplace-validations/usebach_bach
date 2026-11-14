@@ -15,6 +15,7 @@ use bach_pack::i18n::Key;
 
 use super::{sentence, InstallPlan, Report};
 use crate::package::Package;
+use crate::updates::curl::Bearer;
 use crate::updates::{feed, stage};
 
 /// Where the download's share of the progress bar ends.
@@ -31,7 +32,8 @@ pub fn fetch(plan: &InstallPlan, report: Report) -> Result<Package, String> {
     };
 
     // The key goes to the server only when the app asked for that.
-    let bearer = plan.key.as_deref().filter(|_| manifest.access.as_ref().is_some_and(|access| access.send_key));
+    let sends = manifest.access.as_ref().is_some_and(|access| access.send_key);
+    let bearer = plan.key.as_deref().filter(|_| sends).and_then(|key| Bearer::for_feed(key, &updates.feed));
     let refused = |error: String| {
         if error.contains("refused the access key") {
             texts.get(Key::access_wrong)
@@ -42,12 +44,12 @@ pub fn fetch(plan: &InstallPlan, report: Report) -> Result<Package, String> {
 
     report(0.02, &texts.get(Key::step_finding));
     let scratch = std::env::temp_dir().join(format!("{}-online", app_id.replace(' ', "-")));
-    let mut offers = feed::fetch_offers(&updates.feeds(), &scratch, bearer).map_err(refused)?;
+    let mut offers = feed::fetch_offers(&updates.feeds(), &scratch, bearer.as_ref()).map_err(refused)?;
     crate::log::line(&format!("The feed offers {} {}", manifest.app.name, offers[0].version));
 
     let label = texts.get(Key::step_fetching);
     let total = offers[0].size.filter(|size| *size > 0);
-    let staged = stage::ensure_any(&offers, app_id, bearer, &mut |done| {
+    let staged = stage::ensure_any(&offers, app_id, bearer.as_ref(), &mut |done| {
         let fraction = total.map_or(0.0, |total| (done as f32 / total as f32).min(1.0));
         report(0.04 + (DOWNLOAD_SHARE - 0.06) * fraction, &label);
     })

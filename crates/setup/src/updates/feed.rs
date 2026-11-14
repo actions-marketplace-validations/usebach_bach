@@ -6,11 +6,11 @@ use std::path::Path;
 
 use bach_pack::manifest::FeedEntry;
 
-use super::curl::{self, Fetch};
+use super::curl::{self, Bearer, Fetch};
 
 /// Fetches and checks the feed at `url`. `work` is a folder to keep the
 /// download in while it is read.
-pub fn fetch(url: &str, work: &Path, bearer: Option<&str>) -> Result<FeedEntry, String> {
+pub fn fetch(url: &str, work: &Path, bearer: Option<&Bearer>) -> Result<FeedEntry, String> {
     std::fs::create_dir_all(work).map_err(|err| err.to_string())?;
     let file = work.join("feed.json");
     let _ = std::fs::remove_file(&file);
@@ -31,7 +31,7 @@ pub fn fetch(url: &str, work: &Path, bearer: Option<&str>) -> Result<FeedEntry, 
 /// bytes from if the first one is down. One feed that can't be reached is no
 /// problem while another answers; when none does, the first one's complaint is
 /// the answer.
-pub fn fetch_offers(urls: &[String], work: &Path, bearer: Option<&str>) -> Result<Vec<FeedEntry>, String> {
+pub fn fetch_offers(urls: &[String], work: &Path, bearer: Option<&Bearer>) -> Result<Vec<FeedEntry>, String> {
     let mut entries = Vec::new();
     let mut first_error = None;
     for url in urls {

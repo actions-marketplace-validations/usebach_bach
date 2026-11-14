@@ -327,7 +327,7 @@ BACH_ACCESS_KEY=K7QF-3MWD-9XPA-H2TY-6NBC bach build
 | `encrypt` | `true` | Encrypt the packaged files with the key. |
 | `key_env` | `BACH_ACCESS_KEY` | The environment variable the build reads the key from. `bach build --key-file FILE` reads its first line instead. |
 | `get_key_url` | none | An `https` page where people get a key. |
-| `send_key` | `true` with `[updates]` | Send the key as `Authorization: Bearer <key>` with every request to the update feed and the download, so a private server can refuse anyone without one. |
+| `send_key` | `true` with `[updates]` | Send the key as `Authorization: Bearer <key>` with every request to the host of `[updates] feed` (the feed, and a download on that same host, redirects from it included), so a private server can refuse anyone without one. Mirrors and downloads on other hosts never get it. |
 
 A key is 8 to 128 characters: letters, digits and `- _ . ~ + / = :`.
 `bach key` makes 100-bit random ones (`--count 100` for a batch, say one per
@@ -339,6 +339,11 @@ and a wrong key stops before anything on the computer is touched. A silent
 install takes it from `--key-file FILE` or the `BACH_ACCESS_KEY` environment
 variable (never an argument, which other programs can read): without one it
 exits with code 2, with a wrong one with code 1.
+
+The key goes only to the host of the main update feed, which is in the signed
+setup file: a feed can name any download link, so a link on another host is
+fetched without it. Host your private downloads on the feed's host (or redirect to
+a signed storage link from it).
 
 After a successful install the key is kept, sealed with Windows' Data
 Protection API for that Windows user (`HKCU\Software\Bach\Access`), so

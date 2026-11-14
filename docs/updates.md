@@ -235,7 +235,9 @@ and upload it there. The **first feed that answers decides which version is
 newest.** A mirror can't say "there's a newer one"; it only offers another
 place to download the *same* file (same version and SHA-256), tried when the
 first download fails. That way a weaker mirror can't widen what installed apps
-trust.
+trust. When the main feed is down, the first mirror that answers is trusted
+like the main feed would be, so list only mirrors you run as carefully as the
+main one, and sign your setup files.
 
 ## Staged rollouts
 
@@ -278,9 +280,11 @@ With `send_key` (the default when `[updates]` is set), the installed app sends
 the key it was installed with as `Authorization: Bearer <key>` with every
 request to the feed and the download. Your server decides: answer `401` or
 `403` and the update is refused with "that key doesn't fit". The key is kept
-sealed for the Windows user and goes only to the host it was meant for: a
-redirect to another host (a storage bucket's signed link) is followed without
-it. Because the files are also encrypted with the key, the setup file is safe
+sealed for the Windows user and goes only to the host of `feed` (the main feed,
+which is in the signed setup file): a feed can name any download link, so a
+download or a mirror on another host never gets it, and a redirect to another
+host (a storage bucket's signed link) is followed without it. Put your private
+download on the same host as the feed. Because the files are also encrypted with the key, the setup file is safe
 on a public host too. See [`[access]`](config.md#access) for what this does and
 does not protect.
 
