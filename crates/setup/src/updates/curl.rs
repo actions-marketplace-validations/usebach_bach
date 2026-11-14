@@ -56,23 +56,50 @@ fn arguments(how: Fetch) -> Vec<String> {
 
 /// Fetches an https `url` into `to`.
 pub fn download(url: &str, to: &Path, how: Fetch) -> Result<(), String> {
-    let curl = curl_path()?;
+    download_with(url, to, how, &mut |_| {})
+}
+
+/// [`download`] that reports how many bytes `to` holds about every tenth of
+/// a second, so a window can draw a bar. A resumed download starts from the
+/// bytes it already had.
+pub fn download_with(url: &str, to: &Path, how: Fetch, progress: &mut dyn FnMut(u64)) -> Result<(), String> {
+    use std::io::Read;
     use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let output = Command::new(curl)
+    let curl = curl_path()?;
+    let mut child = Command::new(curl)
         .args(arguments(how))
         .arg("--output")
         .arg(to)
         .arg(url)
         .creation_flags(CREATE_NO_WINDOW)
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|err| err.to_string())?;
-    if output.status.success() {
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                progress(std::fs::metadata(to).map_or(0, |meta| meta.len()));
+                std::thread::sleep(std::time::Duration::from_millis(120));
+            }
+            Err(err) => return Err(err.to_string()),
+        }
+    };
+    progress(std::fs::metadata(to).map_or(0, |meta| meta.len()));
+    if status.success() {
         return Ok(());
+    }
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stderr.take() {
+        let _ = pipe.read_to_string(&mut stderr);
     }
     // A partial file that was complete already: curl answers 416 ("range
     // not satisfiable"), which here means there is nothing left to fetch.
-    let reason = String::from_utf8_lossy(&output.stderr).trim().trim_start_matches("curl: ").to_string();
+    let reason = stderr.trim().trim_start_matches("curl: ").to_string();
     if how.resume && reason.contains("416") {
         return Ok(());
     }

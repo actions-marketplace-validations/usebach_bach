@@ -79,6 +79,10 @@ enum Command {
         /// v1.4.0 is the only place the version is written (a leading v is dropped).
         #[arg(long)]
         app_version: Option<String>,
+        /// Also write the online installer, which downloads the newest
+        /// version when it runs (same as installer.online = true).
+        #[arg(long)]
+        online: bool,
     },
     /// Open the installer window as it will look, without installing anything.
     Preview {
@@ -172,8 +176,8 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
         Command::Check { config, app_version } => builder::check(&config, app_version.as_deref()),
-        Command::Build { config, out, runtime, fast, app_version } => {
-            builder::build(&config, out.as_deref(), runtime.as_deref(), fast, app_version.as_deref()).map(|_| ())
+        Command::Build { config, out, runtime, fast, app_version, online } => {
+            builder::build(&config, out.as_deref(), runtime.as_deref(), fast, app_version.as_deref(), online).map(|_| ())
         }
         Command::Preview { config, uninstall, theme, lang, runtime } => builder::preview(
             &config,

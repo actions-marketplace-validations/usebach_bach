@@ -42,7 +42,23 @@ pub struct InstallPlan {
     pub choices: Choices,
 }
 
+/// Installs or updates. An online installer first downloads the newest
+/// setup file and installs from that; everything after is the same.
 pub fn install(plan: &InstallPlan, report: Report) -> Result<(), String> {
+    if !plan.package.manifest.online {
+        return install_files(plan, report);
+    }
+    let share = super::online::DOWNLOAD_SHARE;
+    let downloaded = super::online::fetch(plan, &|progress, label| report(progress.min(1.0) * share, label))?;
+    let from_download = super::online::plan_for(plan, downloaded);
+    let result = install_files(&from_download, &|progress, label| report(share + progress * (1.0 - share), label));
+    if result.is_ok() {
+        super::online::forget_download(plan);
+    }
+    result
+}
+
+fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     let package = &plan.package;
     let texts = &plan.texts;
     let manifest = &package.manifest;

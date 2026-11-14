@@ -78,6 +78,9 @@ fn extras(manifest: &Manifest) -> Result<()> {
             bail!("the update feed \"{}\" isn't an https link", updates.feed);
         }
     }
+    if manifest.online && manifest.updates.is_none() {
+        bail!("this online installer has no update feed to download the app from");
+    }
     if let Some(url) = &manifest.uninstall.feedback_url {
         if !is_https(url) {
             bail!("the feedback link \"{url}\" isn't an https link");

@@ -119,7 +119,7 @@ impl Args {
 /// The mode for this package. For the installed uninstaller this hands
 /// over to a temp copy and exits the process.
 pub fn mode(args: &Args, package: &Package) -> Mode {
-    let removing = args.uninstall || !package.has_files();
+    let removing = args.uninstall || !package.is_installer();
     if !removing {
         return Mode::Install;
     }

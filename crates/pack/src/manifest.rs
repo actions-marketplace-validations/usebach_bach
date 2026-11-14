@@ -67,6 +67,11 @@ pub struct Manifest {
     /// Where the installed app checks for updates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updates: Option<Updates>,
+    /// An online installer carries no files. It downloads the newest setup
+    /// file from the update feed when it runs and installs from that, so it
+    /// never installs what was current when it was built.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub online: bool,
     /// SHA-256 of the archive as appended, checked before unpacking. Not
     /// carried by an installed uninstaller, which has no archive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -251,6 +256,7 @@ impl Manifest {
         let mut installed = self.clone();
         installed.files.retain(|file| choices.installs(file));
         installed.chosen = Some(choices.clone());
+        installed.online = false;
         installed.archive_sha256 = None;
         installed
     }
@@ -331,6 +337,7 @@ pub(crate) fn sample() -> Manifest {
         requirements: Vec::new(),
         shortcuts: vec![Shortcut { name: "Hello Docs".into(), target: "hello.exe".into(), arguments: Some("--docs".into()), description: None }],
         updates: None,
+        online: false,
         archive_sha256: None,
     }
 }

@@ -216,7 +216,7 @@ impl SetupView {
         let (sender, mut events) = mpsc::unbounded::<Event>();
         let texts = self.texts.clone();
         let job = match (&self.mode, self.preview) {
-            (_, true) => Job::Pretend { removing: self.is_removing() },
+            (_, true) => Job::Pretend { removing: self.is_removing(), online: self.package.manifest.online },
             (Mode::Install, false) => Job::Install(InstallPlan {
                 package: self.package.clone(),
                 texts: texts.clone(),
@@ -243,7 +243,7 @@ impl SetupView {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
                 Job::Install(plan) => work::install(plan, &report),
                 Job::Remove(plan) => work::remove(plan, &report),
-                Job::Pretend { removing } => work::pretend(&texts, *removing, &report),
+                Job::Pretend { removing, online } => work::pretend(&texts, *removing, *online, &report),
             }))
             .unwrap_or_else(|_| Err(texts.get(Key::error_damaged)));
             match &result {
@@ -319,7 +319,7 @@ impl SetupView {
 enum Job {
     Install(InstallPlan),
     Remove(RemovePlan),
-    Pretend { removing: bool },
+    Pretend { removing: bool, online: bool },
 }
 
 /// A first install shows the license; an update only when it changed.

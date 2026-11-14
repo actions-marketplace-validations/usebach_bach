@@ -125,7 +125,8 @@ fn write(setup: &Path, url: &str, notes: Option<&str>, out: Option<&Path>) -> Re
     };
     let manifest = container::read_manifest(&mut file, &layout)?;
     if !layout.has_archive() {
-        bail!("{} is an uninstaller; point bach feed at the setup file", setup.display());
+        let what = if manifest.online { "an online installer, which carries no files" } else { "an uninstaller" };
+        bail!("{} is {what}; point bach feed at the full setup file", setup.display());
     }
     let bytes = std::fs::read(setup).with_context(|| format!("couldn't read {}", setup.display()))?;
     let notes = notes.map(str::trim).filter(|notes| !notes.is_empty()).map(|notes| notes.chars().take(MAX_NOTES).collect());

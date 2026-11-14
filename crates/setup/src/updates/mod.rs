@@ -18,9 +18,9 @@
 
 mod apply;
 mod auto;
-mod curl;
-mod feed;
-mod stage;
+pub(crate) mod curl;
+pub(crate) mod feed;
+pub(crate) mod stage;
 
 use std::path::PathBuf;
 use std::process::Command;

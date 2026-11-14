@@ -335,6 +335,60 @@ fn an_updating_app_needs_a_comparable_version() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[test]
+fn the_online_installer_needs_a_feed() {
+    let dir = project_dir("online-feed");
+    let err = format!("{:#}", parse(&format!("{MINIMAL}
+[installer]
+online = true"), &dir).unwrap_err());
+    assert!(err.contains("installer.online") && err.contains("[updates]"), "{err}");
+    let ok = format!("{MINIMAL}
+[installer]
+online = true
+[updates]
+github = \"me/hello\"");
+    let project = parse(&ok, &dir).unwrap();
+    assert!(project.online);
+    assert!(!project.manifest.online, "the full setup file isn't the online one");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_online_installer_has_a_name_without_a_version() {
+    let dir = project_dir("online-name");
+    let text = MINIMAL.replace("name = \"Hello\"", "name = \"Hello World\"
+id = \"Hello\"");
+    let project = parse(&text, &dir).unwrap();
+    assert!(!project.online, "off unless asked for");
+    assert_eq!(project.online_output, dir.join("dist/Hello World-Web-Setup.exe"));
+    // GitHub's file names, as for the setup file.
+    let github = parse(&format!("{text}
+[updates]
+github = \"me/hello\""), &dir).unwrap();
+    assert_eq!(github.online_output.file_name().unwrap().to_string_lossy(), "Hello-World-Web-Setup.exe");
+    let custom = parse(&format!("{text}
+[installer]
+online_output = \"out/{{id}}-Web.exe\""), &dir).unwrap();
+    assert_eq!(custom.online_output, dir.join("out/Hello-Web.exe"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_two_installers_never_share_a_file() {
+    let dir = project_dir("online-clash");
+    let text = format!("{MINIMAL}
+[installer]
+output = \"dist/Hello.exe\"
+online_output = \"dist/Hello.exe\"");
+    let err = format!("{:#}", parse(&text, &dir).unwrap_err());
+    assert!(err.contains("online_output"), "{err}");
+    let text = format!("{MINIMAL}
+[installer]
+online_output = \"dist/Hello.txt\"");
+    assert!(format!("{:#}", parse(&text, &dir).unwrap_err()).contains("online_output"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// The editor schema (schema/bach.schema.json) knows every text and
 /// language, so autocompletion never misses one.
 #[test]

@@ -24,6 +24,10 @@ use crate::paths;
 /// The default output, relative to `bach.toml`.
 pub const DEFAULT_OUTPUT: &str = "dist/{name}-Setup-{version}.exe";
 
+/// The default output of the online installer: no version in its name, so
+/// one download link keeps pointing at the newest.
+pub const DEFAULT_ONLINE_OUTPUT: &str = "dist/{name}-Web-Setup.exe";
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
@@ -73,6 +77,8 @@ struct FilesSection {
 #[serde(deny_unknown_fields)]
 struct InstallerSection {
     output: Option<String>,
+    online: Option<bool>,
+    online_output: Option<String>,
     folder: Option<String>,
     theme: Option<String>,
     accent: Option<String>,
@@ -114,6 +120,11 @@ pub struct Project {
     /// The logo's bytes, read now so the build can't race an edit.
     pub logo: Option<Vec<u8>>,
     pub output: PathBuf,
+    /// Whether `bach build` also writes the online installer (see
+    /// `installer.online`).
+    pub online: bool,
+    /// Where the online installer goes; only written when [`Self::online`].
+    pub online_output: PathBuf,
     pub compression: Compression,
     /// Things that build fine but probably aren't meant, one sentence each.
     pub warnings: Vec<String>,
@@ -255,6 +266,26 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         }
     }
 
+    let online_template = file.installer.online_output.as_deref().unwrap_or(DEFAULT_ONLINE_OUTPUT);
+    let mut online_output = root.join(fill_template(online_template, &app));
+    if !has_extension(&online_output, "exe") {
+        bail!("installer.online_output must end in .exe; it's \"{online_template}\"");
+    }
+    if update_github.is_some() {
+        if let Some(name) = online_output.file_name().map(|name| name.to_string_lossy().into_owned()) {
+            online_output.set_file_name(github_asset_name(&name));
+        }
+    }
+    if online_output == output {
+        bail!("installer.output and installer.online_output are the same file; give the online installer its own name");
+    }
+    let online = file.installer.online.unwrap_or(false);
+    if online && updates.is_none() {
+        bail!(
+            "installer.online is true, but there's no [updates]; the online installer downloads the newest              version through the update feed"
+        );
+    }
+
     let source_dir = root.join(&file.files.source);
     if !source_dir.is_dir() {
         bail!("files.source is \"{}\", but {} isn't a folder", file.files.source, source_dir.display());
@@ -300,6 +331,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         requirements: extras::requirements(&file.requirements)?,
         shortcuts: Vec::new(),
         updates,
+        online: false,
         archive_sha256: None,
     };
     if manifest.install.add_to_path != manifest::Choice::Never {
@@ -320,6 +352,8 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         icon,
         logo,
         output,
+        online,
+        online_output,
         compression,
         warnings,
         update_download_url,

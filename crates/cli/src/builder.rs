@@ -40,11 +40,20 @@ pub fn build(
     runtime: Option<&Path>,
     fast: bool,
     version: Option<&str>,
+    online: bool,
 ) -> Result<PathBuf> {
     let started = Instant::now();
     let mut project = load(config_path, version)?;
     if fast {
         project.compression = Compression::Fast;
+    }
+    if online {
+        project.online = true;
+    }
+    if project.online && project.manifest.updates.is_none() {
+        bail!(
+            "an online installer downloads the newest version through the update feed,              so bach.toml needs an [updates] section (github = \"owner/repo\" or feed = \"https://…\")"
+        );
     }
     let output = out.map(Path::to_path_buf).unwrap_or_else(|| project.output.clone());
     let runtime = runtime::find(runtime)?;
@@ -61,6 +70,12 @@ pub fn build(
     let installed = project.manifest.total_size().max(1);
     println!();
     println!("Wrote {} ({})", output.display(), output::size(size));
+    if project.online {
+        let online_output = tidy(&project.online_output);
+        write_online_setup(&project, &runtime, &online_output)?;
+        let size = fs::metadata(&online_output).map(|meta| meta.len()).unwrap_or(0);
+        println!("Wrote {} ({}), the online installer", online_output.display(), output::size(size));
+    }
     if project.manifest.updates.is_some() {
         crate::feed::after_build(&project, &output)?;
     }
@@ -165,6 +180,21 @@ fn tidy(path: &Path) -> PathBuf {
 /// leaves a half-written installer where the real one belongs. Returns the
 /// archive's packed size.
 fn write_setup(project: &Project, runtime_path: &Path, output: &Path) -> Result<u64> {
+    write_file(project, runtime_path, output, write_into)
+}
+
+/// The online installer: the same window and manifest as the setup file,
+/// and no files. It downloads the newest setup file when it runs.
+fn write_online_setup(project: &Project, runtime_path: &Path, output: &Path) -> Result<u64> {
+    write_file(project, runtime_path, output, write_online_into)
+}
+
+fn write_file(
+    project: &Project,
+    runtime_path: &Path,
+    output: &Path,
+    write: fn(&Project, &[u8], &Path) -> Result<u64>,
+) -> Result<u64> {
     let runtime = runtime::read(runtime_path)?;
     if let Some(dir) = output.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         fs::create_dir_all(dir).with_context(|| format!("couldn't create {}", dir.display()))?;
@@ -173,7 +203,7 @@ fn write_setup(project: &Project, runtime_path: &Path, output: &Path) -> Result<
     partial.push(".partial");
     let partial = PathBuf::from(partial);
 
-    let packed = match write_into(project, &runtime, &partial) {
+    let packed = match write(project, &runtime, &partial) {
         Ok(packed) => packed,
         Err(err) => {
             let _ = fs::remove_file(&partial);
@@ -207,6 +237,20 @@ fn write_into(project: &Project, runtime: &[u8], path: &Path) -> Result<u64> {
     let layout = container::finish(&mut file, archive_offset, logo, &manifest)?;
     file.sync_all()?;
     Ok(layout.archive.len)
+}
+
+fn write_online_into(project: &Project, runtime: &[u8], path: &Path) -> Result<u64> {
+    fs::write(path, runtime).with_context(|| format!("couldn't write {}", path.display()))?;
+    brand(project, path)?;
+    let mut file = File::options().read(true).write(true).open(path)?;
+    let offset = file.seek(SeekFrom::End(0))?;
+    let mut manifest = project.manifest.clone();
+    manifest.online = true;
+    manifest.archive_sha256 = None;
+    let logo = project.logo.as_deref().unwrap_or_default();
+    container::finish(&mut file, offset, logo, &manifest)?;
+    file.sync_all()?;
+    Ok(0)
 }
 
 /// A writer that hashes what passes through it.

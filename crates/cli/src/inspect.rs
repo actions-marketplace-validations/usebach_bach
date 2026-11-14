@@ -17,7 +17,13 @@ pub fn inspect(path: &Path) -> Result<()> {
     };
     let manifest = container::read_manifest(&mut file, &layout)?;
     let app = &manifest.app;
-    let kind = if layout.has_archive() { "Installer" } else { "Uninstaller" };
+    let kind = if layout.has_archive() {
+        "Installer"
+    } else if manifest.online {
+        "Online installer"
+    } else {
+        "Uninstaller"
+    };
     println!("{kind} for {} {}", app.name, app.version);
     field("App id", &app.id);
     details(&manifest);

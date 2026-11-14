@@ -98,6 +98,11 @@ fn hash_file(path: &Path) -> io::Result<String> {
 /// Downloads `entry`'s setup file (unless it is already staged and still
 /// good) and records it as ready.
 pub fn ensure(entry: &FeedEntry, app_id: &str) -> Result<Staged, String> {
+    ensure_with(entry, app_id, &mut |_| {})
+}
+
+/// [`ensure`], telling `progress` how many bytes of the download are on disk.
+pub fn ensure_with(entry: &FeedEntry, app_id: &str, progress: &mut dyn FnMut(u64)) -> Result<Staged, String> {
     let dir = folder(app_id);
     fs::create_dir_all(&dir).map_err(|err| format!("couldn't create {}: {err}", dir.display()))?;
     let expected = entry.sha256.trim().to_ascii_lowercase();
@@ -121,7 +126,7 @@ pub fn ensure(entry: &FeedEntry, app_id: &str) -> Result<Staged, String> {
             let _ = fs::remove_file(&partial);
         }
         // A failed download keeps what it got, to continue next time.
-        curl::download(&entry.url, &partial, how)?;
+        curl::download_with(&entry.url, &partial, how, progress)?;
         let hash = hash_file(&partial).map_err(|err| err.to_string())?;
         if hash == expected {
             break;

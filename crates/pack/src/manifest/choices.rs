@@ -174,6 +174,20 @@ impl Choices {
         choices
     }
 
+    /// Carries choices made against `old` over to `new`, a newer manifest of
+    /// the same app (an online installer shows the choices of the version it
+    /// was built with, then installs whatever version is current). A component
+    /// that only `new` has starts the way `new` says.
+    pub fn carry_over(mut self, old: &Manifest, new: &Manifest) -> Self {
+        for component in &new.components {
+            let known = old.components.iter().any(|before| before.id == component.id);
+            if !known && component.default && !self.components.contains(&component.id) {
+                self.components.push(component.id.clone());
+            }
+        }
+        self.settle(new)
+    }
+
     /// Settles every choice against what the manifest allows: `always`
     /// features are on, `never` ones off, unknown components dropped.
     pub fn settle(mut self, manifest: &Manifest) -> Self {
@@ -299,6 +313,31 @@ mod tests {
         assert!(!choices.auto_update);
         let updates: super::super::Updates = serde_json::from_str(r#"{"feed":"https://x/latest.json"}"#).unwrap();
         assert_eq!(updates.auto, Choice::Never);
+    }
+
+    #[test]
+    fn choices_carry_over_to_a_newer_manifest() {
+        use super::super::Component;
+        let old = sample();
+        let mut new = sample();
+        let title = |text: &str| [(crate::i18n::ANY_LANGUAGE.to_string(), text.to_string())].into();
+        new.components.retain(|component| component.id != "samples");
+        new.components.push(Component { id: "extras".into(), title: title("Extras"), description: None, default: true });
+        new.components.push(Component { id: "beta".into(), title: title("Beta"), description: None, default: false });
+        let mut mine = Choices::defaults(&old);
+        mine.components = vec!["samples".into()];
+        let carried = mine.carry_over(&old, &new);
+        // "samples" is gone, a new default component is on, a new optional one stays off.
+        assert_eq!(carried.components, ["extras"]);
+    }
+
+    #[test]
+    fn a_component_the_user_unticked_stays_unticked() {
+        let manifest = sample();
+        let mut choices = Choices::defaults(&manifest);
+        choices.components.clear();
+        // "samples" exists in both, so the answer isn't second-guessed.
+        assert!(choices.clone().carry_over(&manifest, &manifest).components.is_empty());
     }
 
     #[test]
