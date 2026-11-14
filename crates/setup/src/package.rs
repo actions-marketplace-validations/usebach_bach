@@ -89,6 +89,7 @@ impl Package {
             requirements: Vec::new(),
             shortcuts: Vec::new(),
             updates: None,
+            access: None,
             online: false,
             archive_sha256: None,
         };

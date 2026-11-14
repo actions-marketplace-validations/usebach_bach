@@ -14,8 +14,7 @@ impl SetupView {
         let missing = crate::start::missing_requirements(&self.package.manifest).first().copied();
         self.stage = match missing {
             Some(index) => Stage::Requirement(index),
-            None if self.license_pending => Stage::License,
-            None => Stage::Ready,
+            None => self.first_page(),
         };
         self.focused = None;
         cx.notify();

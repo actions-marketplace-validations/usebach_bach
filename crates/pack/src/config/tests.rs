@@ -389,6 +389,124 @@ online_output = \"dist/Hello.txt\"");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[test]
+fn access_encrypts_by_default_and_sends_the_key_with_updates() {
+    let dir = project_dir("access");
+    let alone = parse(&format!("{MINIMAL}
+[access]
+get_key_url = \"https://example.com/buy\""), &dir).unwrap();
+    assert!(alone.encrypt);
+    assert_eq!(alone.key_env, "BACH_ACCESS_KEY");
+    let access = alone.manifest.access.as_ref().unwrap();
+    assert!(!access.send_key, "nothing to send it to without [updates]");
+    assert_eq!(access.get_key_url.as_deref(), Some("https://example.com/buy"));
+    assert!(access.encryption.is_none(), "the builder makes the protection data, with the key");
+
+    let updating = parse(&format!("{MINIMAL}
+[access]
+key_env = \"HELLO_KEY\"
+[updates]
+github = \"me/hello\""), &dir).unwrap();
+    assert_eq!(updating.key_env, "HELLO_KEY");
+    assert!(updating.manifest.access.as_ref().unwrap().send_key, "private updates by default");
+
+    // No [access], no key.
+    let none = parse(MINIMAL, &dir).unwrap();
+    assert!(!none.encrypt && none.manifest.access.is_none());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn access_mistakes_name_their_setting() {
+    let dir = project_dir("access-mistakes");
+    let updates = "[updates]
+feed = \"https://x/latest.json\"";
+    let cases = [
+        (format!("{MINIMAL}
+[access]
+encrypt = false"), "[access] does nothing"),
+        (format!("{MINIMAL}
+[access]
+send_key = true"), "access.send_key"),
+        (format!("{MINIMAL}
+[access]
+key_env = \"not a name\""), "access.key_env"),
+        (format!("{MINIMAL}
+[access]
+key_env = \"1ABC\""), "access.key_env"),
+        (format!("{MINIMAL}
+[access]
+get_key_url = \"http://x/buy\""), "access.get_key_url"),
+        (format!("{MINIMAL}
+[access]
+key = \"secret\""), "key"),
+        (format!("{MINIMAL}
+[access]
+encrypt = false
+send_key = false
+{updates}"), "[access] does nothing"),
+    ];
+    for (text, expected) in cases {
+        let err = format!("{:#}", parse(&text, &dir).unwrap_err());
+        assert!(err.contains(expected), "{expected}: {err}");
+    }
+    // Sending the key without encrypting is fine: a private server can check it.
+    let gate = format!("{MINIMAL}
+[access]
+encrypt = false
+{updates}");
+    let project = parse(&gate, &dir).unwrap();
+    assert!(!project.encrypt && project.manifest.access.as_ref().unwrap().send_key);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_key_can_never_be_written_into_bach_toml() {
+    let dir = project_dir("no-key-in-config");
+    for key in ["key", "password", "secret", "access_key"] {
+        let text = format!("{MINIMAL}
+[access]
+{key} = \"K7QF-3MWD-9XPA\"");
+        assert!(parse(&text, &dir).is_err(), "[access] {key} must not exist");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn mirrors_are_feeds_of_their_own() {
+    let dir = project_dir("mirrors");
+    let text = format!(
+        "{MINIMAL}
+[updates]
+github = \"me/hello\"
+mirrors = [\"https://mirror.example/hello/latest.json\", \"https://cdn.example/latest.json\"]"
+    );
+    let project = parse(&text, &dir).unwrap();
+    let updates = project.manifest.updates.as_ref().unwrap();
+    assert_eq!(updates.mirrors.len(), 2);
+    assert_eq!(
+        updates.feeds(),
+        [
+            "https://github.com/me/hello/releases/latest/download/latest.json",
+            "https://mirror.example/hello/latest.json",
+            "https://cdn.example/latest.json"
+        ]
+    );
+    for (bad, expected) in [
+        ("mirrors = [\"http://x/latest.json\"]", "https link"),
+        ("mirrors = [\"https://a/l.json\", \"https://a/l.json\"]", "twice"),
+        ("mirrors = [\"https://x/latest.json\"]
+feed = \"https://x/latest.json\"", "twice"),
+    ] {
+        let err = format!("{:#}", parse(&format!("{MINIMAL}
+[updates]
+github = \"me/hello\"
+{bad}"), &dir).unwrap_err());
+        assert!(err.contains(expected), "{bad}: {err}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// The editor schema (schema/bach.schema.json) knows every text and
 /// language, so autocompletion never misses one.
 #[test]

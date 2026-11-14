@@ -95,14 +95,35 @@ fn hash_file(path: &Path) -> io::Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Downloads `entry`'s setup file (unless it is already staged and still
-/// good) and records it as ready.
-pub fn ensure(entry: &FeedEntry, app_id: &str) -> Result<Staged, String> {
-    ensure_with(entry, app_id, &mut |_| {})
+/// [`ensure_with`] for every entry that offers the version, in turn (the
+/// main feed's, then its mirrors'): the first one that downloads wins. When
+/// none does, the first one's complaint is the answer.
+pub fn ensure_any(
+    entries: &[FeedEntry],
+    app_id: &str,
+    bearer: Option<&str>,
+    progress: &mut dyn FnMut(u64),
+) -> Result<Staged, String> {
+    let mut first_error = None;
+    for entry in entries {
+        match ensure_with(entry, app_id, bearer, progress) {
+            Ok(staged) => return Ok(staged),
+            Err(error) => {
+                crate::log::line(&format!("Downloading from {} failed: {error}", entry.url));
+                first_error.get_or_insert(error);
+            }
+        }
+    }
+    Err(first_error.unwrap_or_else(|| "there is nothing to download".to_string()))
 }
 
 /// [`ensure`], telling `progress` how many bytes of the download are on disk.
-pub fn ensure_with(entry: &FeedEntry, app_id: &str, progress: &mut dyn FnMut(u64)) -> Result<Staged, String> {
+pub fn ensure_with(
+    entry: &FeedEntry,
+    app_id: &str,
+    bearer: Option<&str>,
+    progress: &mut dyn FnMut(u64),
+) -> Result<Staged, String> {
     let dir = folder(app_id);
     fs::create_dir_all(&dir).map_err(|err| format!("couldn't create {}: {err}", dir.display()))?;
     let expected = entry.sha256.trim().to_ascii_lowercase();
@@ -126,7 +147,7 @@ pub fn ensure_with(entry: &FeedEntry, app_id: &str, progress: &mut dyn FnMut(u64
             let _ = fs::remove_file(&partial);
         }
         // A failed download keeps what it got, to continue next time.
-        curl::download_with(&entry.url, &partial, how, progress)?;
+        curl::download_with(&entry.url, &partial, how, bearer, progress)?;
         let hash = hash_file(&partial).map_err(|err| err.to_string())?;
         if hash == expected {
             break;

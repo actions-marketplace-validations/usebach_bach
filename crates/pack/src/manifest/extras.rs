@@ -74,6 +74,17 @@ pub struct Updates {
     /// before this option existed reads as, so an update offers it fresh.
     #[serde(default)]
     pub auto: Choice,
+    /// More feeds to ask when `feed` can't be reached, each a full feed with
+    /// its own download link. The newest version any of them offers wins.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mirrors: Vec<String>,
+}
+
+impl Updates {
+    /// Every feed to ask, the main one first.
+    pub fn feeds(&self) -> Vec<String> {
+        std::iter::once(self.feed.clone()).chain(self.mirrors.iter().cloned()).collect()
+    }
 }
 
 /// The JSON a feed serves.
@@ -90,6 +101,10 @@ pub struct FeedEntry {
     /// room before it downloads anything.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
+    /// A staged rollout: the percentage of computers (0 to 100) that should
+    /// take this version by themselves. Left out, everyone does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollout: Option<u8>,
 }
 
 /// Whether `url` is an https URL (the only kind updates and requirement

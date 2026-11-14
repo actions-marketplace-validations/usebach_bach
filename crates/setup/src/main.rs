@@ -7,6 +7,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 #[cfg(windows)]
+mod access;
+#[cfg(windows)]
 mod actions;
 #[cfg(windows)]
 mod app;

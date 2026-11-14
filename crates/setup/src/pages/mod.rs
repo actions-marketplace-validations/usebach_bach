@@ -2,12 +2,13 @@
 //! line of copy, then the choices in a bordered card, and the buttons along
 //! the bottom. Each page rises in as it replaces the last, so nothing jumps.
 //!
-//! License (when there is one) → Ready → Working (the mark conducts while
+//! Access key and license (when there are any) → Ready → Working (the mark conducts while
 //! a bar fills) → Done, or Failed with a readable sentence and "Try again".
 //!
 //! - `ready.rs`: the license and the choices.
 //! - `finish.rs`: working, done and failed.
 
+mod access;
 mod finish;
 mod ready;
 mod requirement;
@@ -39,6 +40,7 @@ impl Render for SetupView {
         }
         let (kind, body) = match self.stage.clone() {
             Stage::Requirement(index) => ("requirement", self.requirement_page(index, cx)),
+            Stage::Access => ("access", self.access_page(cx)),
             Stage::License => ("license", self.license_page(cx)),
             Stage::Ready => ("ready", self.ready_page(cx)),
             Stage::Working { progress, label } => ("working", self.working_page(progress, label, &theme)),

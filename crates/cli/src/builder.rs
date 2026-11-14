@@ -9,6 +9,8 @@ use anyhow::{bail, Context, Result};
 use bach_pack::archive::{self, Compression};
 use bach_pack::config::{self, Overrides, Project};
 use bach_pack::container;
+use bach_pack::manifest::Encryption;
+use bach_pack::protect::Unlocked;
 use sha2::{Digest, Sha256};
 
 use crate::output::{self, field, Progress};
@@ -34,14 +36,59 @@ pub fn check(config_path: &Path, version: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-pub fn build(
-    config_path: &Path,
-    out: Option<&Path>,
-    runtime: Option<&Path>,
-    fast: bool,
-    version: Option<&str>,
-    online: bool,
-) -> Result<PathBuf> {
+/// What `bach build` was asked for.
+pub struct BuildOptions<'a> {
+    pub config: &'a Path,
+    pub out: Option<&'a Path>,
+    pub runtime: Option<&'a Path>,
+    pub fast: bool,
+    pub version: Option<&'a str>,
+    /// Also write the online installer.
+    pub online: bool,
+    /// A file holding the access key, instead of the environment variable.
+    pub key_file: Option<&'a Path>,
+}
+
+/// The key the files are locked with, and what it unlocks while building.
+struct Sealing {
+    encryption: Encryption,
+    unlocked: Unlocked,
+}
+
+/// Locks the project's files when `[access]` asks for it: reads the key,
+/// makes fresh protection data and records it in the manifest. `key` is the
+/// key to use when it isn't read from the environment (a preview's).
+fn seal(project: &mut Project, key_file: Option<&Path>, key: Option<&str>) -> Result<Option<Sealing>> {
+    if !project.encrypt {
+        return Ok(None);
+    }
+    let key = match key {
+        Some(key) => key.to_string(),
+        None => read_key(&project.key_env, key_file)?,
+    };
+    let (encryption, unlocked) = Encryption::create(&key)?;
+    if let Some(access) = &mut project.manifest.access {
+        access.encryption = Some(encryption.clone());
+    }
+    Ok(Some(Sealing { encryption, unlocked }))
+}
+
+fn read_key(env: &str, key_file: Option<&Path>) -> Result<String> {
+    let key = match key_file {
+        Some(file) => std::fs::read_to_string(file)
+            .with_context(|| format!("couldn't read the key file {}", file.display()))?,
+        None => std::env::var(env).map_err(|_| {
+            anyhow::anyhow!(
+                "bach.toml has [access], so the files are encrypted and the build needs the access key. \
+                 Set the environment variable {env} to it (make one with `bach key`), or pass --key-file FILE"
+            )
+        })?,
+    };
+    Ok(key.trim().to_string())
+}
+
+pub fn build(options: BuildOptions) -> Result<PathBuf> {
+    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file } = options;
     let started = Instant::now();
     let mut project = load(config_path, version)?;
     if fast {
@@ -63,8 +110,12 @@ pub fn build(
 
     output::warnings(&project.warnings);
 
+    let sealing = seal(&mut project, key_file, None)?;
+    if sealing.is_some() {
+        println!("The files are encrypted with the access key.");
+    }
     let output = tidy(&output);
-    let packed = write_setup(&project, &runtime, &output)?;
+    let packed = write_setup(&project, &runtime, &output, sealing.as_ref())?;
 
     let size = fs::metadata(&output).map(|meta| meta.len()).unwrap_or(0);
     let installed = project.manifest.total_size().max(1);
@@ -72,7 +123,7 @@ pub fn build(
     println!("Wrote {} ({})", output.display(), output::size(size));
     if project.online {
         let online_output = tidy(&project.online_output);
-        write_online_setup(&project, &runtime, &online_output)?;
+        write_online_setup(&project, &runtime, &online_output, sealing.as_ref())?;
         let size = fs::metadata(&online_output).map(|meta| meta.len()).unwrap_or(0);
         println!("Wrote {} ({}), the online installer", online_output.display(), output::size(size));
     }
@@ -103,6 +154,8 @@ pub fn preview(config_path: &Path, options: PreviewOptions) -> Result<()> {
     let PreviewOptions { uninstall, theme, lang, runtime } = options;
     let mut project = config::load(config_path)?;
     project.compression = Compression::Fast;
+    // A preview opens the key page too; any key passes there.
+    let sealing = seal(&mut project, None, Some("preview-only-key"))?;
     if let Some(theme) = theme {
         if bach_pack::manifest::Theme::parse(theme).is_none() {
             bail!("--theme is \"{theme}\"; use system, light or dark");
@@ -133,7 +186,7 @@ pub fn preview(config_path: &Path, options: PreviewOptions) -> Result<()> {
         project.manifest.app.id.replace(' ', "-"),
         std::process::id()
     ));
-    write_setup(&project, &runtime, &output)?;
+    write_setup(&project, &runtime, &output, sealing.as_ref())?;
 
     let mut command = std::process::Command::new(&output);
     command.arg("--preview");
@@ -152,7 +205,7 @@ pub fn preview(config_path: &Path, options: PreviewOptions) -> Result<()> {
 }
 
 fn summary(project: &Project) {
-    crate::inspect::details(&project.manifest);
+    crate::inspect::details(&project.manifest, project.encrypt);
 }
 
 /// `examples/hello/../../dist/x.exe` becomes `dist/x.exe`, without touching
@@ -179,21 +232,24 @@ fn tidy(path: &Path) -> PathBuf {
 /// Writes the setup file through a `.partial` file, so a failed build never
 /// leaves a half-written installer where the real one belongs. Returns the
 /// archive's packed size.
-fn write_setup(project: &Project, runtime_path: &Path, output: &Path) -> Result<u64> {
-    write_file(project, runtime_path, output, write_into)
+fn write_setup(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>) -> Result<u64> {
+    write_file(project, runtime_path, output, sealing, write_into)
 }
 
 /// The online installer: the same window and manifest as the setup file,
 /// and no files. It downloads the newest setup file when it runs.
-fn write_online_setup(project: &Project, runtime_path: &Path, output: &Path) -> Result<u64> {
-    write_file(project, runtime_path, output, write_online_into)
+fn write_online_setup(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>) -> Result<u64> {
+    write_file(project, runtime_path, output, sealing, write_online_into)
 }
+
+type WriteSetup = fn(&Project, &[u8], &Path, Option<&Sealing>) -> Result<u64>;
 
 fn write_file(
     project: &Project,
     runtime_path: &Path,
     output: &Path,
-    write: fn(&Project, &[u8], &Path) -> Result<u64>,
+    sealing: Option<&Sealing>,
+    write: WriteSetup,
 ) -> Result<u64> {
     let runtime = runtime::read(runtime_path)?;
     if let Some(dir) = output.parent().filter(|dir| !dir.as_os_str().is_empty()) {
@@ -203,7 +259,7 @@ fn write_file(
     partial.push(".partial");
     let partial = PathBuf::from(partial);
 
-    let packed = match write(project, &runtime, &partial) {
+    let packed = match write(project, &runtime, &partial, sealing) {
         Ok(packed) => packed,
         Err(err) => {
             let _ = fs::remove_file(&partial);
@@ -217,7 +273,7 @@ fn write_file(
     Ok(packed)
 }
 
-fn write_into(project: &Project, runtime: &[u8], path: &Path) -> Result<u64> {
+fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&Sealing>) -> Result<u64> {
     fs::write(path, runtime).with_context(|| format!("couldn't write {}", path.display()))?;
     brand(project, path)?;
 
@@ -226,7 +282,15 @@ fn write_into(project: &Project, runtime: &[u8], path: &Path) -> Result<u64> {
     let total = project.manifest.total_size();
     let mut progress = Progress::new("Packing", total);
     let hashing = Hashing { inner: BufWriter::new(file), hasher: Sha256::new() };
-    let hashing = archive::write(hashing, &project.sources, project.compression, &mut |done| progress.update(done))?;
+    let mut step = |done| progress.update(done);
+    let hashing = match sealing {
+        // The hash covers what is appended, which is the encrypted bytes.
+        Some(sealing) => {
+            let writer = sealing.encryption.writer(hashing, &sealing.unlocked)?;
+            archive::write(writer, &project.sources, project.compression, &mut step)?.finish()?
+        }
+        None => archive::write(hashing, &project.sources, project.compression, &mut step)?,
+    };
     progress.finish();
     let Hashing { inner, hasher } = hashing;
     let mut file = inner.into_inner().map_err(|err| err.into_error())?;
@@ -239,7 +303,7 @@ fn write_into(project: &Project, runtime: &[u8], path: &Path) -> Result<u64> {
     Ok(layout.archive.len)
 }
 
-fn write_online_into(project: &Project, runtime: &[u8], path: &Path) -> Result<u64> {
+fn write_online_into(project: &Project, runtime: &[u8], path: &Path, _sealing: Option<&Sealing>) -> Result<u64> {
     fs::write(path, runtime).with_context(|| format!("couldn't write {}", path.display()))?;
     brand(project, path)?;
     let mut file = File::options().read(true).write(true).open(path)?;

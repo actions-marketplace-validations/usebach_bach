@@ -30,18 +30,29 @@ pub fn fetch(plan: &InstallPlan, report: Report) -> Result<Package, String> {
         return Err(texts.get(Key::error_damaged));
     };
 
+    // The key goes to the server only when the app asked for that.
+    let bearer = plan.key.as_deref().filter(|_| manifest.access.as_ref().is_some_and(|access| access.send_key));
+    let refused = |error: String| {
+        if error.contains("refused the access key") {
+            texts.get(Key::access_wrong)
+        } else {
+            unavailable(error)
+        }
+    };
+
     report(0.02, &texts.get(Key::step_finding));
     let scratch = std::env::temp_dir().join(format!("{}-online", app_id.replace(' ', "-")));
-    let entry = feed::fetch(&updates.feed, &scratch).map_err(unavailable)?;
-    crate::log::line(&format!("The feed offers {} {}", manifest.app.name, entry.version));
+    let mut offers = feed::fetch_newest(&updates.feeds(), &scratch, bearer).map_err(refused)?;
+    crate::log::line(&format!("The feed offers {} {}", manifest.app.name, offers[0].version));
 
     let label = texts.get(Key::step_fetching);
-    let total = entry.size.filter(|size| *size > 0);
-    let staged = stage::ensure_with(&entry, app_id, &mut |done| {
+    let total = offers[0].size.filter(|size| *size > 0);
+    let staged = stage::ensure_any(&offers, app_id, bearer, &mut |done| {
         let fraction = total.map_or(0.0, |total| (done as f32 / total as f32).min(1.0));
         report(0.04 + (DOWNLOAD_SHARE - 0.06) * fraction, &label);
     })
-    .map_err(unavailable)?;
+    .map_err(refused)?;
+    offers.clear();
 
     let package = Package::load_from(staged.file.clone())
         .map_err(|err| format!("{err:#}"))
@@ -64,7 +75,13 @@ pub fn forget_download(plan: &InstallPlan) {
 /// choices carried over to its manifest.
 pub fn plan_for(plan: &InstallPlan, downloaded: Package) -> InstallPlan {
     let choices = plan.choices.clone().carry_over(&plan.package.manifest, &downloaded.manifest);
-    InstallPlan { package: Arc::new(downloaded), texts: plan.texts.clone(), dir: plan.dir.clone(), choices }
+    InstallPlan {
+        package: Arc::new(downloaded),
+        texts: plan.texts.clone(),
+        dir: plan.dir.clone(),
+        choices,
+        key: plan.key.clone(),
+    }
 }
 
 fn capitalised(text: &str) -> String {

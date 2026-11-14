@@ -14,6 +14,9 @@
 //! - `--preview`: the windows, with the work only pretended.
 //! - `--theme light|dark|system` and `--lang <code>` override the payload's
 //!   theme and the user's language.
+//! - A setup file with an access key asks for it. `--key-file FILE` or the
+//!   `BACH_ACCESS_KEY` environment variable give it up front instead (never
+//!   an argument, which other programs can read).
 
 use std::path::{Path, PathBuf};
 
@@ -21,6 +24,9 @@ use bach_pack::manifest::{Theme, UNINSTALLER};
 
 use crate::package::Package;
 use crate::system;
+
+/// The environment variable that carries an access key to a setup file.
+pub const KEY_ENV: &str = "BACH_ACCESS_KEY";
 
 #[derive(Clone, Debug)]
 pub enum Mode {
@@ -44,6 +50,8 @@ pub struct Args {
     pub allow_downgrade: bool,
     /// `--log FILE`: where this run's log goes.
     pub log: Option<PathBuf>,
+    /// `--key-file FILE`: a file holding the access key.
+    pub key_file: Option<PathBuf>,
     /// `--update`: look for a newer version and install it.
     pub update: bool,
     /// `--check-update`: only say whether there is one (exit code 10).
@@ -77,6 +85,18 @@ impl Args {
         Self::from(std::env::args().skip(1).collect())
     }
 
+    /// The access key given up front: the `--key-file`'s first line, else
+    /// the `BACH_ACCESS_KEY` variable. None when neither is given; an error
+    /// sentence when the file can't be read.
+    pub fn access_key(&self) -> Result<Option<String>, String> {
+        if let Some(file) = &self.key_file {
+            let text = std::fs::read_to_string(file)
+                .map_err(|err| format!("couldn't read the key file {}: {err}", file.display()))?;
+            return Ok(first_line(&text));
+        }
+        Ok(std::env::var(KEY_ENV).ok().and_then(|text| first_line(&text)))
+    }
+
     fn from(args: Vec<String>) -> Self {
         let value_of = |flag: &str| {
             args.iter()
@@ -102,6 +122,7 @@ impl Args {
             delete_data: has(&["--delete-data"]),
             allow_downgrade: has(&["--allow-downgrade"]),
             log: value_of("--log").map(PathBuf::from),
+            key_file: value_of("--key-file").map(PathBuf::from),
             update: has(&["--update"]),
             check_update: has(&["--check-update"]),
             download_update: has(&["--download-update"]),
@@ -175,6 +196,12 @@ fn hand_over_to_temp_copy(dir: &Path, package: &Package, args: &Args) -> bool {
     }
 }
 
+/// The first non-empty line, trimmed: what a key file or variable holds,
+/// whether or not an editor added a newline.
+fn first_line(text: &str) -> Option<String> {
+    text.trim_start_matches('\u{feff}').lines().map(str::trim).find(|line| !line.is_empty()).map(String::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,6 +220,19 @@ mod tests {
         assert_eq!(parsed.lang.as_deref(), Some("de"));
         assert!(args("/S").silent);
         assert!(args("--preview --theme dark").theme == Some(Theme::Dark));
+    }
+
+    #[test]
+    fn keys_are_read_from_files_and_never_from_arguments() {
+        assert_eq!(first_line("K7QF-3MWD\r\n"), Some("K7QF-3MWD".into()));
+        assert_eq!(first_line("\u{feff}  K7QF-3MWD  \n\nsecond"), Some("K7QF-3MWD".into()));
+        assert_eq!(first_line("\n  \n"), None);
+        assert_eq!(first_line(""), None);
+        let parsed = args("--silent --key-file C:\\keys\\hello.txt");
+        assert_eq!(parsed.key_file, Some(PathBuf::from(r"C:\keys\hello.txt")));
+        // A key on the command line would show in every process list.
+        assert!(parsed.access_key().is_err(), "a missing file is an error, not no key");
+        assert!(!format!("{:?}", args("--key K7QF-3MWD")).contains("K7QF"), "--key isn't a flag");
     }
 
     #[test]

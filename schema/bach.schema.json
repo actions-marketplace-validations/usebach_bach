@@ -473,6 +473,14 @@
           "pattern": "^https://",
           "description": "Where the setup file will be downloaded from. {file} is its name, {version} the app version."
         },
+        "mirrors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^https://"
+          },
+          "description": "More feeds to ask when the main one can't be reached. Each is a full feed (latest.json) with its own download link; the newest version any of them offers wins."
+        },
         "auto": {
           "description": "Keep the app up to date in the background: true (offered, ticked; the default), false (offered, unticked), \"always\" or \"never\".",
           "oneOf": [
@@ -4029,6 +4037,31 @@
         "feedback_url": {
           "type": "string",
           "pattern": "^https://"
+        }
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Ask for an access key before installing, and encrypt the packaged files with it. The key is never written here: the build reads it from an environment variable (make keys with `bach key`).",
+      "properties": {
+        "encrypt": {
+          "type": "boolean",
+          "description": "Encrypt the packaged files with the key. Default true."
+        },
+        "key_env": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "The environment variable that holds the key while building. Default BACH_ACCESS_KEY."
+        },
+        "get_key_url": {
+          "type": "string",
+          "pattern": "^https://",
+          "description": "Where people get a key. The key page offers a button to it."
+        },
+        "send_key": {
+          "type": "boolean",
+          "description": "Send the key as Authorization: Bearer <key> with every request to the update feed and the download, so a private server can refuse anyone without one. Default true with [updates]."
         }
       }
     }

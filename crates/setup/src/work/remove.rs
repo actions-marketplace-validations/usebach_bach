@@ -72,6 +72,8 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
 
     report(0.6, &texts.get(Key::step_unregistering));
     system::unregister(manifest).map_err(|err| format!("{} {}", texts.get(Key::error_unregister), plain(&err)))?;
+    // The access key kept for updates goes with the app.
+    system::secret::forget(&manifest.app.id);
 
     if plan.delete_data {
         report(0.75, &texts.get(Key::step_deleting_data));

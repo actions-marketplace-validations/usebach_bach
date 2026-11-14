@@ -8,6 +8,8 @@
 //! - [`container`]: how the archive, the logo and the manifest are appended
 //!   to the setup runtime's executable, and found again.
 //! - [`paths`]: the rules every packaged path and data folder must follow.
+//! - [`protect`]: access keys, and the encryption that keeps a setup file's
+//!   contents from anyone without one.
 //!
 //! No UI and no Windows calls live here, so the builder runs on any OS and
 //! the format is tested in isolation.
@@ -18,6 +20,7 @@ pub mod container;
 pub mod i18n;
 pub mod manifest;
 pub mod paths;
+pub mod protect;
 pub mod version;
 
 /// The payload format this build writes and reads. A setup runtime refuses

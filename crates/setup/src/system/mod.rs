@@ -9,11 +9,13 @@
 //! - [`host`]: the user's languages, free space, the one-setup-at-a-time lock.
 //! - [`env_path`]: adding the app to the user's `PATH`, and taking it off.
 //! - [`integration`]: starting with Windows, link schemes and file types.
+//! - [`secret`]: an app's access key, sealed for this Windows user.
 
 pub mod apps;
 pub mod env_path;
 pub mod host;
 pub mod integration;
+pub mod secret;
 pub mod task;
 
 use std::path::{Path, PathBuf};

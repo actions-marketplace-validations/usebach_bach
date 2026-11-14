@@ -77,6 +77,22 @@ fn extras(manifest: &Manifest) -> Result<()> {
         if !is_https(&updates.feed) {
             bail!("the update feed \"{}\" isn't an https link", updates.feed);
         }
+        if let Some(mirror) = updates.mirrors.iter().find(|mirror| !is_https(mirror)) {
+            bail!("the update mirror \"{mirror}\" isn't an https link");
+        }
+    }
+    if let Some(access) = &manifest.access {
+        if let Some(url) = &access.get_key_url {
+            if !is_https(url) {
+                bail!("the link for getting a key \"{url}\" isn't an https link");
+            }
+        }
+        if access.send_key && manifest.updates.is_none() {
+            bail!("the app sends its access key with updates, but has no update feed");
+        }
+        if let Some(encryption) = &access.encryption {
+            encryption.validate()?;
+        }
     }
     if manifest.online && manifest.updates.is_none() {
         bail!("this online installer has no update feed to download the app from");

@@ -232,6 +232,49 @@ mod tests {
     }
 
     #[test]
+    fn encrypted_archives_round_trip_and_stay_closed_to_other_keys() {
+        use crate::manifest::Encryption;
+        let dir = temp_dir("encrypted");
+        let big: Vec<u8> = (0..900_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
+        std::fs::write(dir.join("a.bin"), &big).unwrap();
+        std::fs::write(dir.join("b.txt"), b"private words").unwrap();
+        let sources: Vec<Source> = ["a.bin", "b.txt"]
+            .iter()
+            .map(|name| Source { packaged: name.to_string(), path: dir.join(name), size: std::fs::metadata(dir.join(name)).unwrap().len() })
+            .collect();
+        let (encryption, unlocked) = Encryption::create("K7QF-3MWD-9XPA-H2TY-6NBC").unwrap();
+
+        let writer = encryption.writer(Vec::new(), &unlocked).unwrap();
+        let sealed = write(writer, &sources, Compression::Fast, &mut |_| {}).unwrap().finish().unwrap();
+        assert!(!sealed.windows(13).any(|window| window == b"private words"));
+
+        // The right key gets everything back.
+        let again = encryption.unlock("K7QF-3MWD-9XPA-H2TY-6NBC").unwrap();
+        let mut seen = Vec::new();
+        read(encryption.reader(sealed.as_slice(), &again).unwrap(), &mut |path, _, body| {
+            let mut data = Vec::new();
+            body.read_to_end(&mut data)?;
+            seen.push((path.to_string(), data));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen[0], ("a.bin".to_string(), big));
+        assert_eq!(seen[1], ("b.txt".to_string(), b"private words".to_vec()));
+
+        // Without decrypting, the bytes are not an archive at all.
+        assert!(read(sealed.as_slice(), &mut |_, _, _| Ok(())).is_err());
+        // Cut short anywhere, it fails instead of unpacking a part.
+        for cut in [sealed.len() / 3, sealed.len() - 1] {
+            let result = read(encryption.reader(&sealed[..cut], &again).unwrap(), &mut |_, _, body| {
+                io::copy(body, &mut io::sink())?;
+                Ok(())
+            });
+            assert!(result.is_err(), "cut at {cut}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn truncated_archives_fail() {
         let dir = temp_dir("truncated");
         std::fs::write(dir.join("one"), vec![1u8; 4096]).unwrap();

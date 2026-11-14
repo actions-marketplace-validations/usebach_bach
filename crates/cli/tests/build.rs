@@ -195,3 +195,195 @@ fn mistakes_in_the_config_are_one_sentence_naming_the_setting() {
     assert!(!message.contains("panicked"), "{message}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A phrase that shows up in a setup file's bytes only if the files in it
+/// are readable.
+const SECRET: &str = "Zq7-private-plan-ZX91-launch-codes-alpha-0042";
+
+fn secret_project(name: &str, config: &str) -> PathBuf {
+    let dir = project(name, config);
+    std::fs::write(dir.join("app/notes.txt"), format!("{SECRET}\n")).unwrap();
+    dir
+}
+
+fn contains(path: &Path, needle: &str) -> bool {
+    let bytes = std::fs::read(path).unwrap();
+    bytes.windows(needle.len()).any(|window| window == needle.as_bytes())
+}
+
+const ACCESS: &str = "[access]\n";
+const KEY: &str = "K7QF-3MWD-9XPA-H2TY-6NBC";
+
+#[test]
+fn protected_setup_files_do_not_hold_readable_files() {
+    need_runtime!();
+    let open = secret_project("open", &config(""));
+    assert!(run(&open, &["build", "--fast"]).status.success());
+    assert!(
+        contains(&open.join("dist/Hello-Setup-1.0.0.exe"), SECRET),
+        "an unprotected setup file holds its files as they are (this test's premise)"
+    );
+
+    let locked = secret_project("locked", &config(ACCESS));
+    let built = bach()
+        .current_dir(&locked)
+        .env("BACH_RUNTIME", runtime().unwrap())
+        .env("BACH_ACCESS_KEY", KEY)
+        .args(["build", "--fast"])
+        .output()
+        .unwrap();
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let setup = locked.join("dist/Hello-Setup-1.0.0.exe");
+    assert!(!contains(&setup, SECRET), "the protected setup file leaks a packaged file");
+    assert!(!contains(&setup, KEY), "the key must never be in the file");
+    assert!(text(&built.stdout).contains("encrypted"), "{}", text(&built.stdout));
+
+    let inspected = text(&run(&locked, &["inspect", setup.to_str().unwrap()]).stdout);
+    assert!(inspected.contains("files encrypted"), "{inspected}");
+    assert!(!inspected.contains(KEY), "{inspected}");
+    for dir in [open, locked] {
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn a_protected_build_says_where_the_key_goes() {
+    need_runtime!();
+    let dir = project("nokey", &config(ACCESS));
+    let out = bach()
+        .current_dir(&dir)
+        .env("BACH_RUNTIME", runtime().unwrap())
+        .env_remove("BACH_ACCESS_KEY")
+        .args(["build", "--fast"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let message = text(&out.stderr);
+    assert!(message.contains("BACH_ACCESS_KEY") && message.contains("bach key"), "{message}");
+    assert!(!dir.join("dist").join("Hello-Setup-1.0.0.exe").exists(), "no half-built file is left");
+
+    // The variable can have another name, and a key file works too.
+    let renamed = project("renamed", &config("[access]\nkey_env = \"HELLO_KEY\"\n"));
+    let out = bach()
+        .current_dir(&renamed)
+        .env("BACH_RUNTIME", runtime().unwrap())
+        .env_remove("HELLO_KEY")
+        .args(["build", "--fast"])
+        .output()
+        .unwrap();
+    assert!(text(&out.stderr).contains("HELLO_KEY"), "{}", text(&out.stderr));
+    std::fs::write(renamed.join("key.txt"), format!("{KEY}\n")).unwrap();
+    let out = run(&renamed, &["build", "--fast", "--key-file", "key.txt"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    for dir in [dir, renamed] {
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn weak_and_odd_keys_are_refused_before_building() {
+    need_runtime!();
+    let dir = project("weak", &config(ACCESS));
+    for (key, expected) in [("short", "too short"), ("has space in it", "has ' '"), ("tab\there123", "has '\\t'")] {
+        std::fs::write(dir.join("key.txt"), key).unwrap();
+        let out = run(&dir, &["build", "--fast", "--key-file", "key.txt"]);
+        assert!(!out.status.success(), "{key:?}");
+        assert!(text(&out.stderr).contains(expected), "{key:?}: {}", text(&out.stderr));
+    }
+    assert!(!dir.join("dist/Hello-Setup-1.0.0.exe").exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn bach_key_makes_distinct_valid_keys() {
+    let out = bach().args(["key", "--count", "5"]).output().unwrap();
+    assert!(out.status.success());
+    let keys: Vec<String> = text(&out.stdout).lines().map(String::from).collect();
+    assert_eq!(keys.len(), 5);
+    let mut unique = keys.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), 5, "{keys:?}");
+    for key in &keys {
+        assert_eq!(key.len(), 24, "{key}");
+        assert!(bach_pack::protect::check_key(key).is_ok(), "{key}");
+    }
+    assert!(!bach().args(["key", "--count", "0"]).output().unwrap().status.success());
+}
+
+/// The protected setup file run without a window: no key is a command-line
+/// mistake, a wrong key is a failure, and either way nothing is installed.
+#[cfg(windows)]
+#[test]
+fn a_protected_setup_file_refuses_without_the_right_key() {
+    need_runtime!();
+    let dir = project("protected-silent", &config(ACCESS));
+    let built = bach()
+        .current_dir(&dir)
+        .env("BACH_RUNTIME", runtime().unwrap())
+        .env("BACH_ACCESS_KEY", KEY)
+        .args(["build", "--fast"])
+        .output()
+        .unwrap();
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+    let install_dir = dir.join("installed");
+    let silent = |key_file: Option<&Path>| {
+        let mut command = Command::new(&setup);
+        command.args(["--silent", "--lang", "en", "--dir"]).arg(&install_dir).env_remove("BACH_ACCESS_KEY");
+        if let Some(file) = key_file {
+            command.arg("--key-file").arg(file);
+        }
+        command.output().unwrap()
+    };
+
+    let out = silent(None);
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out.stderr));
+    assert!(text(&out.stderr).contains("asks for an access key"), "{}", text(&out.stderr));
+
+    std::fs::write(dir.join("wrong.txt"), "K7QF-3MWD-9XPA-H2TY-6NBD\n").unwrap();
+    let out = silent(Some(&dir.join("wrong.txt")));
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stderr));
+    assert!(text(&out.stderr).contains("That key doesn't fit"), "{}", text(&out.stderr));
+
+    let out = silent(Some(&dir.join("missing.txt")));
+    assert_eq!(out.status.code(), Some(2));
+    assert!(text(&out.stderr).contains("couldn't read the key file"), "{}", text(&out.stderr));
+
+    assert!(!install_dir.exists(), "a refused key touches nothing on this computer");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_feed_can_be_rolled_out_to_some_computers_first() {
+    need_runtime!();
+    let dir = project("rollout", &config(UPDATES));
+    assert!(run(&dir, &["build", "--fast"]).status.success());
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+    let feed = dir.join("staged.json");
+    let write = |extra: &[&str]| {
+        let mut args = vec!["feed", setup.to_str().unwrap(), "--out", feed.to_str().unwrap(), "--notes", "Faster"];
+        args.extend_from_slice(extra);
+        run(&dir, &args)
+    };
+
+    let out = write(&["--rollout", "25"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(text(&out.stdout).contains("25% of computers"), "{}", text(&out.stdout));
+    let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&feed).unwrap()).unwrap();
+    assert_eq!(json["rollout"], 25);
+    assert_eq!(json["version"], "1.0.0");
+    assert_eq!(json["notes"], "Faster");
+    assert_eq!(json["sha256"].as_str().unwrap().len(), 64);
+    assert!(json["url"].as_str().unwrap().starts_with("https://bach-test.invalid/hello/Hello-Setup-1.0.0"));
+
+    // Everyone again: the field goes away rather than saying 100.
+    assert!(write(&[]).status.success());
+    let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&feed).unwrap()).unwrap();
+    assert!(json.get("rollout").is_none(), "{json}");
+
+    for bad in ["101", "-1", "many"] {
+        assert!(!write(&["--rollout", bad]).status.success(), "--rollout {bad}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

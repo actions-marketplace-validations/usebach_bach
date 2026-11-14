@@ -50,6 +50,7 @@ struct File {
     #[serde(default)]
     shortcuts: Vec<extras::ShortcutSection>,
     updates: Option<extras::UpdatesSection>,
+    access: Option<extras::AccessSection>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,6 +127,11 @@ pub struct Project {
     /// Where the online installer goes; only written when [`Self::online`].
     pub online_output: PathBuf,
     pub compression: Compression,
+    /// Whether the files are encrypted (`[access] encrypt`): the build then
+    /// needs the key, from the environment variable [`Self::key_env`].
+    pub encrypt: bool,
+    /// The environment variable the build reads the access key from.
+    pub key_env: String,
     /// Things that build fine but probably aren't meant, one sentence each.
     pub warnings: Vec<String>,
     /// `updates.download_url`: where the setup file will live, for the
@@ -250,6 +256,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         None => (None, None, None),
     };
     let feedback_url = extras::https(&file.uninstall.feedback_url, "uninstall.feedback_url")?;
+    let access = extras::access(file.access.as_ref(), updates.is_some())?;
 
     let output_template = file.installer.output.as_deref().unwrap_or(DEFAULT_OUTPUT);
     let mut output = root.join(fill_template(output_template, &app));
@@ -331,6 +338,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         requirements: extras::requirements(&file.requirements)?,
         shortcuts: Vec::new(),
         updates,
+        access: access.as_ref().map(|access| access.manifest.clone()),
         online: false,
         archive_sha256: None,
     };
@@ -355,6 +363,8 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         online,
         online_output,
         compression,
+        encrypt: access.as_ref().is_some_and(|access| access.encrypt),
+        key_env: access.as_ref().map_or_else(|| extras::DEFAULT_KEY_ENV.to_string(), |access| access.key_env.clone()),
         warnings,
         update_download_url,
         update_github,

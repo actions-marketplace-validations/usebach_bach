@@ -8,6 +8,7 @@
 //! bach inspect FILE      show what a setup file installs
 //! bach doctor            check that everything a build needs is in place
 //! bach feed FILE         write the update feed for a (signed) setup file
+//! bach key               make random access keys for a protected app
 //! bach winget FILE --url write winget manifests for a setup file
 //! bach version [TARGET]  show or raise the version in every file that has one
 //! bach workflow          add the one-click release workflow to a GitHub repository
@@ -19,6 +20,7 @@ mod doctor;
 mod feed;
 mod github;
 mod inspect;
+mod key;
 mod output;
 #[cfg(windows)]
 mod resources;
@@ -83,6 +85,16 @@ enum Command {
         /// version when it runs (same as installer.online = true).
         #[arg(long)]
         online: bool,
+        /// Read the access key from this file instead of the environment
+        /// variable [access] names.
+        #[arg(long)]
+        key_file: Option<PathBuf>,
+    },
+    /// Make random access keys for an app with [access].
+    Key {
+        /// How many keys to make (one per customer, say).
+        #[arg(long, short, default_value_t = 1)]
+        count: u32,
     },
     /// Open the installer window as it will look, without installing anything.
     Preview {
@@ -124,6 +136,10 @@ enum Command {
         /// A file with what's new (Markdown is fine).
         #[arg(long, conflicts_with = "notes")]
         notes_file: Option<PathBuf>,
+        /// Roll out to this percentage of computers first (0 to 100); installed
+        /// apps outside it wait until you write the feed again without it.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
+        rollout: Option<u8>,
         /// Write the feed here instead of latest.json next to the setup file.
         #[arg(long, short)]
         out: Option<PathBuf>,
@@ -176,9 +192,19 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
         Command::Check { config, app_version } => builder::check(&config, app_version.as_deref()),
-        Command::Build { config, out, runtime, fast, app_version, online } => {
-            builder::build(&config, out.as_deref(), runtime.as_deref(), fast, app_version.as_deref(), online).map(|_| ())
+        Command::Build { config, out, runtime, fast, app_version, online, key_file } => {
+            builder::build(builder::BuildOptions {
+                config: &config,
+                out: out.as_deref(),
+                runtime: runtime.as_deref(),
+                fast,
+                version: app_version.as_deref(),
+                online,
+                key_file: key_file.as_deref(),
+            })
+            .map(|_| ())
         }
+        Command::Key { count } => key::command(count),
         Command::Preview { config, uninstall, theme, lang, runtime } => builder::preview(
             &config,
             builder::PreviewOptions {
@@ -200,12 +226,13 @@ fn main() -> ExitCode {
             license: license.as_deref(),
             out: out.as_deref(),
         }),
-        Command::Feed { file, url, config, notes, notes_file, out } => feed::command(feed::Options {
+        Command::Feed { file, url, config, notes, notes_file, rollout, out } => feed::command(feed::Options {
             setup: &file,
             url: url.as_deref(),
             config: config.as_deref(),
             notes: notes.as_deref(),
             notes_file: notes_file.as_deref(),
+            rollout,
             out: out.as_deref(),
         }),
     };

@@ -10,15 +10,52 @@ use super::curl::{self, Fetch};
 
 /// Fetches and checks the feed at `url`. `work` is a folder to keep the
 /// download in while it is read.
-pub fn fetch(url: &str, work: &Path) -> Result<FeedEntry, String> {
+pub fn fetch(url: &str, work: &Path, bearer: Option<&str>) -> Result<FeedEntry, String> {
     std::fs::create_dir_all(work).map_err(|err| err.to_string())?;
     let file = work.join("feed.json");
     let _ = std::fs::remove_file(&file);
-    let result = curl::download(url, &file, Fetch::FEED)
+    let result = curl::download_with(url, &file, Fetch::FEED, bearer, &mut |_| {})
         .and_then(|()| std::fs::read_to_string(&file).map_err(|err| err.to_string()))
         .and_then(|text| parse(&text));
     let _ = std::fs::remove_file(&file);
     result
+}
+
+/// Asks every feed (the main one and its mirrors) and gives the entries that
+/// offer the newest version, the one asked first leading. One feed that
+/// can't be reached is no problem while another answers; when none does, the
+/// first one's complaint is the answer.
+pub fn fetch_newest(urls: &[String], work: &Path, bearer: Option<&str>) -> Result<Vec<FeedEntry>, String> {
+    let mut entries = Vec::new();
+    let mut first_error = None;
+    for url in urls {
+        match fetch(url, work, bearer) {
+            Ok(entry) => entries.push(entry),
+            Err(error) => {
+                crate::log::line(&format!("The feed {url} didn't answer: {error}"));
+                first_error.get_or_insert(error);
+            }
+        }
+    }
+    if entries.is_empty() {
+        return Err(first_error.unwrap_or_else(|| "there is no update feed to ask".to_string()));
+    }
+    Ok(newest(entries))
+}
+
+/// The entries with the highest version, in their order.
+pub fn newest(entries: Vec<FeedEntry>) -> Vec<FeedEntry> {
+    let best = entries
+        .iter()
+        .map(|entry| entry.version.clone())
+        .reduce(|best, version| if is_newer(&version, &best) { version } else { best });
+    match best {
+        Some(best) => entries
+            .into_iter()
+            .filter(|entry| bach_pack::version::compare(&entry.version, &best) == Some(Ordering::Equal))
+            .collect(),
+        None => entries,
+    }
 }
 
 /// Reads feed text, refusing anything an update couldn't safely use.
@@ -33,6 +70,9 @@ pub fn parse(text: &str) -> Result<FeedEntry, String> {
     }
     if !is_sha256(&entry.sha256) {
         return Err("the update feed has no valid SHA-256".into());
+    }
+    if entry.rollout.is_some_and(|percent| percent > 100) {
+        return Err("the update feed's rollout isn't a percentage".into());
     }
     Ok(entry)
 }
