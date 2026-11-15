@@ -36,7 +36,7 @@ pub fn install(manifest: &Manifest) -> Start {
     let dir = existing
         .as_ref()
         .map(|installed| installed.dir.clone())
-        .unwrap_or_else(|| system::default_install_dir(&manifest.install.folder));
+        .unwrap_or_else(|| system::default_install_dir(manifest));
     let previous = existing.as_ref().and_then(|_| work::previous_install(&dir, manifest));
     let choices = match &previous {
         Some(previous) => {

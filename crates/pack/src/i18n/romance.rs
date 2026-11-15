@@ -112,6 +112,8 @@ pub const FR: Strings = Strings {
     access_get: "Obtenir une clé",
     step_running: "Configuration de {task}",
     error_run: "{task} n'a pas pu être configuré (code de sortie {code}). Réessayez.",
+    step_migrating: "Suppression de l'ancienne version de {name}",
+    error_patch_base: "Cette mise à jour est destinée à une autre version de {name}. Téléchargez plutôt le fichier d'installation complet.",
 };
 
 pub const ES: Strings = Strings {
@@ -224,6 +226,8 @@ pub const ES: Strings = Strings {
     access_get: "Obtener una clave",
     step_running: "Configurando {task}",
     error_run: "No se pudo configurar {task} (código de salida {code}). Vuelve a intentarlo.",
+    step_migrating: "Quitando la versión anterior de {name}",
+    error_patch_base: "Esta actualización es para otra versión de {name}. Descarga el archivo de instalación completo.",
 };
 
 pub const IT: Strings = Strings {
@@ -336,6 +340,8 @@ pub const IT: Strings = Strings {
     access_get: "Ottieni una chiave",
     step_running: "Configurazione di {task}",
     error_run: "Impossibile configurare {task} (codice di uscita {code}). Riprova.",
+    step_migrating: "Rimozione della versione precedente di {name}",
+    error_patch_base: "Questo aggiornamento è per un'altra versione di {name}. Scarica invece il file di installazione completo.",
 };
 
 pub const PT: Strings = Strings {
@@ -448,4 +454,6 @@ pub const PT: Strings = Strings {
     access_get: "Obter uma chave",
     step_running: "Configurando {task}",
     error_run: "Não foi possível configurar {task} (código de saída {code}). Tente novamente.",
+    step_migrating: "A remover a versão anterior de {name}",
+    error_patch_base: "Esta atualização é para outra versão de {name}. Transfira o ficheiro de instalação completo.",
 };

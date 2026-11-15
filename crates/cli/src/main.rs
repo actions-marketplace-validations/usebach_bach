@@ -8,6 +8,7 @@
 //! bach inspect FILE      show what a setup file installs
 //! bach doctor            check that everything a build needs is in place
 //! bach feed FILE         write the update feed for a (signed) setup file
+//! bach sign FILE         sign a setup file the way [signing] in bach.toml says
 //! bach key               make random access keys for a protected app
 //! bach winget FILE --url write winget manifests for a setup file
 //! bach version [TARGET]  show or raise the version in every file that has one
@@ -25,6 +26,7 @@ mod output;
 #[cfg(windows)]
 mod resources;
 mod runtime;
+mod sign;
 mod template;
 mod version;
 mod version_files;
@@ -89,12 +91,34 @@ enum Command {
         /// variable [access] names.
         #[arg(long)]
         key_file: Option<PathBuf>,
+        /// Sign the setup files with the program [signing] in bach.toml names
+        /// (or set BACH_SIGN=1). Off by default: a bach.toml never runs a
+        /// program unless you say so.
+        #[arg(long, env = "BACH_SIGN")]
+        sign: bool,
+        /// An earlier setup file of this app. Also writes an update patch
+        /// from it that holds only the files that changed, and offers it in
+        /// the update feed to computers that have that version.
+        #[arg(long)]
+        patch_from: Option<PathBuf>,
+    },
+    /// Sign a setup file with the program [signing] in bach.toml names.
+    Sign {
+        /// The setup file.
+        file: PathBuf,
+        /// The config file.
+        #[arg(long, default_value = "bach.toml")]
+        config: PathBuf,
     },
     /// Make random access keys for an app with [access].
     Key {
         /// How many keys to make (one per customer, say).
         #[arg(long, short, default_value_t = 1)]
         count: u32,
+        /// Write the keys to this new file (UTF-8, one per line) instead of
+        /// printing them; `bach build --key-file FILE` reads it.
+        #[arg(long, short)]
+        out: Option<PathBuf>,
     },
     /// Open the installer window as it will look, without installing anything.
     Preview {
@@ -143,6 +167,14 @@ enum Command {
         /// Write the feed here instead of latest.json next to the setup file.
         #[arg(long, short)]
         out: Option<PathBuf>,
+        /// An update patch made by `bach build --patch-from`, to offer to
+        /// computers that have the version it updates from.
+        #[arg(long)]
+        patch: Option<PathBuf>,
+        /// The https link the patch is downloaded from (default: the download
+        /// link of [updates] in bach.toml, for the patch's file name).
+        #[arg(long, requires = "patch")]
+        patch_url: Option<String>,
     },
     /// Write the manifests that list a setup file in winget.
     Winget {
@@ -192,7 +224,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
         Command::Check { config, app_version } => builder::check(&config, app_version.as_deref()),
-        Command::Build { config, out, runtime, fast, app_version, online, key_file } => {
+        Command::Build { config, out, runtime, fast, app_version, online, key_file, sign, patch_from } => {
             builder::build(builder::BuildOptions {
                 config: &config,
                 out: out.as_deref(),
@@ -201,10 +233,13 @@ fn main() -> ExitCode {
                 version: app_version.as_deref(),
                 online,
                 key_file: key_file.as_deref(),
+                sign,
+                patch_from: patch_from.as_deref(),
             })
             .map(|_| ())
         }
-        Command::Key { count } => key::command(count),
+        Command::Key { count, out } => key::command(count, out.as_deref()),
+        Command::Sign { file, config } => sign::command(sign::Options { file: &file, config: &config }),
         Command::Preview { config, uninstall, theme, lang, runtime } => builder::preview(
             &config,
             builder::PreviewOptions {
@@ -226,7 +261,7 @@ fn main() -> ExitCode {
             license: license.as_deref(),
             out: out.as_deref(),
         }),
-        Command::Feed { file, url, config, notes, notes_file, rollout, out } => feed::command(feed::Options {
+        Command::Feed { file, url, config, notes, notes_file, rollout, out, patch, patch_url } => feed::command(feed::Options {
             setup: &file,
             url: url.as_deref(),
             config: config.as_deref(),
@@ -234,6 +269,8 @@ fn main() -> ExitCode {
             notes_file: notes_file.as_deref(),
             rollout,
             out: out.as_deref(),
+            patch: patch.as_deref(),
+            patch_url: patch_url.as_deref(),
         }),
     };
     match result {

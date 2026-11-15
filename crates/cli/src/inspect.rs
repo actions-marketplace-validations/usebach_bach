@@ -57,8 +57,15 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
     field("Publisher", &manifest.app.publisher);
     field("Program", &manifest.app.executable);
     field("Files", format!("{} ({})", manifest.files.len(), output::size(manifest.total_size())));
-    let folder = format!(r"%LOCALAPPDATA%\Programs\{}", install.folder);
+    let folder = if install.scope.is_machine() {
+        format!(r"%ProgramFiles%\{}", install.folder)
+    } else {
+        format!(r"%LOCALAPPDATA%\Programs\{}", install.folder)
+    };
     field("Installs to", if install.change_folder { folder } else { format!("{folder} (fixed)") });
+    if install.scope.is_machine() {
+        field("For", "every user of the computer (asks for administrator rights once)");
+    }
 
     let mut options = Vec::new();
     for (choice, name) in [
@@ -119,10 +126,29 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
             bach_pack::manifest::RunWhen::Uninstall => "before removal",
         };
         let args = step.arguments.as_deref().map(|args| format!(" {args}")).unwrap_or_default();
-        field("Runs", format!("{} ({}{args}), {when}", step.name, step.file));
+        let elevated = if step.elevated { ", as administrator" } else { "" };
+        field("Runs", format!("{} ({}{args}), {when}{elevated}", step.name, step.file));
     }
     for shortcut in &manifest.shortcuts {
         field("Shortcut", format!("{} → {}", shortcut.name, shortcut.target));
+    }
+    for value in &manifest.system.registry {
+        let name = if value.name.is_empty() { "(default)" } else { value.name.as_str() };
+        let hive = if manifest.install.scope.is_machine() { "HKLM" } else { "HKCU" };
+        field("Registry", format!("{hive}\\{}\\{name}", value.key));
+    }
+    if let Some(from) = &manifest.patch_from {
+        field("Update patch", format!("for computers on {from}: carries only the files that changed since"));
+    }
+    for old in &manifest.system.migrate {
+        field("Replaces", format!("the older install \"{}\"", old.uninstall_key));
+    }
+    for var in &manifest.system.environment {
+        field("Variable", &var.name);
+    }
+    for entry in &manifest.system.context_menu {
+        let places: Vec<String> = entry.on.iter().cloned().map(String::from).collect();
+        field("Right-click", format!("{} ({})", entry.name, places.join(", ")));
     }
     if let Some(updates) = &manifest.updates {
         field("Updates", &updates.feed);

@@ -124,9 +124,9 @@ pub fn license(value: Option<&toml::Value>, root: &Path, languages: &[String]) -
         if bytes.len() > crate::manifest::MAX_LICENSE {
             bail!("{at} is longer than {} KB; use a plain-text summary", crate::manifest::MAX_LICENSE / 1024);
         }
-        let text = String::from_utf8(bytes)
-            .map_err(|_| anyhow::anyhow!("{at} ({relative}) isn't UTF-8 text; save it as UTF-8"))?;
-        let text = text.trim_start_matches('\u{feff}').replace("\r\n", "\n").trim().to_string();
+        let text = crate::textfile::decode(&bytes)
+            .map_err(|_| anyhow::anyhow!("{at} ({relative}) isn't UTF-8 or UTF-16 text; save it as UTF-8"))?;
+        let text = text.replace("\r\n", "\n").trim().to_string();
         if text.is_empty() {
             bail!("{at} ({relative}) is empty");
         }

@@ -44,7 +44,10 @@ so a newer setup file still reads the uninstaller an older one installed.
    app is listed under **Settings › Apps**
    (`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\<id>`).
 
-Everything is per user, so nothing asks for administrator rights. The
+Everything is per user by default, so nothing asks for administrator rights.
+An app that sets `installer.scope = "machine"` installs the same way into
+`%ProgramFiles%` and `HKLM` instead, after setup has started itself again with
+administrator rights (one Windows prompt, before anything is changed). The
 window can't be closed while files are moving.
 
 ## The online installer
@@ -148,14 +151,49 @@ started it can wait for its exit code.
 - Registry keys Bach creates for link schemes and file types carry a
   `BachApp` mark; keys without it belong to another program and are never
   changed or deleted.
+- Registry values, environment variables and right-click entries from
+  `bach.toml` stay below `Software\<your key>` (never `Classes`, `Policies`,
+  Windows' own keys or Bach's) and are removed only while they still hold what
+  setup wrote. Right-click entries carry the `BachApp` mark like link schemes.
+- Administrator rights are asked for once and only when the app says so
+  (`installer.scope = "machine"`, or `elevated = true` on one run step).
+  A machine-wide uninstaller removes itself in place instead of from a temp
+  copy, and setup files link with `/DEPENDENTLOADFLAG` so only System32's DLLs
+  load, never one planted next to a setup file.
+- `[[migrate]]` runs only the uninstall command of a named Settings › Apps
+  entry, never through a shell. An elevated setup ignores per-user entries,
+  and a machine-wide old uninstaller runs elevated only from Program Files or
+  the Windows folder.
+- Signing runs a program from `bach.toml` only when you ask for it with
+  `bach build --sign`.
 - The C runtime is linked in, so setup files start on a fresh Windows
   without the Visual C++ redistributable.
 
 ## Run steps
 
 `[[run]]` programs start only from the app's own packaged files, found through
-`paths.rs`, with no shell and no elevation, and are waited for (15 minutes at
-most). Steps that run before removal can fail without stopping the removal.
+`paths.rs`, with no shell, and are waited for (15 minutes at most). They run as
+the user unless a step says `elevated = true`, which makes Windows ask for
+administrator rights for that program alone. Steps that run before removal can
+fail without stopping the removal.
+
+## Windows on ARM
+
+A setup file is the setup runtime with the app's files appended, and the
+runtime is a native Windows program. The `bach-setup.exe` that `bach build`
+downloads is built for x64, which Windows 11 on ARM runs through its emulation.
+For a native ARM64 setup file, build with the ARM64 runtime: every Bach release
+has a `bach-<version>-windows-arm64.zip` with an ARM64 `bach.exe` and
+`bach-setup.exe`.
+
+```bash
+bach build --runtime path/to/arm64/bach-setup.exe
+```
+
+(`BACH_RUNTIME` does the same.) The runtime copies files and writes registry
+values, so it doesn't care what architecture your app is; which one to ship is
+your choice. Requirements that look for a runtime are architecture-specific:
+`kind = "vcredist"` looks for the x64 redistributable.
 
 ## Signing
 

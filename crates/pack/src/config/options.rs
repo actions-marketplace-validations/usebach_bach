@@ -67,6 +67,11 @@ pub(super) fn install(section: &InstallerSection, app: &manifest::App) -> Result
             Some(folder) => bail!("installer.start_menu_folder is \"{folder}\"; it names a folder, so leave out < > : \" / \\ | ? *"),
         },
         website_button: section.website_button.unwrap_or(false),
+        scope: match section.scope.as_deref() {
+            None => manifest::Scope::User,
+            Some(word) => manifest::Scope::parse(word)
+                .ok_or_else(|| anyhow::anyhow!("installer.scope is \"{word}\"; use \"user\" or \"machine\""))?,
+        },
     })
 }
 

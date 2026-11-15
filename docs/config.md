@@ -15,9 +15,12 @@ default, so a five-line config already builds a complete installer.
 - [`[[file_types]]`](#file_types): files your app opens
 - [`[[requirements]]`](#requirements): what the app needs on the computer first
 - [`[[shortcuts]]`](#shortcuts): more Start menu shortcuts
+- [`[[registry]]`](#registry), [`[[env]]`](#env) and [`[[context_menu]]`](#context_menu): registry values, environment variables and right-click entries
+- [`[[migrate]]`](#migrate): remove an older install made by another installer
 - [`[updates]`](#updates): updates the installed app fetches itself
 - [`[text]`](#text): any text in the window, in any language
 - [`[uninstall]`](#uninstall): the user's data
+- [`[signing]`](#signing): sign the setup files while building (optional)
 - [A complete example](#a-complete-example)
 - [Silent installs](#silent-installs) and [updating from the app](#updating-from-the-app)
 - [Editor support](#editor-support) and [listing your app in winget](#listing-your-app-in-winget)
@@ -100,6 +103,56 @@ signs and publishes both files.
 | `open_button` | `true` | Whether the last page offers "Open My App". |
 | `start_menu_folder` | none | A folder in the Start menu for the shortcuts, like your company's name. Removed when it's empty after uninstalling. |
 | `website_button` | `false` | Whether the last page links to `app.website`. |
+| `scope` | `"user"` | `"user"` installs for the person who runs setup and needs no administrator rights. `"machine"` installs for every user of the computer, into `%ProgramFiles%`, and Windows asks for administrator rights once. See [machine-wide installs](#machine-wide-installs). |
+
+### Machine-wide installs
+
+With `scope = "machine"`, setup starts again with administrator rights before
+it does anything: Windows shows its prompt once (or asks for an administrator's
+password), then the whole install runs elevated. Nothing is hidden from that
+prompt, and a setup run from an elevated terminal or by a deployment tool
+that already has the rights doesn't ask.
+
+```toml
+[installer]
+scope = "machine"
+```
+
+| | Per user (`"user"`, default) | Machine-wide (`"machine"`) |
+| --- | --- | --- |
+| Install folder | `%LOCALAPPDATA%\Programs\<folder>` | `%ProgramFiles%\<folder>` |
+| Settings › Apps entry | `HKCU` | `HKLM` |
+| Start menu and desktop shortcuts | the user's | every user's |
+| Start with Windows, link schemes, file types | `HKCU` | `HKLM` |
+| `PATH` (`add_to_path`) | the user's | the computer's |
+| `[[registry]]`, `[[env]]`, `[[context_menu]]` | `HKCU` | `HKLM` |
+| Administrator prompt | never | once, at the start |
+
+Things to know:
+
+- Updates and the uninstaller ask for administrator rights too. `uninstall.exe`
+  does it when Settings › Apps starts it; an update started by the app asks
+  when its setup file starts.
+- Background updates (`[updates] auto`) are off: an update has to write to
+  Program Files, which a signed-in user can't. `auto` must be left out or
+  `"never"`. The app can still use `--check-update`, `--download-update` and
+  `--update` (see [updating from the app](#updating-from-the-app)); Windows
+  asks when the update installs.
+- `--silent` works the same way. Run from a non-elevated terminal it shows
+  Windows' prompt; declining it exits with code 1. Deployment tools that run
+  setup elevated or as SYSTEM see no prompt.
+- "Also delete my data" deletes the data folders of the account that runs the
+  uninstaller, because `%APPDATA%` and `%LOCALAPPDATA%` belong to one user.
+- The install folder has to be inside Program Files (the default). A machine-wide
+  app runs, updates and uninstalls with administrator rights, so setup refuses a
+  folder the user's own programs could write to, with the usual "choose another
+  folder" message.
+- A protected setup file (`[access]`) run silently should get its key with
+  `--key-file`: the elevated copy is sure to get the arguments, and the
+  `BACH_ACCESS_KEY` variable may not reach it.
+- Don't change `scope` after your first release: an app installed per user and
+  one installed machine-wide are two installs to Windows, so an update with
+  the other scope installs next to the old one instead of replacing it.
 
 ### Options
 
@@ -247,10 +300,152 @@ success_codes = [0, 3010]              # exit codes that mean it worked; 0 alway
 | `ignore_errors` | `false` | Go on when it fails. Not allowed with `when = "uninstall"`, because removing never stops for a failed step. |
 | `component` | the file's component | Only run when this optional component is installed. |
 
+| `elevated` | `false` | Run this step with administrator rights: Windows asks once when it starts (not at all when setup is elevated already, as with `scope = "machine"`). Setup itself stays unelevated. Declining fails the step like any other failure. |
+
 Steps run as the user, in the program's own folder, in the order listed.
 A program that asks for administrator rights fails to start, which is
-reported like any other failure. A step that runs longer than 15 minutes is
-ended. Each run is in the log. `bach inspect` lists them as `Runs`.
+reported like any other failure, unless the step says `elevated = true`: that
+is for things Windows only lets an administrator do, like the Visual C++
+redistributable's own installer:
+
+```toml
+[[run]]
+name = "Visual C++ runtime"
+file = "redist/vc_redist.x64.exe"
+arguments = "/quiet /norestart"
+success_codes = [0, 1638, 3010]   # installed, newer already there, restart needed
+when = "first_install"
+elevated = true
+```
+
+An elevated step starts the program from the install folder. In a per-user
+install that folder is writable by the user's own programs, so use `elevated`
+for well-known installers (and sign them), not for anything else. A step that
+runs longer than 15 minutes is ended. Each run is in the log. `bach inspect`
+lists them as `Runs`.
+
+## [[registry]]
+
+Registry values setup writes for the user, for apps that read their install
+folder or a setting from the registry.
+
+```toml
+[[registry]]
+key = 'Software\Hello'          # below HKCU, starting with Software\
+name = "InstallPath"            # leave out for the key's default value
+type = "string"                 # "string" (default), "expand" or "dword"
+value = '{app}'                 # {app} is the install folder
+
+[[registry]]
+key = 'Software\Hello'
+name = "FirstRun"
+type = "dword"
+value = 1
+```
+
+Use single quotes for the key, so the backslashes stay as they are. An
+update writes the values again and removes the ones the new version no longer
+lists. Removing the app deletes a value only while it still holds what setup
+wrote, so a setting the user or the app changed since stays, and keys that end
+up empty go too. Keys that belong to Windows, other programs or Bach
+(`Software\Classes`, `Software\Policies`, `Software\Microsoft\Windows…`,
+`Software\Bach`) are refused; use `[[protocols]]`, `[[file_types]]` and
+`[[context_menu]]` for what those are for.
+
+## [[env]]
+
+Environment variables of the user (`HKCU\Environment`). Programs started after
+the install see them; ones already running don't.
+
+```toml
+[[env]]
+name = "HELLO_HOME"
+value = '{app}'                 # {app} is the install folder
+```
+
+A value with a `%VARIABLE%` in it is stored so Windows fills it in when it's
+read. Removing the app removes a variable only while it still holds the value
+setup set. Names Windows uses (`PATH`, `TEMP`, `USERPROFILE`, …) are refused;
+`PATH` has its own setting, `add_to_path`.
+
+## [[context_menu]]
+
+Entries in Explorer's right-click menu that start your app with the clicked
+file or folder.
+
+```toml
+[[context_menu]]
+name = "Open with Hello"
+on = ["files", ".md"]           # files, folders, background, ".ext", or a list
+arguments = '"%1"'              # optional; "%1" is the clicked item
+
+[[context_menu]]
+name = "Open Hello here"
+on = "background"               # the empty space inside an open folder
+```
+
+| `on` | Shows on |
+| --- | --- |
+| `"files"` | every file |
+| `"folders"` | every folder |
+| `"background"` | the empty space inside a folder (`%V` is that folder) |
+| `".md"` | files with that extension (types that run code, like `.exe`, are refused) |
+
+Windows 11 shows these under "Show more options"; the short menu is reserved
+for apps with a packaged shell extension. Selecting several files starts one
+copy of your app per file. Setup only changes entries with its own mark, and
+leaves an entry of the same name that another program made.
+
+## [[migrate]]
+
+Moving an app from Inno Setup, NSIS or an MSI to Bach would leave it on every
+upgraded computer twice: once from the old install, once from the new one.
+`[[migrate]]` names the old install, and a **first** install with Bach removes
+it before it places any file, using the uninstall command Windows already holds
+for it under Settings › Apps.
+
+```toml
+[[migrate]]
+uninstall_key = "{8A69D345-D564-463C-AFF1-A69D9E530F96}_is1"   # Inno Setup: your AppId, then _is1
+
+[[migrate]]
+uninstall_key = "Hello"          # NSIS: the key your script wrote under Uninstall
+arguments = "/S"                 # quiet switch, when the entry has no QuietUninstallString
+
+[[migrate]]
+uninstall_key = "{3F2504E0-4F89-11D3-9A0C-0305E82C3301}"   # an MSI: its product code
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `uninstall_key` | required | The name of the old install's entry under `Software\Microsoft\Windows\CurrentVersion\Uninstall`, in the user's or the computer's registry (also the 32-bit view). Inno Setup writes `<AppId>_is1`, an MSI its product code, NSIS whatever name your script chose (see `regedit`). |
+| `arguments` | none | Arguments that make the old uninstaller run without a window, added after its `UninstallString`: `/VERYSILENT /NORESTART` for Inno Setup, `/S` for NSIS. Without them setup uses the entry's `QuietUninstallString`; with neither it leaves the old install alone. An MSI is always removed quietly (`msiexec /x {code} /qn /norestart`). |
+| `elevated` | `false` | Also remove an old install that is machine-wide (listed under `HKLM`): Windows asks for administrator rights. Without it, setup leaves a machine-wide old install alone, because a per-user setup can't remove it. |
+
+What setup does and doesn't do:
+
+- It runs only the command in that entry, never through a shell, and only if
+  it's an absolute path to an `.exe` that exists. It waits for the old
+  uninstaller (up to 15 minutes) and then until its entry is gone from Settings
+  › Apps (up to 90 seconds), because some uninstallers hand over to a copy of
+  themselves and exit at once.
+- The command comes from the registry, so what may run with administrator
+  rights is limited. A per-user old install (listed under `HKCU`, which the
+  user's own programs can write) is never run by an elevated setup, such as a
+  machine-wide install. A machine-wide old install (under `HKLM`) is run only
+  with `elevated = true` (or when setup is elevated already), and only if its
+  uninstaller sits in Program Files or the Windows folder. `%SystemRoot%` and
+  `msiexec` come from Windows, not from environment variables. Anything else
+  is left alone, with a line in the log.
+- It never stops an install. An old install that isn't there, can't be removed
+  silently or fails to go is written to the log (`%TEMP%\<app id>-setup.log`)
+  and left alone, and the new version installs anyway.
+- It doesn't touch the user's data: the old uninstaller decides what it
+  removes, and most keep settings. Keep `app.id` and `uninstall.data` pointed
+  at the folders the old app used so the new version finds them.
+- It runs on a first install only, not on updates. If the old install and the
+  new one would use the same folder, the old one is removed first, so nothing it
+  deletes can be a file Bach just installed.
 
 ## [[shortcuts]]
 
@@ -298,6 +493,9 @@ Either `github` or `feed` is needed, and `app.version` must be numbers like
 
 To roll an update out to a share of computers first, write the feed with
 `bach feed SETUP.exe --rollout 10`; see [updates](updates.md#staged-rollouts).
+To spare computers the whole download, `bach build --patch-from OLD-SETUP.exe`
+also writes a patch with only the files that changed; see
+[update patches](updates.md#update-patches).
 
 Signing changes the setup file, and so its SHA-256: after signing, write the
 feed again with `bach feed SETUP.exe`. The whole story, from publishing with
@@ -317,10 +515,28 @@ build reads it from an environment variable (or `--key-file`).
 get_key_url = "https://example.com/buy"   # optional: the key page gets a "Get a key" button
 ```
 
-```bash
-bach key                                   # K7QF-3MWD-9XPA-H2TY-6NBC
-BACH_ACCESS_KEY=K7QF-3MWD-9XPA-H2TY-6NBC bach build
+```powershell
+bach key --out key.txt                     # writes one key (try --count 100 for a batch)
+bach build --key-file key.txt              # uses the first line of the file
 ```
+
+`--key-file` works in every shell. The build can also read the key from the
+environment variable, which each shell sets its own way:
+
+```powershell
+$env:BACH_ACCESS_KEY = "K7QF-3MWD-9XPA-H2TY-6NBC"; bach build   # PowerShell
+```
+
+```bat
+set BACH_ACCESS_KEY=K7QF-3MWD-9XPA-H2TY-6NBC && bach build      # cmd
+```
+
+```bash
+BACH_ACCESS_KEY=K7QF-3MWD-9XPA-H2TY-6NBC bach build             # bash, zsh
+```
+
+`bach key > key.txt` also works. Windows PowerShell writes such a file as
+UTF-16 and Bach reads that, a byte order mark and plain UTF-8 alike.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -425,6 +641,8 @@ a text is given in only one, `bach check` points it out.
 | `step_finding`, `step_fetching`, `error_fetch` (`{error}`) | The online installer's labels, and what it says when it can't download. |
 | `access_title`, `access_subtitle`, `access_hint`, `access_button`, `access_paste`, `access_get`, `access_wrong` | The access key page. |
 | `step_running`, `error_run` (`{task}`, `{code}`) | A `[[run]]` step's label and its failure. |
+| `step_migrating` | The label while an older install by another installer is removed (`[[migrate]]`). |
+| `error_patch_base` | What an update patch says when the installed files aren't the version it was made for. |
 | `website`, `feedback` | The link buttons on the last page. |
 
 `crates/pack/src/i18n/en.rs` has every English text in full, and the other
@@ -440,6 +658,29 @@ files there every translation.
 
 Write Windows paths in TOML with single quotes so backslashes stay as they
 are: `data = ['%APPDATA%\My App']`.
+
+## [signing]
+
+Optional. Says how to sign the setup files, so `bach build --sign` can do it
+instead of you running a signing tool. Without this section nothing is signed.
+
+```toml
+[signing]
+program = "signtool"      # default
+arguments = 'sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `program` | `signtool` | The signing program, started without a shell. `signtool` is part of the Windows SDK and is rarely on `PATH`: when it isn't, Bach uses the newest one in `C:\Program Files (x86)\Windows Kits\10\bin`. Give a full path to use another. |
+| `arguments` | required | Its arguments, split like a command line. For `signtool` they start with the word `sign`. The setup file is added last; write `{file}` to put it elsewhere. `{env:NAME}` is replaced by an environment variable, so secrets stay out of `bach.toml` (the build fails when it isn't set). |
+
+Signing runs only when you ask: `bach build --sign` (or `BACH_SIGN=1` in CI)
+signs what it writes, and `bach sign FILE` signs a file you built earlier. A
+`bach.toml` never starts a program by itself. Signing happens before the
+update feed is written. Details,
+and why the installed `uninstall.exe` stays unsigned, are in
+[signing](signing.md).
 
 ## A complete example
 
@@ -495,8 +736,23 @@ data_description = { en = "Your settings and the download cache.", de = "Deine E
 
 Every setup file also installs without a window, for IT tools and scripts:
 
-```bash
-Hello-Setup-1.4.0.exe --silent
+```powershell
+$p = Start-Process .\Hello-Setup-1.4.0.exe -ArgumentList '--silent' -Wait -PassThru
+$p.ExitCode        # 0: done
+```
+
+A setup file is a windowed program, so a shell doesn't wait for it: running
+`.\Hello-Setup-1.4.0.exe --silent` directly installs but returns at once,
+without an exit code. `Start-Process -Wait -PassThru` waits and hands you the
+exit code. In cmd, use `start /wait "" Hello-Setup-1.4.0.exe --silent` and read
+`%ERRORLEVEL%`. PowerShell also needs the `.\` in front of a file in the
+current folder.
+
+More flags go in the argument list, one text each; a path with spaces gets its
+own quotes:
+
+```powershell
+Start-Process .\Hello-Setup-1.4.0.exe -Wait -PassThru -ArgumentList '--silent', '--dir', '"D:\My Apps\Hello"', '--with', 'samples,path'
 ```
 
 | Flag | Meaning |
@@ -525,9 +781,15 @@ killed).
 With `[updates]`, the installed app can ask its own uninstaller, which
 knows the feed:
 
-```bash
-"%LOCALAPPDATA%\Programs\Hello\uninstall.exe" --check-update
+```powershell
+$p = Start-Process "$env:LOCALAPPDATA\Programs\Hello\uninstall.exe" -ArgumentList '--check-update' -Wait -PassThru
+$p.ExitCode        # 10: a newer version is out, 0: up to date
 ```
+
+Use `Start-Process -Wait -PassThru` as in [silent installs](#silent-installs):
+`uninstall.exe` is a windowed program too, and a plain call doesn't wait or
+give you its exit code. From your own app, start it with your language's
+process API and wait for it.
 
 | Flag | Meaning |
 | --- | --- |
@@ -570,3 +832,7 @@ bach winget dist/Hello-Setup-1.4.0.exe --url https://example.com/Hello-Setup-1.4
 
 writes the three manifests the Windows Package Manager needs; check them
 with `winget validate` and open a pull request to microsoft/winget-pkgs.
+The manifests say `Scope: machine` for a setup file with
+`installer.scope = "machine"` (otherwise `user`), and list it under the
+architecture of its runtime: `x64`, or `arm64` for a setup file built with the
+ARM64 runtime.

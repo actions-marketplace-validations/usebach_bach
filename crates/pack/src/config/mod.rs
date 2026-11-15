@@ -9,6 +9,7 @@ mod extras;
 mod gather;
 mod icon;
 mod options;
+mod system;
 mod text;
 
 use std::collections::BTreeMap;
@@ -51,8 +52,17 @@ struct File {
     shortcuts: Vec<extras::ShortcutSection>,
     #[serde(default)]
     run: Vec<extras::RunSection>,
+    #[serde(default)]
+    registry: Vec<system::RegistrySection>,
+    #[serde(default)]
+    env: Vec<system::EnvSection>,
+    #[serde(default)]
+    context_menu: Vec<system::ContextMenuSection>,
+    #[serde(default)]
+    migrate: Vec<system::MigrateSection>,
     updates: Option<extras::UpdatesSection>,
     access: Option<extras::AccessSection>,
+    signing: Option<SigningSection>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +84,24 @@ struct FilesSection {
     source: String,
     #[serde(default)]
     exclude: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SigningSection {
+    program: Option<String>,
+    arguments: Option<String>,
+}
+
+/// How to sign the setup files: the program to run and its arguments. Signing
+/// is optional; a project without `[signing]` builds unsigned files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Signing {
+    /// The signing program, `signtool` unless the project names another.
+    pub program: String,
+    /// Its arguments. `{file}` is the setup file (appended when not named) and
+    /// `{env:NAME}` an environment variable, so secrets stay out of the file.
+    pub arguments: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -99,6 +127,7 @@ struct InstallerSection {
     start_menu_folder: Option<String>,
     website_button: Option<bool>,
     logo_height: Option<u16>,
+    scope: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -111,7 +140,7 @@ struct UninstallSection {
 }
 
 /// A checked `bach.toml`, ready to build.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Project {
     /// The folder `bach.toml` is in.
     pub root: PathBuf,
@@ -142,6 +171,8 @@ pub struct Project {
     pub update_download_url: Option<String>,
     /// `updates.github`: the repository whose releases hold the updates.
     pub update_github: Option<String>,
+    /// `[signing]`: how `bach build` signs the setup files, if it should.
+    pub signing: Option<Signing>,
 }
 
 /// Settings that win over `bach.toml`, for builds in CI.
@@ -159,7 +190,7 @@ pub fn load(path: &Path) -> Result<Project> {
 
 /// [`load`] with some settings replaced (see [`Overrides`]).
 pub fn load_with(path: &Path, overrides: &Overrides) -> Result<Project> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("couldn't read {}", path.display()))?;
+    let text = crate::textfile::read(path).with_context(|| format!("couldn't read {}", path.display()))?;
     let root = path
         .parent()
         .map(|parent| if parent.as_os_str().is_empty() { Path::new(".") } else { parent })
@@ -241,7 +272,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     if file.app.website.is_none() && file.installer.website_button == Some(true) {
         bail!("installer.website_button is true, but app.website isn't set");
     }
-    let update_settings = extras::updates(file.updates.as_ref())?;
+    let update_settings = extras::updates(file.updates.as_ref(), install.scope.is_machine())?;
     if update_settings.is_some() && crate::version::compare(&app.version, &app.version).is_none() {
         bail!(
             "app.version is \"{}\"; an app that updates itself compares versions, so use numbers like 1.2.3 \
@@ -340,10 +371,12 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         requirements: extras::requirements(&file.requirements)?,
         shortcuts: Vec::new(),
         run: Vec::new(),
+        system: system::changes(&file.registry, &file.env, &file.context_menu, &file.migrate)?,
         updates,
         access: access.as_ref().map(|access| access.manifest.clone()),
         online: false,
         archive_sha256: None,
+        patch_from: None,
     };
     if manifest.install.add_to_path != manifest::Choice::Never {
         if let Some(folder) = &manifest.install.path_folder {
@@ -372,7 +405,38 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         warnings,
         update_download_url,
         update_github,
+        signing: signing(file.signing.as_ref())?,
     })
+}
+
+fn signing(section: Option<&SigningSection>) -> Result<Option<Signing>> {
+    let Some(section) = section else {
+        return Ok(None);
+    };
+    let program = match section.program.as_deref().map(str::trim) {
+        None | Some("") => "signtool".to_string(),
+        Some(program) if program.chars().any(char::is_control) => bail!("signing.program has control characters in it"),
+        Some(program) => program.to_string(),
+    };
+    let arguments = section.arguments.as_deref().map(str::trim).unwrap_or_default();
+    if arguments.is_empty() {
+        bail!(
+            "[signing] needs arguments: how the signing program picks your certificate, like              arguments = '/fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'"
+        );
+    }
+    if arguments.contains('\0') {
+        bail!("signing.arguments has a NUL in it");
+    }
+    // signtool's first word is the command to run; without `sign` it answers
+    // "Invalid command", which says nothing about where the mistake is.
+    let is_signtool = program.eq_ignore_ascii_case("signtool") || program.eq_ignore_ascii_case("signtool.exe");
+    if is_signtool && !arguments.split_whitespace().next().is_some_and(|first| first.eq_ignore_ascii_case("sign")) {
+        bail!(
+            "signing.arguments for signtool must start with the word sign, like \
+             arguments = 'sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'"
+        );
+    }
+    Ok(Some(Signing { program, arguments: arguments.to_string() }))
 }
 
 /// A file name as GitHub keeps it for a release download: letters, digits,

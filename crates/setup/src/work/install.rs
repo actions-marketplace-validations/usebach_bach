@@ -25,10 +25,11 @@ use bach_pack::manifest::{Choices, Manifest, UNINSTALLER};
 use bach_pack::paths;
 use bach_pack::protect::{KeyError, Unlocked};
 
+use super::patch::patch_base;
 use super::place::{self, Transaction};
 use super::{describe, failed, is_disk_full, is_in_use, plain, remove_empty_parents, remove_file_if_present, Report};
 use crate::package::Package;
-use crate::system::{self, env_path, host, integration, task};
+use crate::system::{self, changes, env_path, host, integration, task};
 use crate::texts::{self, Texts};
 
 /// Unpacking is most of the work; the steps after it share the rest.
@@ -75,6 +76,12 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     let _lock = host::SetupLock::acquire(&manifest.app.id).ok_or_else(|| texts.get(Key::error_busy))?;
 
     report(0.02, &texts.get(Key::step_preparing));
+    // A machine-wide app runs, updates and uninstalls with administrator rights,
+    // so it may only live where the user's own programs can't write: Program Files.
+    if manifest.install.scope.is_machine() && !crate::system::folders::is_admin_only(dir) {
+        crate::log::line(&format!("{} is outside Program Files, so a machine-wide install refuses it.", dir.display()));
+        return Err(texts.with(Key::error_no_access, &[("path", &dir.display().to_string())]));
+    }
     create_install_dir(dir, texts)?;
     // An update that was cut short earlier is undone first.
     place::recover(dir);
@@ -82,10 +89,21 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     ensure_closed(&program, texts)?;
     let previous = previous_install(dir, manifest);
     let needed = manifest.selected_size(&choices);
-    check_free_space(dir, needed, texts)?;
+    // An update patch carries only what changed; the rest is in the folder.
+    let matching = patch_base(manifest, &choices, dir);
+    let unchanged: u64 = manifest.files.iter().filter(|file| matching.contains(&file.path)).map(|file| file.size).sum();
+    let to_copy = needed.saturating_sub(unchanged);
+    check_free_space(dir, to_copy, texts)?;
     verify_archive(package, layout.archive, texts)?;
 
-    unpack(plan, &choices, layout.archive, needed, unlocked.as_ref(), report)?;
+    // An older install of this app by another installer goes first, so its
+    // uninstaller can't take away what this one puts in place.
+    if previous.is_none() && !manifest.system.migrate.is_empty() {
+        report(0.03, &texts.get(Key::step_migrating));
+        super::migrate::run(manifest);
+    }
+
+    unpack(plan, &choices, layout.archive, to_copy, &matching, unlocked.as_ref(), report)?;
 
     report(0.86, &texts.get(Key::step_tidying));
     let installed = manifest.as_installed(&choices);
@@ -193,11 +211,14 @@ fn check_free_space(dir: &Path, needed: u64, texts: &Texts) -> Result<(), String
 }
 
 /// Unpacks the chosen files and moves them into place, all or nothing.
+/// `needed` is what gets copied; `matching` are the files an update patch
+/// leaves out because they are in the folder already.
 fn unpack(
     plan: &InstallPlan,
     choices: &Choices,
     archive_section: container::Section,
     needed: u64,
+    matching: &HashSet<String>,
     unlocked: Option<&Unlocked>,
     report: Report,
 ) -> Result<(), String> {
@@ -220,10 +241,12 @@ fn unpack(
     let reader = BufReader::new(source.take(archive_section.len));
     let mut transaction = Transaction::default();
     let mut write_error: Option<String> = None;
+    let mut present: HashSet<String> = HashSet::new();
     let mut visit = |packaged: &str, _size: u64, body: &mut dyn Read| {
         if !wanted.contains(packaged) {
             return Ok(());
         }
+        present.insert(packaged.to_string());
         let target = paths::under(dir, packaged);
         transaction
             .stage(&target, body, &mut |chunk| {
@@ -250,6 +273,17 @@ fn unpack(
         transaction.discard();
         remove_empty_parents(dir, wanted.iter().copied());
         return Err(write_error.unwrap_or_else(|| format!("{} {}", texts.get(Key::error_damaged), plain(&err))));
+    }
+    // A patch is only good on the version it was made for: every file it
+    // leaves out has to be there, unchanged.
+    if manifest.patch_from.is_some() {
+        let missing = wanted.iter().find(|path| !present.contains(**path) && !matching.contains(**path));
+        if let Some(missing) = missing {
+            crate::log::line(&format!("The update patch needs {missing} as it was in version {}, and it isn't.", manifest.patch_from.as_deref().unwrap_or("?")));
+            transaction.discard();
+            remove_empty_parents(dir, wanted.iter().copied());
+            return Err(texts.get(Key::error_patch_base));
+        }
     }
     transaction.commit(&place::journal_path(dir)).map_err(|failure| {
         if is_in_use(&failure.error) {
@@ -437,11 +471,11 @@ fn integrate(
     if let Some(previous) = previous.filter(|previous| previous.chosen.as_ref().is_some_and(|before| before.add_to_path)) {
         let old_folder = previous.path_folder_in(dir);
         if old_folder != path_folder || !choices.add_to_path {
-            env_path::remove(&old_folder).map_err(fail)?;
+            env_path::remove(previous.install.scope, &old_folder).map_err(fail)?;
         }
     }
     if choices.add_to_path {
-        env_path::add(&path_folder).map_err(fail)?;
+        env_path::add(manifest.install.scope, &path_folder).map_err(fail)?;
     }
 
     if let Some(previous) = previous {
@@ -458,5 +492,6 @@ fn integrate(
     for file_type in &manifest.file_types {
         integration::register_file_type(manifest, file_type, program).map_err(fail)?;
     }
+    changes::apply(&changes::at(manifest), manifest, previous, dir, program).map_err(fail)?;
     Ok(())
 }

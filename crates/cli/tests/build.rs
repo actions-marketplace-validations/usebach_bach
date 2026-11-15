@@ -404,3 +404,162 @@ fn a_setup_file_explains_its_options() {
     assert!(!dir.join("installed").exists());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Signing is optional: with `[signing]` the setup files are signed after they
+/// are written (here a stand-in that copies the file), without it nothing is.
+#[cfg(windows)]
+#[test]
+fn signing_is_optional_and_runs_before_the_feed() {
+    need_runtime!();
+    // Not set up: a plain build writes no signature and says nothing about one.
+    let plain = project("sign-off", &config(UPDATES));
+    let out = run(&plain, &["build", "--fast"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(!text(&out.stdout).contains("Signing"), "{}", text(&out.stdout));
+    std::fs::remove_dir_all(&plain).unwrap();
+
+    let signing = r#"[signing]
+program = "cmd"
+arguments = "/c copy /y {file} {file}.signed"
+"#;
+    let dir = project("sign-on", &format!("{}\n{signing}", config(UPDATES)));
+    // A bach.toml never runs a program by itself: without --sign, nothing runs.
+    let out = run(&dir, &["build", "--fast"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(!dir.join("dist/Hello-Setup-1.0.0.exe.signed").exists());
+    let said = text(&out.stdout);
+    assert!(said.contains("Not signed") && said.contains("--sign"), "{said}");
+
+    // With --sign the file is handed to the signer, and the command is shown.
+    let out = run(&dir, &["build", "--fast", "--sign"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(dir.join("dist/Hello-Setup-1.0.0.exe.signed").is_file(), "the setup file was handed to the signer");
+    assert!(text(&out.stdout).contains("Signing: cmd /c copy"), "{}", text(&out.stdout));
+    assert!(dir.join("dist/latest.json").is_file());
+    std::fs::remove_file(dir.join("dist/Hello-Setup-1.0.0.exe.signed")).unwrap();
+
+    // `bach sign` is explicit too, and signs a file that was built unsigned.
+    let out = run(&dir, &["sign", "dist/Hello-Setup-1.0.0.exe"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(dir.join("dist/Hello-Setup-1.0.0.exe.signed").is_file());
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    // --sign without a [signing] section is a mistake, not a silent no-op.
+    let none = project("sign-none", &config(""));
+    let out = run(&none, &["build", "--fast", "--sign"]);
+    assert!(!out.status.success());
+    assert!(text(&out.stderr).contains("no [signing]"), "{}", text(&out.stderr));
+    std::fs::remove_dir_all(&none).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn a_signer_that_fails_fails_the_build_with_one_sentence() {
+    need_runtime!();
+    let signing = r#"[signing]
+program = "cmd"
+arguments = "/c exit 3"
+"#;
+    let dir = project("sign-fails", &format!("{}\n{signing}", config("")));
+    let out = run(&dir, &["build", "--fast", "--sign"]);
+    assert!(!out.status.success());
+    let error = text(&out.stderr);
+    assert!(error.contains("failed to sign") && error.contains("exit code 3"), "{error}");
+
+    let missing = project("sign-missing", &format!("{}\n[signing]\nprogram = \"no-such-signer-xyz\"\narguments = \"/a\"\n", config("")));
+    let out = run(&missing, &["build", "--fast", "--sign"]);
+    assert!(text(&out.stderr).contains("ouldn't start no-such-signer-xyz"), "{}", text(&out.stderr));
+
+    let empty = project("sign-empty", &format!("{}\n[signing]\n", config("")));
+    let out = run(&empty, &["check"]);
+    assert!(text(&out.stderr).contains("[signing] needs arguments"), "{}", text(&out.stderr));
+    for dir in [dir, missing, empty] {
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+/// An update patch holds only what changed, knows the version it is for, and
+/// goes into the feed when it saves enough (or when asked for).
+#[test]
+fn a_patch_carries_only_the_files_that_changed() {
+    need_runtime!();
+    let dir = project("patch", &config(UPDATES));
+    let setup = |version: &str| dir.join(format!("dist/Hello-Setup-{version}.exe"));
+    assert!(run(&dir, &["build", "--fast"]).status.success());
+    std::fs::copy(setup("1.0.0"), dir.join("old.exe")).unwrap();
+
+    // Version 1.1.0: one small file is new, the 1 MB file stays as it was.
+    std::fs::write(dir.join("app/notes.txt"), "second").unwrap();
+    let out = run(&dir, &["build", "--fast", "--app-version", "1.1.0", "--patch-from", "old.exe"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let said = text(&out.stdout);
+    assert!(said.contains("the update patch from 1.0.0"), "{said}");
+    let patch = dir.join("dist/Hello-Setup-1.1.0-patch-from-1.0.0.exe");
+    assert!(patch.is_file(), "{said}");
+
+    let inspected = text(&run(&dir, &["inspect", patch.to_str().unwrap()]).stdout);
+    assert!(inspected.contains("Update patch") && inspected.contains("1.0.0"), "{inspected}");
+    // The patch holds notes.txt and the (tiny) program change nothing; the 1 MB file isn't in it.
+    let patch_archive = patch_archive_size(&patch);
+    let full_archive = patch_archive_size(&setup("1.1.0"));
+    assert!(patch_archive < 100_000 && full_archive > 900_000, "patch {patch_archive}, full {full_archive}");
+
+    // A patch is a whole setup file (it carries the runtime), so with this small app
+    // it saves nothing, and the feed leaves it out and says so.
+    assert!(said.contains("not much smaller") || text(&out.stderr).contains("not much smaller"), "{said}\n{}", text(&out.stderr));
+    let feed = std::fs::read_to_string(dir.join("dist/latest.json")).unwrap();
+    assert!(!feed.contains("delta"), "{feed}");
+
+    // Asked for, it goes in.
+    let out = run(&dir, &["feed", setup("1.1.0").to_str().unwrap(), "--patch", patch.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let feed: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("dist/latest.json")).unwrap()).unwrap();
+    assert_eq!(feed["delta"]["from"], "1.0.0");
+    assert!(feed["delta"]["url"].as_str().unwrap().ends_with("Hello-Setup-1.1.0-patch-from-1.0.0.exe"));
+    assert_eq!(feed["delta"]["sha256"].as_str().unwrap().len(), 64);
+
+    // Not the right inputs.
+    let out = run(&dir, &["build", "--fast", "--patch-from", "dist/Hello-Setup-1.0.0.exe", "--app-version", "1.2.0", "--out", "dist/x.exe"]);
+    assert!(out.status.success());
+    let out = run(&dir, &["feed", patch.to_str().unwrap()]);
+    assert!(text(&out.stderr).contains("update patch"), "{}", text(&out.stderr));
+    let out = run(&dir, &["feed", setup("1.1.0").to_str().unwrap(), "--patch", setup("1.1.0").to_str().unwrap()]);
+    assert!(text(&out.stderr).contains("isn't an update patch"), "{}", text(&out.stderr));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The size of the archive inside a setup file, read from the payload's trailer.
+fn patch_archive_size(setup: &Path) -> u64 {
+    let bytes = std::fs::read(setup).unwrap();
+    let end = bytes.len();
+    u64::from_le_bytes(bytes[end - 24..end - 16].try_into().unwrap())
+}
+
+/// What a shell's `>` writes (UTF-16 in Windows PowerShell, UTF-8 with a mark in
+/// newer ones) is read as the key it holds, and `bach key --out` writes plain text.
+#[test]
+fn key_files_from_any_shell_work() {
+    need_runtime!();
+    let dir = project("keyfiles", &config(ACCESS));
+    let out = run(&dir, &["key", "--count", "3", "--out", "keys.txt"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(text(&out.stdout).contains("Wrote 3 keys to keys.txt"), "{}", text(&out.stdout));
+    let keys = std::fs::read_to_string(dir.join("keys.txt")).unwrap();
+    assert_eq!(keys.lines().count(), 3);
+    assert!(!keys.starts_with('\u{feff}'));
+    assert!(!run(&dir, &["key", "--out", "keys.txt"]).status.success(), "never overwrites a file of keys");
+    let first = keys.lines().next().unwrap().to_string();
+
+    // A list of keys: the first one is the key.
+    let out = run(&dir, &["build", "--fast", "--key-file", "keys.txt"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+
+    let utf16: Vec<u8> = [0xFF, 0xFE].into_iter().chain(format!("{first}\r\n").encode_utf16().flat_map(u16::to_le_bytes)).collect();
+    std::fs::write(dir.join("utf16.txt"), utf16).unwrap();
+    std::fs::write(dir.join("bom.txt"), format!("\u{feff}{first}\r\n")).unwrap();
+    for file in ["utf16.txt", "bom.txt"] {
+        let out = run(&dir, &["build", "--fast", "--key-file", file]);
+        assert!(out.status.success(), "{file}: {}", text(&out.stderr));
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

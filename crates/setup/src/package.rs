@@ -77,6 +77,7 @@ impl Package {
                 open_button: true,
                 start_menu_folder: None,
                 website_button: false,
+                scope: manifest::Scope::User,
             },
             uninstall: manifest::Uninstall { data: vec![r"%APPDATA%\Sample".into()], data_description: None, feedback_url: None },
             look: manifest::Look::default(),
@@ -89,10 +90,12 @@ impl Package {
             requirements: Vec::new(),
             shortcuts: Vec::new(),
             run: Vec::new(),
+            system: manifest::SystemChanges::default(),
             updates: None,
             access: None,
             online: false,
             archive_sha256: None,
+            patch_from: None,
         };
         Self { manifest, exe: PathBuf::new(), layout: None, logo: None }
     }

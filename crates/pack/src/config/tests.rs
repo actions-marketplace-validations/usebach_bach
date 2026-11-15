@@ -567,3 +567,183 @@ fn a_windows_requirement_needs_a_build_number() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_machine_wide_install_is_chosen_with_scope() {
+    let dir = project_dir("scope");
+    assert!(parse(MINIMAL, &dir).unwrap().manifest.install.scope.is_user(), "per user unless asked");
+    let machine = format!("{MINIMAL}\n[installer]\nscope = \"machine\"\n");
+    let project = parse(&machine, &dir).unwrap();
+    assert!(project.manifest.install.scope.is_machine());
+    project.manifest.validate().unwrap();
+    let err = format!("{:#}", parse(&format!("{MINIMAL}\n[installer]\nscope = \"everyone\"\n"), &dir).unwrap_err());
+    assert!(err.contains("installer.scope"), "{err}");
+
+    // Background updates can't write to Program Files, so they're off there.
+    let updates = "[updates]\nfeed = \"https://example.com/latest.json\"\ndownload_url = \"https://example.com/{file}\"\n";
+    let project = parse(&format!("{machine}\n{updates}"), &dir).unwrap();
+    assert_eq!(project.manifest.updates.unwrap().auto, Choice::Never);
+    for auto in ["true", "false", "\"always\""] {
+        let err = format!("{:#}", parse(&format!("{machine}\n{updates}auto = {auto}\n"), &dir).unwrap_err());
+        assert!(err.contains("updates.auto"), "{auto}: {err}");
+    }
+    assert!(parse(&format!("{machine}\n{updates}auto = \"never\"\n"), &dir).is_ok());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn signtool_arguments_start_with_sign() {
+    let dir = project_dir("signtool");
+    let signing = |program: &str, arguments: &str| format!("{MINIMAL}\n[signing]\nprogram = \"{program}\"\narguments = '{arguments}'\n");
+    let project = parse(&signing("signtool", "sign /fd SHA256 /a"), &dir).unwrap();
+    assert_eq!(project.signing.unwrap().arguments, "sign /fd SHA256 /a");
+    assert!(parse(&format!("{MINIMAL}\n[signing]\narguments = 'SIGN /a'\n"), &dir).is_ok(), "signtool is the default program");
+    for program in ["signtool", "SignTool.exe"] {
+        let err = format!("{:#}", parse(&signing(program, "/fd SHA256 /a"), &dir).unwrap_err());
+        assert!(err.contains("must start with the word sign"), "{program}: {err}");
+    }
+    let err = format!("{:#}", parse(&format!("{MINIMAL}\n[signing]\narguments = '/fd SHA256 /a'\n"), &dir).unwrap_err());
+    assert!(err.contains("must start with the word sign"), "{err}");
+    // Other signers have their own syntax.
+    assert!(parse(&signing("osslsigncode", "-certs c.pem -in {file}"), &dir).is_ok());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn older_installs_are_named_by_their_uninstall_entry() {
+    let dir = project_dir("migrate");
+    let ok = format!(
+        r#"{MINIMAL}
+[[migrate]]
+uninstall_key = "{{8A69D345-D564-463C-AFF1-A69D9E530F96}}_is1"
+arguments = "/VERYSILENT /NORESTART"
+
+[[migrate]]
+uninstall_key = "Hello"
+elevated = true
+"#
+    );
+    let project = parse(&ok, &dir).unwrap();
+    let migrate = &project.manifest.system.migrate;
+    assert_eq!(migrate.len(), 2);
+    assert_eq!(migrate[0].arguments.as_deref(), Some("/VERYSILENT /NORESTART"));
+    assert!(migrate[1].elevated && migrate[1].arguments.is_none());
+    project.manifest.validate().unwrap();
+
+    let cases = [
+        ("[[migrate]]\nuninstall_key = \"\"", "migrate[0]"),
+        ("[[migrate]]\nuninstall_key = \"a/b\"", "Uninstall entry"),
+        ("[[migrate]]\nuninstall_key = 'Software\\Hello'", "Uninstall entry"),
+        ("[[migrate]]\nuninstall_key = \"A\"\n[[migrate]]\nuninstall_key = \"a\"", "listed twice"),
+        ("[[migrate]]\nname = \"x\"", "name"),
+    ];
+    for (body, expected) in cases {
+        let err = format!("{:#}", parse(&format!("{MINIMAL}\n{body}"), &dir).unwrap_err());
+        assert!(err.contains(expected), "{body}: {err}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn run_steps_can_ask_for_administrator_rights() {
+    let dir = project_dir("elevated");
+    std::fs::create_dir_all(dir.join("build/redist")).unwrap();
+    std::fs::write(dir.join("build/redist/vc.exe"), b"MZ").unwrap();
+    let step = |extra: &str| format!("{MINIMAL}\n[[run]]\nfile = \"redist/vc.exe\"\n{extra}");
+    assert!(!parse(&step(""), &dir).unwrap().manifest.run[0].elevated);
+    let project = parse(&step("elevated = true"), &dir).unwrap();
+    assert!(project.manifest.run[0].elevated);
+    project.manifest.validate().unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn system_changes_are_checked() {
+    let dir = project_dir("system");
+    let ok = format!(
+        r#"{MINIMAL}
+[[registry]]
+key = 'Software\Hello'
+name = "Dir"
+type = "expand"
+value = '{{app}}'
+
+[[registry]]
+key = 'Software\Hello'
+name = "Level"
+type = "dword"
+value = 3
+
+[[env]]
+name = "HELLO_HOME"
+value = '{{app}}'
+
+[[context_menu]]
+name = "Open with Hello"
+on = ["files", ".md"]
+
+[[context_menu]]
+name = "Hello here"
+on = "background"
+arguments = '--here "%V"'
+"#
+    );
+    let project = parse(&ok, &dir).unwrap();
+    let system = &project.manifest.system;
+    assert_eq!(system.registry.len(), 2);
+    assert_eq!(system.registry[1].data, crate::manifest::RegistryData::Dword(3));
+    assert_eq!(system.environment[0].name, "HELLO_HOME");
+    assert_eq!(system.context_menu[0].on.len(), 2);
+    assert_eq!(system.context_menu[1].arguments.as_deref(), Some("--here \"%V\""));
+    project.manifest.validate().unwrap();
+    assert!(parse(MINIMAL, &dir).unwrap().manifest.system.is_empty());
+
+    let cases = [
+        (r#"[[registry]]
+key = 'Software\Classes\.txt'
+value = "x""#, "registry[0]"),
+        (r#"[[registry]]
+key = 'HKCU\Software\X'
+value = "x""#, "below Software"),
+        (r#"[[registry]]
+key = 'Software\X'
+type = "dword"
+value = -1"#, "dword"),
+        (r#"[[registry]]
+key = 'Software\X'
+type = "binary"
+value = "x""#, "registry[0].type"),
+        (r#"[[registry]]
+key = 'Software\X'
+value = 4"#, "must be text"),
+        (r#"[[registry]]
+key = 'Software\X'
+value = "a"
+[[registry]]
+key = 'software\x'
+value = "b""#, "second time"),
+        (r#"[[env]]
+name = "PATH"
+value = "x""#, "belongs to Windows"),
+        (r#"[[env]]
+name = "A"
+value = "1"
+[[env]]
+name = "a"
+value = "2""#, "set twice"),
+        (r#"[[context_menu]]
+name = "Open""#, "context_menu[0].on"),
+        (r#"[[context_menu]]
+name = "Open"
+on = ".exe""#, "context_menu[0].on"),
+        (r#"[[context_menu]]
+name = "Open"
+on = "files"
+icon = "x""#, "icon"),
+    ];
+    for (body, expected) in cases {
+        let err = format!("{:#}", parse(&format!("{MINIMAL}\n{body}"), &dir).unwrap_err());
+        assert!(err.contains(expected), "{body}: {err}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -88,7 +88,7 @@ texts! {
     website, feedback,
     step_finding, step_fetching, error_fetch,
     access_title, access_subtitle, access_hint, access_button, access_paste, access_wrong, access_get,
-    step_running, error_run,
+    step_running, error_run, step_migrating, error_patch_base,
 }
 
 /// A language the setup window speaks.

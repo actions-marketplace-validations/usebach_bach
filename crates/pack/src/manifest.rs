@@ -19,12 +19,16 @@ mod access;
 mod choices;
 pub mod extras;
 pub(crate) mod features;
+mod scope;
+pub mod system;
 mod validate;
 
 pub use access::{Access, Encryption};
 pub use choices::{auto_update_setting as choices_auto_update, Choice, Choices, OPTION_AUTO_UPDATE, OPTION_AUTOSTART, OPTION_DESKTOP, OPTION_PATH, OPTION_START_MENU};
-pub use extras::{Check, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
+pub use extras::{Check, DeltaEntry, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
 pub use features::{Component, FileType, Protocol};
+pub use scope::Scope;
+pub use system::{ContextMenuEntry, ContextTarget, EnvVar, Migrate, RegistryData, RegistryValue, SystemChanges};
 pub use validate::MAX_LICENSE;
 
 /// The uninstaller's file name in every install folder.
@@ -69,6 +73,10 @@ pub struct Manifest {
     /// Programs setup runs while installing or removing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub run: Vec<RunStep>,
+    /// What the install changes in Windows besides files: registry values,
+    /// environment variables and right-click menu entries.
+    #[serde(default, skip_serializing_if = "SystemChanges::is_empty")]
+    pub system: SystemChanges,
     /// Where the installed app checks for updates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updates: Option<Updates>,
@@ -84,6 +92,11 @@ pub struct Manifest {
     /// carried by an installed uninstaller, which has no archive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive_sha256: Option<String>,
+    /// Set on an update patch: the version it updates from. A patch's archive
+    /// holds only the files that changed since then; every other file of
+    /// `files` must already be in the install folder with the recorded SHA-256.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patch_from: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -131,6 +144,9 @@ pub struct Install {
     /// Whether the last page links to `app.website`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub website_button: bool,
+    /// Whether the app installs for the user or for every user of the computer.
+    #[serde(default, skip_serializing_if = "Scope::is_user")]
+    pub scope: Scope,
 }
 
 fn yes() -> bool {
@@ -222,11 +238,16 @@ pub struct FileEntry {
     /// The optional component it belongs to; None means always installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<String>,
+    /// The file's SHA-256 (lowercase hex). Setup files built since patches
+    /// exist record it: an update patch leaves unchanged files where they are
+    /// and checks them against this before it relies on them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 impl FileEntry {
     pub fn new(path: impl Into<String>, size: u64) -> Self {
-        Self { path: path.into(), size, component: None }
+        Self { path: path.into(), size, component: None, sha256: None }
     }
 }
 
@@ -266,6 +287,7 @@ impl Manifest {
         installed.chosen = Some(choices.clone());
         installed.online = false;
         installed.archive_sha256 = None;
+        installed.patch_from = None;
         // The uninstaller has no files to unlock, but an update still
         // sends the key when `send_key` says so.
         if let Some(access) = &mut installed.access {
@@ -325,6 +347,7 @@ pub(crate) fn sample() -> Manifest {
             open_button: true,
             start_menu_folder: None,
             website_button: false,
+            scope: Scope::User,
         },
         uninstall: Uninstall {
             data: vec![r"%APPDATA%\Hello".into()],
@@ -335,7 +358,7 @@ pub(crate) fn sample() -> Manifest {
         files: vec![
             FileEntry::new("hello.exe", 10),
             FileEntry::new("data/readme.txt", 5),
-            FileEntry { path: "samples/one.txt".into(), size: 3, component: Some("samples".into()) },
+            FileEntry { path: "samples/one.txt".into(), size: 3, component: Some("samples".into()), sha256: None },
         ],
         components: vec![Component {
             id: "samples".into(),
@@ -350,10 +373,12 @@ pub(crate) fn sample() -> Manifest {
         requirements: Vec::new(),
         shortcuts: vec![Shortcut { name: "Hello Docs".into(), target: "hello.exe".into(), arguments: Some("--docs".into()), description: None }],
         run: Vec::new(),
+        system: SystemChanges::default(),
         updates: None,
         access: None,
         online: false,
         archive_sha256: None,
+        patch_from: None,
     }
 }
 

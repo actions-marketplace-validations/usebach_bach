@@ -73,6 +73,10 @@ pub struct RunStep {
     /// Only when this optional component is installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<String>,
+    /// Run it with administrator rights: Windows asks the user once (or not
+    /// at all when setup is elevated already).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub elevated: bool,
 }
 
 fn zero() -> Vec<i32> {
@@ -167,6 +171,24 @@ pub struct FeedEntry {
     /// take this version by themselves. Left out, everyone does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rollout: Option<u8>,
+    /// A smaller download for computers that have exactly `from` installed:
+    /// a patch with only the files that changed. Anything else downloads the
+    /// full setup file above, as does a patch that can't be applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delta: Option<DeltaEntry>,
+}
+
+/// The patch a [`FeedEntry`] offers to computers that have one version.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeltaEntry {
+    /// The version it updates from.
+    pub from: String,
+    /// The patch (a setup file with only the changed files), https.
+    pub url: String,
+    /// Its SHA-256, lowercase hex.
+    pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
 }
 
 /// Whether `url` is an https URL (the only kind updates and requirement
@@ -201,7 +223,7 @@ mod tests {
         let step: RunStep = serde_json::from_str(r#"{"name":"VC++","file":"redist/vc.exe","when":"first_install"}"#).unwrap();
         assert_eq!(step.when, RunWhen::FirstInstall);
         assert_eq!(step.success_codes, [0]);
-        assert!(!step.ignore_errors && step.arguments.is_none() && step.component.is_none());
+        assert!(!step.ignore_errors && step.arguments.is_none() && step.component.is_none() && !step.elevated);
         assert!(step.succeeded(0) && !step.succeeded(3010));
         assert_eq!(RunWhen::parse(" First-Install "), Some(RunWhen::FirstInstall));
         assert_eq!(RunWhen::parse("later"), None);

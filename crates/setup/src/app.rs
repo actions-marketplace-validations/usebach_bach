@@ -40,6 +40,12 @@ pub fn main() {
         Ok(None) => Err(None),
         Err(err) => Err(Some(format!("{err:#}"))),
     };
+    // A machine-wide app starts again elevated before it touches anything.
+    if let Ok(package) = &package {
+        if launch::needs_elevation(&args, package) {
+            std::process::exit(launch::elevate_and_wait(&args));
+        }
+    }
     if let Ok(package) = &package {
         if !args.preview {
             // An update run that starts a setup file must not share its log.

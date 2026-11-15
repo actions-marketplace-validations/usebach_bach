@@ -87,6 +87,18 @@ pub fn parse(text: &str) -> Result<FeedEntry, String> {
     if entry.rollout.is_some_and(|percent| percent > 100) {
         return Err("the update feed's rollout isn't a percentage".into());
     }
+    // A patch that isn't usable is no reason to refuse the update: the full
+    // setup file is still there, so the patch is just left out.
+    let mut entry = entry;
+    if let Some(delta) = &entry.delta {
+        let usable = bach_pack::version::compare(&delta.from, &delta.from).is_some()
+            && bach_pack::manifest::extras::is_https(&delta.url)
+            && is_sha256(&delta.sha256);
+        if !usable {
+            crate::log::line("The update feed's patch isn't usable, so only the full setup file is offered.");
+            entry.delta = None;
+        }
+    }
     Ok(entry)
 }
 
@@ -128,7 +140,7 @@ mod tests {
     }
 
     fn entry(version: &str, url: &str, sha: &str) -> FeedEntry {
-        FeedEntry { version: version.into(), url: url.into(), sha256: sha.into(), notes: None, size: None, rollout: None }
+        FeedEntry { version: version.into(), url: url.into(), sha256: sha.into(), notes: None, size: None, rollout: None, delta: None }
     }
 
     #[test]

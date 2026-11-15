@@ -8,9 +8,11 @@ description: Build a modern Windows installer (Setup.exe) for any desktop app wi
 Bach turns a folder with an app into one `Setup.exe`: a calm, native-looking
 install window (light and dark, 13 languages, follows Windows' language), a
 built-in updater (a newer setup over an install updates it in place) and a
-clean uninstaller in Settings › Apps. Installs are per user, so there is no
-administrator prompt. There is no script language: everything is declared in
-`bach.toml`.
+clean uninstaller in Settings › Apps. Installs are per user by default, so
+there is no administrator prompt; `installer.scope = "machine"` installs for
+every user into Program Files after one Windows prompt, and a `[[run]]` step
+can say `elevated = true`. There is no script language: everything is declared
+in `bach.toml`.
 
 ## 1. Get the `bach` command
 
@@ -154,7 +156,7 @@ when = "first_install"                    # or "install" (default), "uninstall" 
 success_codes = [0, 3010]
 
 [access]                                  # private app: asks for a key, encrypts the files with it
-# The key is never written here: BACH_ACCESS_KEY=... bach build (make keys with `bach key`)
+# The key is never written here: `bach key --out key.txt`, then `bach build --key-file key.txt`
 # get_key_url = "https://example.com/buy"
 
 [updates]                                 # the installed app can update itself
@@ -200,9 +202,12 @@ window speaks several).
   they ask. `bach preview` shows every page without changing anything.
 - When a real end-to-end test is wanted, use a silent install and remove it
   again afterwards:
-  `Setup.exe --silent` then
-  `"%LOCALAPPDATA%\Programs\<folder>\uninstall.exe" --silent`.
-  Exit code 0 means done; 1 failed (reason printed); 2 a flag mistake.
+  `Start-Process .\Setup.exe -ArgumentList '--silent' -Wait -PassThru` (setup
+  is a windowed program, so plain `.\Setup.exe --silent` doesn't wait or give
+  an exit code), then `Start-Process
+  "$env:LOCALAPPDATA\Programs\<folder>\uninstall.exe" -ArgumentList
+  '--silent' -Wait -PassThru`. Exit code 0 means done; 1 failed (reason
+  printed); 2 a flag mistake.
 - Silent flags: `--dir PATH`, `--with a,b`, `--without a,b` (ids:
   `desktop-shortcut`, `start-menu`, `autostart`, `path`, component ids),
   `--lang de`, `--allow-downgrade`, `--log FILE`, and `--delete-data` for the
@@ -217,6 +222,10 @@ window speaks several).
 
 - Sign the setup file with `signtool` like any program (the payload is
   covered by the signature); unsigned downloads get SmartScreen warnings.
+  `signtool` is part of the Windows SDK and rarely on `PATH` (Bach finds it
+  when it signs). Signing is optional: `[signing]` (`program`, `arguments`
+  that start with `sign` for signtool, with `{file}` and `{env:NAME}`) lets `bach build --sign` (or `BACH_SIGN=1`) sign;
+  without `--sign` nothing runs. `bach sign FILE` signs a built file.
 - To release from GitHub with no setup: `bach workflow`, commit, push, then
   Actions › Release › Run workflow (inputs: `bump`, `version`, `notes`,
   `prerelease`, `draft`, `latest`, `dry_run`; or

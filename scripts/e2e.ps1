@@ -419,5 +419,99 @@ try {
     Check ($feed.url -like '*/v4.2.0/*') 'and the same link'
 } finally { Pop-Location }
 
+# ---------------------------------------------------------------------------
+# Update patches: bach build --patch-from writes a setup file that carries
+# only the files that changed. It updates the version it was made for, leaves
+# the other files alone, and refuses to run on anything else.
+# ---------------------------------------------------------------------------
+$patchId = 'BachE2EPatch'
+$patchKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$patchId"
+$patchWork = Join-Path ([IO.Path]::GetTempPath()) ("bach-e2e-patch-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+$patchInstall = Join-Path $patchWork 'Installed\BachE2EPatch'
+function Patch-Version { (Get-ItemProperty -Path $patchKey -ErrorAction SilentlyContinue).DisplayVersion }
+
+function BuildP([string]$version, [string]$changing, [string[]]$extra = @()) {
+    $app = Join-Path $patchWork "app-$version"
+    New-Item -ItemType Directory -Force -Path $app | Out-Null
+    Copy-Item $hello (Join-Path $app 'hello.exe')
+    Set-Content -Path (Join-Path $app 'stable.txt') -Value 'never changes'
+    # A big file that stays the same: what a patch is for. (A patch carries the
+    # setup runtime too, so it only pays off for apps with something big.)
+    $big = Join-Path $patchWork 'big.bin'
+    if (-not (Test-Path $big)) {
+        $bytes = New-Object byte[] (30MB)
+        (New-Object Random 42).NextBytes($bytes)
+        [IO.File]::WriteAllBytes($big, $bytes)
+    }
+    Copy-Item $big (Join-Path $app 'big.bin')
+    Set-Content -Path (Join-Path $app 'changing.txt') -Value $changing
+    @"
+[app]
+name = "Bach E2E Patch"
+id = "$patchId"
+version = "$version"
+publisher = "Bach"
+executable = "hello.exe"
+[files]
+source = "app-$version"
+[installer]
+output = "out/P-Setup-$version.exe"
+desktop_shortcut = false
+compression = "fast"
+[updates]
+feed = "https://example.invalid/bach-e2e/latest.json"
+download_url = "https://example.invalid/bach-e2e/{file}"
+"@ | Set-Content -Encoding utf8 (Join-Path $patchWork "bach-$version.toml")
+    & $bach build (Join-Path $patchWork "bach-$version.toml") @extra | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "bach build patch $version failed." }
+    return Join-Path $patchWork "out\P-Setup-$version.exe"
+}
+
+if (Test-Path $patchKey) { throw "$patchId is already installed; remove it first." }
+New-Item -ItemType Directory -Force -Path $patchWork | Out-Null
+try {
+    Write-Host 'Build a patch'
+    $p1 = BuildP '1.0.0' 'first'
+    $p2 = BuildP '2.0.0' 'second' @('--patch-from', $p1)
+    $patch = Join-Path $patchWork 'out\P-Setup-2.0.0-patch-from-1.0.0.exe'
+    Check (Test-Path $patch) 'the patch is written next to the setup file'
+    Check ((Get-Item $patch).Length -lt ((Get-Item $p2).Length / 2)) 'and is much smaller: the unchanged big file isn''t in it'
+    $feed = Get-Content (Join-Path $patchWork 'out\latest.json') -Raw | ConvertFrom-Json
+    Check ($feed.delta.from -eq '1.0.0') 'the feed offers it to computers on 1.0.0'
+    Check ($feed.delta.sha256 -eq (Get-FileHash -Algorithm SHA256 $patch).Hash.ToLower()) 'with the patch''s own SHA-256'
+    Check ($feed.sha256 -eq (Get-FileHash -Algorithm SHA256 $p2).Hash.ToLower()) 'and still the full file''s'
+
+    Write-Host 'The patch updates the version it was made for'
+    Check ((Run $p1 @('--silent', '--dir', "`"$patchInstall`"")) -eq 0) 'installs 1.0.0'
+    Check ((Run $patch @('--silent')) -eq 0) 'the patch exits 0'
+    Check ((Patch-Version) -eq '2.0.0') 'listed as 2.0.0'
+    Check ((Get-Content (Join-Path $patchInstall 'changing.txt')) -eq 'second') 'the changed file is new'
+    Check ((Get-Content (Join-Path $patchInstall 'stable.txt')) -eq 'never changes') 'the unchanged file is as it was'
+    Check ((Get-FileHash -Algorithm SHA256 (Join-Path $patchInstall 'big.bin')).Hash -eq (Get-FileHash -Algorithm SHA256 (Join-Path $patchWork 'big.bin')).Hash) 'and so is the big file'
+    Check (Test-Path (Join-Path $patchInstall 'hello.exe')) 'and the program'
+    Check (-not (Get-ChildItem $patchInstall -Recurse -Filter '*.bach-*')) 'nothing left behind'
+
+    Write-Host 'The patch refuses an install it wasn''t made for'
+    Check ((Run (Join-Path $patchInstall 'uninstall.exe') @('--silent')) -eq 0) 'removes 2.0.0'
+    Check ((Run $p1 @('--silent', '--dir', "`"$patchInstall`"")) -eq 0) 'installs 1.0.0 again'
+    [IO.File]::AppendAllText((Join-Path $patchInstall 'big.bin'), 'changed by someone')
+    Check ((Run $patch @('--silent')) -eq 1) 'exits 1 when a file it relies on has changed'
+    Check ((Patch-Version) -eq '1.0.0') 'still 1.0.0'
+    Check ((Get-Content (Join-Path $patchInstall 'changing.txt')) -eq 'first') 'nothing was half updated'
+    Check (-not (Get-ChildItem $patchInstall -Recurse -Filter '*.bach-*')) 'and nothing is left behind'
+
+    Write-Host 'The patch is no installer'
+    Check ((Run (Join-Path $patchInstall 'uninstall.exe') @('--silent')) -eq 0) 'removes it'
+    Check ((Run $patch @('--silent', '--dir', "`"$patchInstall`"")) -eq 1) 'exits 1 on a computer that has nothing installed'
+    Check (-not (Test-Path $patchKey)) 'and installs nothing'
+} finally {
+    if (Test-Path $patchKey) {
+        $uninstaller = Join-Path $patchInstall 'uninstall.exe'
+        if (Test-Path $uninstaller) { Run $uninstaller @('--silent') | Out-Null }
+    }
+    Start-Sleep -Seconds 3
+    Remove-Item -Recurse -Force $patchWork -ErrorAction SilentlyContinue
+}
+
 if ($failures -gt 0) { throw "$failures end-to-end check(s) failed." }
 Write-Host 'All end-to-end checks passed.' -ForegroundColor Green

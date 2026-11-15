@@ -47,6 +47,12 @@ pub struct BuildOptions<'a> {
     pub online: bool,
     /// A file holding the access key, instead of the environment variable.
     pub key_file: Option<&'a Path>,
+    /// Sign the setup files with `[signing]`. Never implied by the config: a
+    /// `bach.toml` must not run a program just because it was built.
+    pub sign: bool,
+    /// An older setup file of this app: also write an update patch from it,
+    /// holding only the files that changed since.
+    pub patch_from: Option<&'a Path>,
 }
 
 /// The key the files are locked with, and what it unlocks while building.
@@ -75,7 +81,7 @@ fn seal(project: &mut Project, key_file: Option<&Path>, key: Option<&str>) -> Re
 
 fn read_key(env: &str, key_file: Option<&Path>) -> Result<String> {
     let key = match key_file {
-        Some(file) => std::fs::read_to_string(file)
+        Some(file) => bach_pack::textfile::read(file)
             .with_context(|| format!("couldn't read the key file {}", file.display()))?,
         None => std::env::var(env).map_err(|_| {
             anyhow::anyhow!(
@@ -84,11 +90,12 @@ fn read_key(env: &str, key_file: Option<&Path>) -> Result<String> {
             )
         })?,
     };
-    Ok(key.trim().to_string())
+    // The first line: a file from `bach key --count 50` holds many keys.
+    Ok(bach_pack::textfile::first_line(&key).unwrap_or_default())
 }
 
 pub fn build(options: BuildOptions) -> Result<PathBuf> {
-    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file } = options;
+    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file, sign, patch_from } = options;
     let started = Instant::now();
     let mut project = load(config_path, version)?;
     if fast {
@@ -115,20 +122,44 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
         println!("The files are encrypted with the access key.");
     }
     let output = tidy(&output);
+    record_hashes(&mut project)?;
     let packed = write_setup(&project, &runtime, &output, sealing.as_ref())?;
 
     let size = fs::metadata(&output).map(|meta| meta.len()).unwrap_or(0);
     let installed = project.manifest.total_size().max(1);
     println!();
     println!("Wrote {} ({})", output.display(), output::size(size));
+    // Signing is optional: it needs [signing] and a --sign from whoever runs the build.
+    let signing = project.signing.as_ref().filter(|_| sign);
+    if let Some(signing) = signing {
+        crate::sign::sign(signing, &output)?;
+    }
     if project.online {
         let online_output = tidy(&project.online_output);
         write_online_setup(&project, &runtime, &online_output, sealing.as_ref())?;
         let size = fs::metadata(&online_output).map(|meta| meta.len()).unwrap_or(0);
         println!("Wrote {} ({}), the online installer", online_output.display(), output::size(size));
+        if let Some(signing) = signing {
+            crate::sign::sign(signing, &online_output)?;
+        }
+    }
+    let patch = match patch_from {
+        Some(old) => {
+            let (patch, from) = write_patch(&project, old, &runtime, &output, key_file)?;
+            if let Some(signing) = signing {
+                crate::sign::sign(signing, &patch)?;
+            }
+            Some((patch, from))
+        }
+        None => None,
+    };
+    if project.signing.is_some() && !sign {
+        println!("Not signed: bach.toml has [signing], but signing runs only with --sign (or BACH_SIGN=1).");
+    } else if sign && project.signing.is_none() {
+        bail!("--sign was given, but bach.toml has no [signing] section that says how to sign");
     }
     if project.manifest.updates.is_some() {
-        crate::feed::after_build(&project, &output)?;
+        crate::feed::after_build(&project, &output, patch.as_ref().map(|(file, from)| (file.as_path(), from.as_str())))?;
     }
     field(
         "Packed",
@@ -141,6 +172,76 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
         ),
     );
     Ok(output)
+}
+
+/// Records every file's SHA-256 in the manifest, so an update patch can leave
+/// unchanged files where they are and check them before relying on them.
+fn record_hashes(project: &mut Project) -> Result<()> {
+    let mut progress = Progress::new("Checksums", project.sources.iter().map(|source| source.size).sum());
+    let mut done = 0u64;
+    for (entry, source) in project.manifest.files.iter_mut().zip(&project.sources) {
+        if entry.path != source.packaged {
+            bail!("the file list and the files to pack disagree about {}", source.packaged);
+        }
+        let file = File::open(&source.path).with_context(|| format!("couldn't read {}", source.path.display()))?;
+        entry.sha256 = Some(bach_pack::protect::sha256_hex(file).with_context(|| format!("couldn't read {}", source.path.display()))?);
+        done += source.size;
+        progress.update(done);
+    }
+    progress.finish();
+    Ok(())
+}
+
+/// Writes the update patch from `old` (an earlier setup file of this app) to
+/// this build: a setup file that carries only the files that changed. It sits
+/// next to `output`. Gives its path and the version it updates from.
+fn write_patch(project: &Project, old: &Path, runtime: &Path, output: &Path, key_file: Option<&Path>) -> Result<(PathBuf, String)> {
+    let mut file = File::open(old).with_context(|| format!("couldn't open {}", old.display()))?;
+    let Some(layout) = container::locate(&mut file)? else {
+        bail!("--patch-from {} isn't a Bach setup file", old.display());
+    };
+    let earlier = container::read_manifest(&mut file, &layout)?;
+    if earlier.app.id != project.manifest.app.id {
+        bail!(
+            "--patch-from {} is a setup file for \"{}\", not for \"{}\"",
+            old.display(),
+            earlier.app.id,
+            project.manifest.app.id
+        );
+    }
+    if earlier.files.iter().any(|entry| entry.sha256.is_none()) {
+        bail!(
+            "--patch-from {} was built before Bach recorded checksums; build the patch from a setup file made with Bach {} or newer",
+            old.display(),
+            bach_pack::VERSION
+        );
+    }
+    let same_as_before = |path: &str, sha: Option<&String>, size: u64| {
+        earlier.files.iter().any(|entry| entry.path.eq_ignore_ascii_case(path) && entry.sha256.as_ref() == sha && entry.size == size)
+    };
+    let mut patch = project.clone();
+    patch.sources.retain(|source| {
+        let entry = project.manifest.files.iter().find(|entry| entry.path == source.packaged);
+        !entry.is_some_and(|entry| same_as_before(&entry.path, entry.sha256.as_ref(), entry.size))
+    });
+    patch.manifest.patch_from = Some(earlier.app.version.clone());
+    let kept = patch.sources.len();
+    let name = output.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
+    let from = bach_pack::config::github_asset_name(&earlier.app.version);
+    let target = output.with_file_name(format!("{name}-patch-from-{from}.exe"));
+    let target = tidy(&target);
+    // Its own protection data: two files never share a key stream.
+    let sealing = seal(&mut patch, key_file, None)?;
+    write_setup(&patch, runtime, &target, sealing.as_ref())?;
+    let size = fs::metadata(&target).map(|meta| meta.len()).unwrap_or(0);
+    println!(
+        "Wrote {} ({}), the update patch from {}: {kept} of {} files changed",
+        target.display(),
+        output::size(size),
+        earlier.app.version,
+        project.sources.len()
+    );
+    Ok((target, earlier.app.version))
 }
 
 pub struct PreviewOptions<'a> {
@@ -279,7 +380,7 @@ fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&S
 
     let mut file = File::options().read(true).write(true).open(path)?;
     let archive_offset = file.seek(SeekFrom::End(0))?;
-    let total = project.manifest.total_size();
+    let total = project.sources.iter().map(|source| source.size).sum();
     let mut progress = Progress::new("Packing", total);
     let hashing = Hashing { inner: BufWriter::new(file), hasher: Sha256::new() };
     let mut step = |done| progress.update(done);

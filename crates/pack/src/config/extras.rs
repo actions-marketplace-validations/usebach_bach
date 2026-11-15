@@ -37,6 +37,9 @@ pub struct RunSection {
     ignore_errors: bool,
     /// Only when this optional component is installed.
     component: Option<String>,
+    /// Run with administrator rights (Windows asks once).
+    #[serde(default)]
+    elevated: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -238,7 +241,7 @@ pub fn run_steps(sections: &[RunSection], files: &[FileEntry], components: &[Com
                 Some(id) if components.iter().any(|known| known.id == id) => Some(id.to_string()),
                 Some(id) => bail!("{at}.component is \"{id}\", but no [[components]] has that id"),
             };
-            Ok(RunStep { name, file, arguments, when, success_codes, ignore_errors: section.ignore_errors, component })
+            Ok(RunStep { name, file, arguments, when, success_codes, ignore_errors: section.ignore_errors, component, elevated: section.elevated })
         })
         .collect()
 }
@@ -249,7 +252,7 @@ pub fn run_steps(sections: &[RunSection], files: &[FileEntry], components: &[Com
 /// releases made by the Bach action: the feed is the latest release's
 /// `latest.json`, and each version's setup file is downloaded from that
 /// version's own tag (`v{version}`), so a link never changes what it serves.
-pub fn updates(section: Option<&UpdatesSection>) -> Result<Option<UpdateSettings>> {
+pub fn updates(section: Option<&UpdatesSection>, machine: bool) -> Result<Option<UpdateSettings>> {
     let Some(section) = section else {
         return Ok(None);
     };
@@ -278,7 +281,20 @@ pub fn updates(section: Option<&UpdatesSection>) -> Result<Option<UpdateSettings
         (_, Some(repo)) => Some(format!("https://github.com/{repo}/releases/download/v{{version}}/{{file}}")),
         _ => None,
     };
-    let auto = super::options::choice(section.auto.as_ref(), "updates.auto", Choice::On)?;
+    // A machine-wide install lives where the signed-in user can't write, so
+    // it can't update itself in the background: its updates go through an
+    // elevated setup the user starts.
+    let auto = if machine {
+        let auto = super::options::choice(section.auto.as_ref(), "updates.auto", Choice::Never)?;
+        if auto != Choice::Never {
+            bail!(
+                "updates.auto must be \"never\" (or left out) with installer.scope = \"machine\": background updates                  can't write to Program Files without administrator rights"
+            );
+        }
+        auto
+    } else {
+        super::options::choice(section.auto.as_ref(), "updates.auto", Choice::On)?
+    };
     let mut mirrors = Vec::new();
     for mirror in &section.mirrors {
         let mirror = mirror.trim();

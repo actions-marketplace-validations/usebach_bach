@@ -45,7 +45,7 @@ pub fn run(ctx: &Context) -> Result<i32, String> {
         crate::log::line("Up to date.");
         return Ok(0);
     }
-    let staged = super::stage_entry(ctx, &entry)?;
+    let staged = super::stage_entry(ctx, &entry, true)?;
     if running {
         crate::log::line(&format!("{} {} is ready; it installs once the app is closed.", manifest.app.name, staged.version));
         return Ok(UPDATE_AVAILABLE);

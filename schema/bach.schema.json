@@ -244,6 +244,13 @@
         },
         "website_button": {
           "type": "boolean"
+        },
+        "scope": {
+          "enum": [
+            "user",
+            "machine"
+          ],
+          "description": "user (default): installs for whoever runs setup, no administrator rights. machine: installs for every user into Program Files; Windows asks for administrator rights once."
         }
       }
     },
@@ -492,6 +499,131 @@
           "component": {
             "type": "string",
             "description": "Only run when this optional component is installed."
+          },
+          "elevated": {
+            "type": "boolean",
+            "description": "Run this step with administrator rights: Windows asks once when it starts."
+          }
+        }
+      }
+    },
+    "registry": {
+      "type": "array",
+      "description": "Registry values setup writes for the user (HKCU\\Software\\...). Removed again when the app is uninstalled, and only while they still hold what setup wrote.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "value"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The key below the hive, starting with Software\\, like Software\\Vendor\\App."
+          },
+          "name": {
+            "type": "string",
+            "description": "The value name. The key's default value when left out."
+          },
+          "type": {
+            "enum": [
+              "string",
+              "expand",
+              "dword"
+            ],
+            "description": "string (default), expand (text with %VARIABLES%) or dword (a number)."
+          },
+          "value": {
+            "type": [
+              "string",
+              "integer"
+            ],
+            "description": "The data. {app} stands for the install folder."
+          }
+        }
+      }
+    },
+    "env": {
+      "type": "array",
+      "description": "Environment variables of the user. Removed when the app is uninstalled, if they still hold the value setup set.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Letters, digits and _. Names Windows uses (PATH, TEMP, ...) are refused."
+          },
+          "value": {
+            "type": "string",
+            "description": "The value. {app} stands for the install folder."
+          }
+        }
+      }
+    },
+    "context_menu": {
+      "type": "array",
+      "description": "Entries in Explorer's right-click menu that start the app. On Windows 11 they sit under \"Show more options\".",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "on"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The menu text."
+          },
+          "on": {
+            "description": "Where it shows up: files, folders, background (the empty space in a folder), a file extension like \".md\", or a list of them.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ]
+          },
+          "arguments": {
+            "type": "string",
+            "description": "The command line after the program. \"%1\" (the clicked item) by default, \"%V\" for the background."
+          }
+        }
+      }
+    },
+    "migrate": {
+      "type": "array",
+      "description": "Older installs of this app that another installer made (Inno Setup, NSIS, MSI). A first install removes them before placing files, using the uninstall command listed under Settings > Apps.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "uninstall_key"
+        ],
+        "properties": {
+          "uninstall_key": {
+            "type": "string",
+            "description": "The name of the old install's entry under ...\\CurrentVersion\\Uninstall: {AppId}_is1 for Inno Setup, the product code for an MSI, the chosen name for NSIS."
+          },
+          "arguments": {
+            "type": "string",
+            "description": "Arguments that make the old uninstaller run quietly (/VERYSILENT /NORESTART for Inno Setup, /S for NSIS). Used when the entry has no QuietUninstallString."
+          },
+          "elevated": {
+            "type": "boolean",
+            "description": "Also remove a machine-wide old install; Windows asks for administrator rights."
           }
         }
       }
@@ -4043,6 +4175,70 @@
               "minProperties": 1
             }
           ]
+        },
+        "step_migrating": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "error_patch_base": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
         }
       }
     },
@@ -4117,6 +4313,24 @@
         "send_key": {
           "type": "boolean",
           "description": "Send the key as Authorization: Bearer <key> with every request to the update feed and the download, so a private server can refuse anyone without one. Default true with [updates]."
+        }
+      }
+    },
+    "signing": {
+      "type": "object",
+      "description": "Optional. How to sign the setup files; bach build --sign (or BACH_SIGN=1) then signs them. Without it nothing is signed.",
+      "additionalProperties": false,
+      "required": [
+        "arguments"
+      ],
+      "properties": {
+        "program": {
+          "type": "string",
+          "description": "The signing program. signtool by default."
+        },
+        "arguments": {
+          "type": "string",
+          "description": "Its arguments. For signtool they start with the word sign. The setup file is added last; write {file} to put it elsewhere. {env:NAME} is replaced by an environment variable."
         }
       }
     }

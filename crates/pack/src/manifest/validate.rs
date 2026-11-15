@@ -51,6 +51,7 @@ pub fn manifest(manifest: &Manifest) -> Result<()> {
         paths::check_data_folder(folder)?;
     }
     extras(manifest)?;
+    super::system::check(&manifest.system)?;
     locale(manifest)
 }
 
@@ -79,6 +80,9 @@ fn extras(manifest: &Manifest) -> Result<()> {
         }
         if let Some(mirror) = updates.mirrors.iter().find(|mirror| !is_https(mirror)) {
             bail!("the update mirror \"{mirror}\" isn't an https link");
+        }
+        if manifest.install.scope.is_machine() && updates.auto != super::Choice::Never {
+            bail!("a machine-wide install can't update itself in the background");
         }
     }
     for step in &manifest.run {
@@ -127,6 +131,19 @@ fn extras(manifest: &Manifest) -> Result<()> {
     if let Some(hash) = &manifest.archive_sha256 {
         if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
             bail!("the setup file's checksum is damaged");
+        }
+    }
+    for file in &manifest.files {
+        if file.sha256.as_deref().is_some_and(|hash| hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit())) {
+            bail!("the checksum of \"{}\" is damaged", file.path);
+        }
+    }
+    if manifest.patch_from.is_some() {
+        if manifest.online {
+            bail!("an online installer can't be an update patch");
+        }
+        if manifest.files.iter().any(|file| file.sha256.is_none()) {
+            bail!("an update patch has to know every file's checksum");
         }
     }
     Ok(())
