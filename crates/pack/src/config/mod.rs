@@ -140,7 +140,7 @@ struct UninstallSection {
 }
 
 /// A checked `bach.toml`, ready to build.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Project {
     /// The folder `bach.toml` is in.
     pub root: PathBuf,
@@ -376,6 +376,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         access: access.as_ref().map(|access| access.manifest.clone()),
         online: false,
         archive_sha256: None,
+        patch_from: None,
     };
     if manifest.install.add_to_path != manifest::Choice::Never {
         if let Some(folder) = &manifest.install.path_folder {

@@ -95,6 +95,7 @@ impl Package {
             access: None,
             online: false,
             archive_sha256: None,
+            patch_from: None,
         };
         Self { manifest, exe: PathBuf::new(), layout: None, logo: None }
     }

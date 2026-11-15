@@ -96,6 +96,11 @@ enum Command {
         /// program unless you say so.
         #[arg(long, env = "BACH_SIGN")]
         sign: bool,
+        /// An earlier setup file of this app. Also writes an update patch
+        /// from it that holds only the files that changed, and offers it in
+        /// the update feed to computers that have that version.
+        #[arg(long)]
+        patch_from: Option<PathBuf>,
     },
     /// Sign a setup file with the program [signing] in bach.toml names.
     Sign {
@@ -158,6 +163,14 @@ enum Command {
         /// Write the feed here instead of latest.json next to the setup file.
         #[arg(long, short)]
         out: Option<PathBuf>,
+        /// An update patch made by `bach build --patch-from`, to offer to
+        /// computers that have the version it updates from.
+        #[arg(long)]
+        patch: Option<PathBuf>,
+        /// The https link the patch is downloaded from (default: the download
+        /// link of [updates] in bach.toml, for the patch's file name).
+        #[arg(long, requires = "patch")]
+        patch_url: Option<String>,
     },
     /// Write the manifests that list a setup file in winget.
     Winget {
@@ -207,7 +220,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
         Command::Check { config, app_version } => builder::check(&config, app_version.as_deref()),
-        Command::Build { config, out, runtime, fast, app_version, online, key_file, sign } => {
+        Command::Build { config, out, runtime, fast, app_version, online, key_file, sign, patch_from } => {
             builder::build(builder::BuildOptions {
                 config: &config,
                 out: out.as_deref(),
@@ -217,6 +230,7 @@ fn main() -> ExitCode {
                 online,
                 key_file: key_file.as_deref(),
                 sign,
+                patch_from: patch_from.as_deref(),
             })
             .map(|_| ())
         }
@@ -243,7 +257,7 @@ fn main() -> ExitCode {
             license: license.as_deref(),
             out: out.as_deref(),
         }),
-        Command::Feed { file, url, config, notes, notes_file, rollout, out } => feed::command(feed::Options {
+        Command::Feed { file, url, config, notes, notes_file, rollout, out, patch, patch_url } => feed::command(feed::Options {
             setup: &file,
             url: url.as_deref(),
             config: config.as_deref(),
@@ -251,6 +265,8 @@ fn main() -> ExitCode {
             notes_file: notes_file.as_deref(),
             rollout,
             out: out.as_deref(),
+            patch: patch.as_deref(),
+            patch_url: patch_url.as_deref(),
         }),
     };
     match result {

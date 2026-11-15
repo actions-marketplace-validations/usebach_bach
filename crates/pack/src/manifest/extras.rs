@@ -171,6 +171,24 @@ pub struct FeedEntry {
     /// take this version by themselves. Left out, everyone does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rollout: Option<u8>,
+    /// A smaller download for computers that have exactly `from` installed:
+    /// a patch with only the files that changed. Anything else downloads the
+    /// full setup file above, as does a patch that can't be applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delta: Option<DeltaEntry>,
+}
+
+/// The patch a [`FeedEntry`] offers to computers that have one version.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeltaEntry {
+    /// The version it updates from.
+    pub from: String,
+    /// The patch (a setup file with only the changed files), https.
+    pub url: String,
+    /// Its SHA-256, lowercase hex.
+    pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
 }
 
 /// Whether `url` is an https URL (the only kind updates and requirement

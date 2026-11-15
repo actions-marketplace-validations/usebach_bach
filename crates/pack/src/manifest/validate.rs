@@ -133,6 +133,19 @@ fn extras(manifest: &Manifest) -> Result<()> {
             bail!("the setup file's checksum is damaged");
         }
     }
+    for file in &manifest.files {
+        if file.sha256.as_deref().is_some_and(|hash| hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit())) {
+            bail!("the checksum of \"{}\" is damaged", file.path);
+        }
+    }
+    if manifest.patch_from.is_some() {
+        if manifest.online {
+            bail!("an online installer can't be an update patch");
+        }
+        if manifest.files.iter().any(|file| file.sha256.is_none()) {
+            bail!("an update patch has to know every file's checksum");
+        }
+    }
     Ok(())
 }
 

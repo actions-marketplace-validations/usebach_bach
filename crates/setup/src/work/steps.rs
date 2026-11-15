@@ -278,7 +278,7 @@ mod tests {
         manifest.files = vec![
             FileEntry::new("sample.exe", 1),
             FileEntry::new("bin/tool.exe", 1),
-            FileEntry { path: "extras/more.exe".into(), size: 1, component: Some("extras".into()) },
+            FileEntry { path: "extras/more.exe".into(), size: 1, component: Some("extras".into()), sha256: None },
         ];
         manifest.run = steps;
         manifest
