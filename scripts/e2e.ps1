@@ -24,6 +24,19 @@ function Check([bool]$ok, [string]$what) {
     if ($ok) { Write-Host "  ok    $what" } else { Write-Host "  FAIL  $what" -ForegroundColor Red; $script:failures++ }
 }
 
+# Windows Defender sometimes takes a freshly built setup file for malware (a
+# machine-learning guess, KAN-84) and refuses to let anything open it. That is
+# a finding about the file, not a failure of the code under test, so say so
+# plainly instead of letting a later step fail with a confusing error.
+function Assert-Readable([string]$file) {
+    try {
+        $stream = [IO.File]::OpenRead($file)
+        $stream.Close()
+    } catch {
+        throw "Windows blocked $file ($($_.Exception.Message.Trim())). If it names a virus or unwanted software, Defender flagged the file Bach just built (KAN-84): restore it in Windows Security > Protection history, or exclude the folder $work while testing, then run this script again."
+    }
+}
+
 function Build([string]$version, [string[]]$extra) {
     $app = Join-Path $work "app-$version"
     New-Item -ItemType Directory -Force -Path $app | Out-Null
@@ -45,6 +58,7 @@ compression = "fast"
 "@ | Set-Content -Encoding utf8 (Join-Path $work "bach-$version.toml")
     & $bach build (Join-Path $work "bach-$version.toml") | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "bach build $version failed." }
+    Assert-Readable (Join-Path $work "out\E2E-Setup-$version.exe")
     return Join-Path $work "out\E2E-Setup-$version.exe"
 }
 
@@ -186,6 +200,7 @@ $toml
 "@ | Set-Content -Encoding utf8 (Join-Path $work "bach-$appId-$version.toml")
     & $bach build (Join-Path $work "bach-$appId-$version.toml") | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "bach build $appId $version failed." }
+    Assert-Readable (Join-Path $work "out\$appId-Setup-$version.exe")
     return Join-Path $work "out\$appId-Setup-$version.exe"
 }
 
