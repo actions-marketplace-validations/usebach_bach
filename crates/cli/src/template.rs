@@ -11,6 +11,7 @@ const TEMPLATE: &str = r##"#:schema https://raw.githubusercontent.com/usebach/ba
 # Build it with `bach build`; see what it installs with `bach check`;
 # look at the window with `bach preview`. Paths are relative to this file.
 # Every setting: https://github.com/usebach/bach/blob/main/docs/config.md
+config_version = 1
 
 [app]
 name = "@NAME@"

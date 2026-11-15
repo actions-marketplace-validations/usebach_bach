@@ -26,6 +26,13 @@ default, so a five-line config already builds a complete installer.
 - [Silent installs](#silent-installs) and [updating from the app](#updating-from-the-app)
 - [Editor support](#editor-support) and [listing your app in winget](#listing-your-app-in-winget)
 
+## config_version
+
+Optional, first in the file: `config_version = 1`. It says which version of this
+format the file is written for. Left out, it means the current one, so existing
+files keep working. `bach init` writes it. A version this Bach doesn't read stops
+`bach check` and `bach build` with one sentence (update Bach for a newer one).
+
 ## [app]
 
 | Setting | Required | Meaning |

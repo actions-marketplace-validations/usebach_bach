@@ -10,6 +10,13 @@
     "files"
   ],
   "properties": {
+    "config_version": {
+      "type": "integer",
+      "enum": [
+        1
+      ],
+      "description": "The version of the bach.toml format this file is written for. Optional; left out means the current one."
+    },
     "app": {
       "type": "object",
       "additionalProperties": false,

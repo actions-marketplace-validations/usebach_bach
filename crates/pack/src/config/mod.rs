@@ -30,9 +30,17 @@ pub const DEFAULT_OUTPUT: &str = "dist/{name}-Setup-{version}.exe";
 /// one download link keeps pointing at the newest.
 pub const DEFAULT_ONLINE_OUTPUT: &str = "dist/{name}-Web-Setup.exe";
 
+/// The version of the `bach.toml` format this Bach reads. A file may say
+/// `config_version = 1`; a format change that would break old files gets a new
+/// number, and the error for an unknown one names it.
+pub const CONFIG_VERSION: u32 = 1;
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
+    /// The version of the config format this file is written for. Left out
+    /// means the current one.
+    config_version: Option<u32>,
     app: AppSection,
     files: FilesSection,
     #[serde(default)]
@@ -212,6 +220,12 @@ pub fn parse(text: &str, root: &Path) -> Result<Project> {
 pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Project> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut file: File = toml::from_str(text).map_err(|err| anyhow::anyhow!("{}", err.to_string().trim()))?;
+    if let Some(version) = file.config_version.filter(|version| *version != CONFIG_VERSION) {
+        bail!(
+            "config_version is {version}, but this Bach reads version {CONFIG_VERSION}; {}",
+            if version > CONFIG_VERSION { "update Bach to build this file" } else { "see the changelog for what changed in the format" }
+        );
+    }
     if let Some(version) = &overrides.version {
         let version = version.trim();
         let version = match version.strip_prefix(['v', 'V']) {

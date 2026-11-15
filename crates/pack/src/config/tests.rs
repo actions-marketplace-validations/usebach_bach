@@ -1008,3 +1008,15 @@ fn a_publisher_key_for_updates_is_checked_and_kept() {
     assert!(manifest.validate().is_err(), "a setup file with a damaged key is refused");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn the_config_version_is_optional_and_checked() {
+    let dir = project_dir("configversion");
+    parse(MINIMAL, &dir).unwrap();
+    parse(&format!("config_version = 1\n{MINIMAL}"), &dir).unwrap();
+    let newer = format!("{:#}", parse(&format!("config_version = 2\n{MINIMAL}"), &dir).unwrap_err());
+    assert!(newer.contains("config_version is 2") && newer.contains("update Bach"), "{newer}");
+    let older = format!("{:#}", parse(&format!("config_version = 0\n{MINIMAL}"), &dir).unwrap_err());
+    assert!(older.contains("config_version is 0") && older.contains("changelog"), "{older}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
