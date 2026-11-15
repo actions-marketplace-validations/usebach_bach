@@ -234,7 +234,7 @@ mod tests {
                 RegistryValue { key: format!(r"{base}\Other"), name: String::new(), data: RegistryData::String("x".into()) },
             ],
             environment: vec![EnvVar { name: "BACH_TEST_HOME".into(), value: "{app}".into() }],
-            context_menu: Vec::new(),
+            ..SystemChanges::default()
         };
         let manifest = manifest("ChangesTest", system.clone());
 

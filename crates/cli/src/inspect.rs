@@ -136,6 +136,9 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
         let name = if value.name.is_empty() { "(default)" } else { value.name.as_str() };
         field("Registry", format!("HKCU\\{}\\{name}", value.key));
     }
+    for old in &manifest.system.migrate {
+        field("Replaces", format!("the older install \"{}\"", old.uninstall_key));
+    }
     for var in &manifest.system.environment {
         field("Variable", &var.name);
     }

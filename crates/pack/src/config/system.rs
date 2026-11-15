@@ -3,7 +3,7 @@
 use anyhow::{bail, Result};
 use serde::Deserialize;
 
-use crate::manifest::system::{self, ContextMenuEntry, ContextTarget, EnvVar, RegistryData, RegistryValue};
+use crate::manifest::system::{self, ContextMenuEntry, ContextTarget, EnvVar, Migrate, RegistryData, RegistryValue};
 use crate::manifest::SystemChanges;
 
 #[derive(Debug, Deserialize)]
@@ -33,8 +33,34 @@ pub struct ContextMenuSection {
     arguments: Option<String>,
 }
 
-pub fn changes(registry: &[RegistrySection], env: &[EnvSection], menu: &[ContextMenuSection]) -> Result<SystemChanges> {
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MigrateSection {
+    uninstall_key: String,
+    arguments: Option<String>,
+    #[serde(default)]
+    elevated: bool,
+}
+
+pub fn changes(
+    registry: &[RegistrySection],
+    env: &[EnvSection],
+    menu: &[ContextMenuSection],
+    migrate: &[MigrateSection],
+) -> Result<SystemChanges> {
     let mut changes = SystemChanges::default();
+    for (index, section) in migrate.iter().enumerate() {
+        let entry = Migrate {
+            uninstall_key: section.uninstall_key.trim().to_string(),
+            arguments: super::optional(&section.arguments),
+            elevated: section.elevated,
+        };
+        system::check_migrate(&entry).map_err(|err| anyhow::anyhow!("migrate[{index}]: {err}"))?;
+        if changes.migrate.iter().any(|known| known.uninstall_key.eq_ignore_ascii_case(&entry.uninstall_key)) {
+            bail!("migrate[{index}].uninstall_key is \"{}\", which is listed twice", entry.uninstall_key);
+        }
+        changes.migrate.push(entry);
+    }
     for (index, section) in registry.iter().enumerate() {
         let at = format!("registry[{index}]");
         let kind = section.kind.as_deref().map(|kind| kind.trim().to_ascii_lowercase());

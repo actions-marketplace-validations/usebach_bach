@@ -28,7 +28,7 @@ pub use choices::{auto_update_setting as choices_auto_update, Choice, Choices, O
 pub use extras::{Check, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
 pub use features::{Component, FileType, Protocol};
 pub use scope::Scope;
-pub use system::{ContextMenuEntry, ContextTarget, EnvVar, RegistryData, RegistryValue, SystemChanges};
+pub use system::{ContextMenuEntry, ContextTarget, EnvVar, Migrate, RegistryData, RegistryValue, SystemChanges};
 pub use validate::MAX_LICENSE;
 
 /// The uninstaller's file name in every install folder.

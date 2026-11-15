@@ -112,6 +112,7 @@ pub const JA: Strings = Strings {
     access_get: "キーを入手",
     step_running: "{task} を設定しています",
     error_run: "{task} を設定できませんでした（終了コード {code}）。もう一度お試しください。",
+    step_migrating: "{name} の古いバージョンを削除しています",
 };
 
 pub const KO: Strings = Strings {
@@ -224,6 +225,7 @@ pub const KO: Strings = Strings {
     access_get: "키 받기",
     step_running: "{task} 설정 중",
     error_run: "{task}을(를) 설정하지 못했습니다(종료 코드 {code}). 다시 시도하세요.",
+    step_migrating: "{name}의 이전 버전을 제거하는 중",
 };
 
 pub const ZH: Strings = Strings {
@@ -336,4 +338,5 @@ pub const ZH: Strings = Strings {
     access_get: "获取密钥",
     step_running: "正在设置 {task}",
     error_run: "无法设置 {task}（退出代码 {code}）。请重试。",
+    step_migrating: "正在移除旧版 {name}",
 };

@@ -112,6 +112,7 @@ pub const DE: Strings = Strings {
     access_get: "Schlüssel erhalten",
     step_running: "{task} wird eingerichtet",
     error_run: "{task} konnte nicht eingerichtet werden (Exitcode {code}). Versuche es erneut.",
+    step_migrating: "Alte Version von {name} wird entfernt",
 };
 
 pub const NL: Strings = Strings {
@@ -224,4 +225,5 @@ pub const NL: Strings = Strings {
     access_get: "Sleutel aanvragen",
     step_running: "{task} instellen",
     error_run: "{task} kon niet worden ingesteld (afsluitcode {code}). Probeer het opnieuw.",
+    step_migrating: "De oude versie van {name} wordt verwijderd",
 };

@@ -603,6 +603,31 @@
         }
       }
     },
+    "migrate": {
+      "type": "array",
+      "description": "Older installs of this app that another installer made (Inno Setup, NSIS, MSI). A first install removes them before placing files, using the uninstall command listed under Settings > Apps.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "uninstall_key"
+        ],
+        "properties": {
+          "uninstall_key": {
+            "type": "string",
+            "description": "The name of the old install's entry under ...\\CurrentVersion\\Uninstall: {AppId}_is1 for Inno Setup, the product code for an MSI, the chosen name for NSIS."
+          },
+          "arguments": {
+            "type": "string",
+            "description": "Arguments that make the old uninstaller run quietly (/VERYSILENT /NORESTART for Inno Setup, /S for NSIS). Used when the entry has no QuietUninstallString."
+          },
+          "elevated": {
+            "type": "boolean",
+            "description": "Also remove a machine-wide old install; Windows asks for administrator rights."
+          }
+        }
+      }
+    },
     "updates": {
       "type": "object",
       "additionalProperties": false,
@@ -4120,6 +4145,38 @@
           ]
         },
         "error_run": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "step_migrating": {
           "description": "Text for every language, or a table of texts by language code.",
           "oneOf": [
             {

@@ -85,6 +85,13 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     check_free_space(dir, needed, texts)?;
     verify_archive(package, layout.archive, texts)?;
 
+    // An older install of this app by another installer goes first, so its
+    // uninstaller can't take away what this one puts in place.
+    if previous.is_none() && !manifest.system.migrate.is_empty() {
+        report(0.03, &texts.get(Key::step_migrating));
+        super::migrate::run(manifest);
+    }
+
     unpack(plan, &choices, layout.archive, needed, unlocked.as_ref(), report)?;
 
     report(0.86, &texts.get(Key::step_tidying));

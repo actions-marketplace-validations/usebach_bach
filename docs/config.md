@@ -16,6 +16,7 @@ default, so a five-line config already builds a complete installer.
 - [`[[requirements]]`](#requirements): what the app needs on the computer first
 - [`[[shortcuts]]`](#shortcuts): more Start menu shortcuts
 - [`[[registry]]`](#registry), [`[[env]]`](#env) and [`[[context_menu]]`](#context_menu): registry values, environment variables and right-click entries
+- [`[[migrate]]`](#migrate): remove an older install made by another installer
 - [`[updates]`](#updates): updates the installed app fetches itself
 - [`[text]`](#text): any text in the window, in any language
 - [`[uninstall]`](#uninstall): the user's data
@@ -388,6 +389,49 @@ for apps with a packaged shell extension. Selecting several files starts one
 copy of your app per file. Setup only changes entries with its own mark, and
 leaves an entry of the same name that another program made.
 
+## [[migrate]]
+
+Moving an app from Inno Setup, NSIS or an MSI to Bach would leave it on every
+upgraded computer twice: once from the old install, once from the new one.
+`[[migrate]]` names the old install, and a **first** install with Bach removes
+it before it places any file, using the uninstall command Windows already holds
+for it under Settings › Apps.
+
+```toml
+[[migrate]]
+uninstall_key = "{8A69D345-D564-463C-AFF1-A69D9E530F96}_is1"   # Inno Setup: your AppId, then _is1
+
+[[migrate]]
+uninstall_key = "Hello"          # NSIS: the key your script wrote under Uninstall
+arguments = "/S"                 # quiet switch, when the entry has no QuietUninstallString
+
+[[migrate]]
+uninstall_key = "{3F2504E0-4F89-11D3-9A0C-0305E82C3301}"   # an MSI: its product code
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `uninstall_key` | required | The name of the old install's entry under `Software\Microsoft\Windows\CurrentVersion\Uninstall`, in the user's or the computer's registry (also the 32-bit view). Inno Setup writes `<AppId>_is1`, an MSI its product code, NSIS whatever name your script chose (see `regedit`). |
+| `arguments` | none | Arguments that make the old uninstaller run without a window, added after its `UninstallString`: `/VERYSILENT /NORESTART` for Inno Setup, `/S` for NSIS. Without them setup uses the entry's `QuietUninstallString`; with neither it leaves the old install alone. An MSI is always removed quietly (`msiexec /x {code} /qn /norestart`). |
+| `elevated` | `false` | Also remove an old install that is machine-wide (listed under `HKLM`): Windows asks for administrator rights. Without it, setup leaves a machine-wide old install alone, because a per-user setup can't remove it. |
+
+What setup does and doesn't do:
+
+- It runs only the command in that entry, never through a shell, and only if
+  it's an absolute path to an `.exe` that exists. It waits for the old
+  uninstaller (up to 15 minutes) and then until its entry is gone from Settings
+  › Apps (up to 90 seconds), because some uninstallers hand over to a copy of
+  themselves and exit at once.
+- It never stops an install. An old install that isn't there, can't be removed
+  silently or fails to go is written to the log (`%TEMP%\<app id>-setup.log`)
+  and left alone, and the new version installs anyway.
+- It doesn't touch the user's data: the old uninstaller decides what it
+  removes, and most keep settings. Keep `app.id` and `uninstall.data` pointed
+  at the folders the old app used so the new version finds them.
+- It runs on a first install only, not on updates. If the old install and the
+  new one would use the same folder, the old one is removed first, so nothing it
+  deletes can be a file Bach just installed.
+
 ## [[shortcuts]]
 
 More Start menu shortcuts, next to the app's own: a second program in the
@@ -561,6 +605,7 @@ a text is given in only one, `bach check` points it out.
 | `step_finding`, `step_fetching`, `error_fetch` (`{error}`) | The online installer's labels, and what it says when it can't download. |
 | `access_title`, `access_subtitle`, `access_hint`, `access_button`, `access_paste`, `access_get`, `access_wrong` | The access key page. |
 | `step_running`, `error_run` (`{task}`, `{code}`) | A `[[run]]` step's label and its failure. |
+| `step_migrating` | The label while an older install by another installer is removed (`[[migrate]]`). |
 | `website`, `feedback` | The link buttons on the last page. |
 
 `crates/pack/src/i18n/en.rs` has every English text in full, and the other

@@ -112,6 +112,7 @@ pub const PL: Strings = Strings {
     access_get: "Zdobądź klucz",
     step_running: "Konfigurowanie: {task}",
     error_run: "Nie udało się skonfigurować: {task} (kod wyjścia {code}). Spróbuj ponownie.",
+    step_migrating: "Usuwanie starej wersji {name}",
 };
 
 pub const RU: Strings = Strings {
@@ -224,6 +225,7 @@ pub const RU: Strings = Strings {
     access_get: "Получить ключ",
     step_running: "Настройка: {task}",
     error_run: "Не удалось настроить: {task} (код завершения {code}). Повторите попытку.",
+    step_migrating: "Удаление старой версии {name}",
 };
 
 pub const TR: Strings = Strings {
@@ -336,4 +338,5 @@ pub const TR: Strings = Strings {
     access_get: "Anahtar al",
     step_running: "{task} ayarlanıyor",
     error_run: "{task} ayarlanamadı (çıkış kodu {code}). Yeniden deneyin.",
+    step_migrating: "{name} uygulamasının eski sürümü kaldırılıyor",
 };

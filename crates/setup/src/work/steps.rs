@@ -90,25 +90,66 @@ pub fn run_removal_steps(manifest: &Manifest, dir: &Path, texts: &Texts, report:
     }
 }
 
-/// Starts the step's program and waits for it.
-pub fn run(step: &RunStep, dir: &Path, texts: &Texts) -> Result<(), String> {
-    let failed = |code: String| texts.with(Key::error_run, &[("task", &step.name), ("code", &code)]);
-    let program = paths::under(dir, &step.file);
-    // Setup already elevated (a machine-wide install) needs no second prompt.
-    if step.elevated && !elevate::is_elevated() {
-        return run_elevated(step, &program, &failed);
+/// How a program setup started ended.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Ended {
+    /// It ran and ended with this exit code.
+    Code(i32),
+    /// The user said no to Windows' administrator prompt.
+    Declined,
+    /// It ran longer than [`LIMIT`], so setup ended it.
+    TimedOut,
+    /// It never started; this is Windows' error number, or -1.
+    NotStarted(String),
+}
+
+/// Starts `program` in its own folder and waits for it, up to [`LIMIT`]. With
+/// `elevated`, Windows asks for administrator rights first (and doesn't when
+/// setup has them already). The arguments are passed as written, and never
+/// through a shell.
+pub fn execute(program: &Path, arguments: Option<&str>, elevated: bool) -> Ended {
+    let arguments_text = arguments.unwrap_or("");
+    let cwd = program.parent();
+    if elevated && !elevate::is_elevated() {
+        crate::log::line(&format!("Running {} {arguments_text} with administrator rights", program.display()));
+        return match elevate::run(program, arguments_text, cwd, LIMIT, true) {
+            Outcome::Exited(code) => {
+                // Exit codes are signed on the command line: 0xC0000005 reads as -1073741819.
+                let code = code as i32;
+                crate::log::line(&format!("It ended with code {code}."));
+                Ended::Code(code)
+            }
+            Outcome::Declined => {
+                crate::log::line("Windows' administrator prompt was declined.");
+                Ended::Declined
+            }
+            Outcome::TimedOut => {
+                crate::log::line("It took too long, so setup ended it.");
+                Ended::TimedOut
+            }
+            Outcome::Failed(why) => {
+                crate::log::line(&format!("{} didn't start: {why}", program.display()));
+                Ended::NotStarted("-1".into())
+            }
+        };
     }
-    let mut command = Command::new(&program);
-    command.current_dir(program.parent().unwrap_or(dir)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    if let Some(arguments) = &step.arguments {
+    let mut command = Command::new(program);
+    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    if let Some(arguments) = arguments {
         // The arguments are the developer's command line, passed as written.
         command.raw_arg(arguments);
     }
-    crate::log::line(&format!("Running {} {}", program.display(), step.arguments.as_deref().unwrap_or("")));
-    let mut child = command.spawn().map_err(|err| {
-        crate::log::line(&format!("{} didn't start: {err}", program.display()));
-        failed(err.raw_os_error().map_or_else(|| "-1".to_string(), |code| code.to_string()))
-    })?;
+    crate::log::line(&format!("Running {} {arguments_text}", program.display()));
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            crate::log::line(&format!("{} didn't start: {err}", program.display()));
+            return Ended::NotStarted(err.raw_os_error().map_or_else(|| "-1".to_string(), |code| code.to_string()));
+        }
+    };
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -117,52 +158,31 @@ pub fn run(step: &RunStep, dir: &Path, texts: &Texts) -> Result<(), String> {
                 let _ = child.kill();
                 let _ = child.wait();
                 crate::log::line("It took too long, so setup ended it.");
-                return Err(failed("timeout".into()));
+                return Ended::TimedOut;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(150)),
             Err(err) => {
                 crate::log::line(&format!("Couldn't wait for it: {err}"));
-                return Err(failed("-1".into()));
+                return Ended::NotStarted("-1".into());
             }
         }
     };
     let code = status.code().unwrap_or(-1);
     crate::log::line(&format!("It ended with code {code}."));
-    if step.succeeded(code) {
-        Ok(())
-    } else {
-        Err(failed(code.to_string()))
-    }
+    Ended::Code(code)
 }
 
-/// Starts the step's program with administrator rights and waits for it.
-fn run_elevated(step: &RunStep, program: &Path, failed: &dyn Fn(String) -> String) -> Result<(), String> {
-    let arguments = step.arguments.as_deref().unwrap_or("");
-    crate::log::line(&format!("Running {} {arguments} with administrator rights", program.display()));
-    match elevate::run(program, arguments, program.parent(), LIMIT, true) {
-        Outcome::Exited(code) => {
-            // Exit codes are signed on the command line; 0xC0000005 reads as -1073741819.
-            let code = code as i32;
-            crate::log::line(&format!("It ended with code {code}."));
-            if step.succeeded(code) {
-                Ok(())
-            } else {
-                Err(failed(code.to_string()))
-            }
-        }
-        Outcome::Declined => {
-            crate::log::line("Windows' administrator prompt was declined.");
-            // 1223 is ERROR_CANCELLED, what Windows itself reports for it.
-            Err(failed("1223".into()))
-        }
-        Outcome::TimedOut => {
-            crate::log::line("It took too long, so setup ended it.");
-            Err(failed("timeout".into()))
-        }
-        Outcome::Failed(why) => {
-            crate::log::line(&format!("{} didn't start: {why}", program.display()));
-            Err(failed("-1".into()))
-        }
+/// Starts the step's program and waits for it.
+pub fn run(step: &RunStep, dir: &Path, texts: &Texts) -> Result<(), String> {
+    let failed = |code: String| texts.with(Key::error_run, &[("task", &step.name), ("code", &code)]);
+    let program = paths::under(dir, &step.file);
+    match execute(&program, step.arguments.as_deref(), step.elevated) {
+        Ended::Code(code) if step.succeeded(code) => Ok(()),
+        Ended::Code(code) => Err(failed(code.to_string())),
+        // 1223 is ERROR_CANCELLED, what Windows itself reports for it.
+        Ended::Declined => Err(failed("1223".into())),
+        Ended::TimedOut => Err(failed("timeout".into())),
+        Ended::NotStarted(code) => Err(failed(code)),
     }
 }
 

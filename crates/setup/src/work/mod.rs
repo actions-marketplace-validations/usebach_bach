@@ -4,6 +4,7 @@
 //! hears. A silent run calls the same jobs without a window.
 
 mod install;
+mod migrate;
 mod online;
 mod place;
 mod preview;
@@ -96,7 +97,12 @@ pub(crate) fn delete_after_exit(file: &Path, folder: Option<&Path>) -> std::io::
         "/d /q /c \"for /l %i in (1,1,120) do @(del /f /q \"{file}\" >nul 2>&1 & \
          if exist \"{file}\" (ping -n 2 127.0.0.1 >nul) else ({cleanup}exit))\""
     );
-    std::process::Command::new("cmd.exe")
+    // Windows' own cmd.exe, by full path: this may run with administrator rights.
+    let cmd = std::env::var_os("SystemRoot")
+        .map(|root| std::path::PathBuf::from(root).join(r"System32\cmd.exe"))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| "cmd.exe".into());
+    std::process::Command::new(cmd)
         .raw_arg(script)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()

@@ -58,6 +58,8 @@ struct File {
     env: Vec<system::EnvSection>,
     #[serde(default)]
     context_menu: Vec<system::ContextMenuSection>,
+    #[serde(default)]
+    migrate: Vec<system::MigrateSection>,
     updates: Option<extras::UpdatesSection>,
     access: Option<extras::AccessSection>,
     signing: Option<SigningSection>,
@@ -369,7 +371,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         requirements: extras::requirements(&file.requirements)?,
         shortcuts: Vec::new(),
         run: Vec::new(),
-        system: system::changes(&file.registry, &file.env, &file.context_menu)?,
+        system: system::changes(&file.registry, &file.env, &file.context_menu, &file.migrate)?,
         updates,
         access: access.as_ref().map(|access| access.manifest.clone()),
         online: false,

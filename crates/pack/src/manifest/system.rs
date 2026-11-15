@@ -21,12 +21,49 @@ pub struct SystemChanges {
     /// Entries in Explorer's right-click menu.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_menu: Vec<ContextMenuEntry>,
+    /// Older installs of the same app, made by another installer, that a
+    /// first install removes before it puts the files in place.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub migrate: Vec<Migrate>,
 }
 
 impl SystemChanges {
     pub fn is_empty(&self) -> bool {
-        self.registry.is_empty() && self.environment.is_empty() && self.context_menu.is_empty()
+        self.registry.is_empty() && self.environment.is_empty() && self.context_menu.is_empty() && self.migrate.is_empty()
     }
+}
+
+/// An older install of the app that another installer made (Inno Setup, NSIS,
+/// WiX or an MSI), listed under Settings › Apps. A first install with Bach
+/// removes it first, with the uninstall command Windows already holds for it,
+/// so the app isn't left twice on the computer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Migrate {
+    /// The name of its entry under
+    /// `Software\Microsoft\Windows\CurrentVersion\Uninstall`: `{GUID}_is1` for
+    /// Inno Setup, the product code `{GUID}` for an MSI, the app's own name
+    /// for NSIS.
+    pub uninstall_key: String,
+    /// Arguments that make the old uninstaller run without a window, for an
+    /// entry that has no `QuietUninstallString` (`/VERYSILENT /NORESTART` for
+    /// Inno Setup, `/S` for NSIS).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<String>,
+    /// Also remove an old install that is machine-wide (setup asks Windows
+    /// for administrator rights then). Without it, only per-user installs go.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub elevated: bool,
+}
+
+pub fn check_migrate(entry: &Migrate) -> Result<()> {
+    let key = entry.uninstall_key.trim();
+    if key.is_empty() || key.len() > 128 || key.contains(['\\', '/']) || key.chars().any(char::is_control) {
+        bail!("\"{}\" can't be the name of an Uninstall entry: use the entry's name only, like {{GUID}}_is1", entry.uninstall_key);
+    }
+    if entry.arguments.as_deref().is_some_and(|arguments| arguments.len() > 500 || arguments.contains('\0')) {
+        bail!("the arguments for removing \"{key}\" are too long or damaged");
+    }
+    Ok(())
 }
 
 /// One registry value.
@@ -244,6 +281,9 @@ pub fn check(changes: &SystemChanges) -> Result<()> {
     for var in &changes.environment {
         check_env_var(var)?;
     }
+    for entry in &changes.migrate {
+        check_migrate(entry)?;
+    }
     let mut verbs = std::collections::HashSet::new();
     for entry in &changes.context_menu {
         check_context_entry(entry)?;
@@ -325,6 +365,18 @@ mod tests {
             ..SystemChanges::default()
         };
         assert!(check(&twin).is_err());
+    }
+
+    #[test]
+    fn old_installs_are_named_by_their_uninstall_entry() {
+        let entry = |key: &str| Migrate { uninstall_key: key.into(), arguments: None, elevated: false };
+        assert!(check_migrate(&entry("{8A69D345-D564-463C-AFF1-A69D9E530F96}_is1")).is_ok());
+        assert!(check_migrate(&entry("Hello App")).is_ok());
+        for bad in ["", "  ", r"Software\Hello", "a/b", "bad\u{7}key"] {
+            assert!(check_migrate(&entry(bad)).is_err(), "{bad:?}");
+        }
+        let json = serde_json::to_string(&entry("Hello")).unwrap();
+        assert_eq!(json, r#"{"uninstall_key":"Hello"}"#);
     }
 
     #[test]

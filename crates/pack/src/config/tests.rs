@@ -592,6 +592,41 @@ fn a_machine_wide_install_is_chosen_with_scope() {
 }
 
 #[test]
+fn older_installs_are_named_by_their_uninstall_entry() {
+    let dir = project_dir("migrate");
+    let ok = format!(
+        r#"{MINIMAL}
+[[migrate]]
+uninstall_key = "{{8A69D345-D564-463C-AFF1-A69D9E530F96}}_is1"
+arguments = "/VERYSILENT /NORESTART"
+
+[[migrate]]
+uninstall_key = "Hello"
+elevated = true
+"#
+    );
+    let project = parse(&ok, &dir).unwrap();
+    let migrate = &project.manifest.system.migrate;
+    assert_eq!(migrate.len(), 2);
+    assert_eq!(migrate[0].arguments.as_deref(), Some("/VERYSILENT /NORESTART"));
+    assert!(migrate[1].elevated && migrate[1].arguments.is_none());
+    project.manifest.validate().unwrap();
+
+    let cases = [
+        ("[[migrate]]\nuninstall_key = \"\"", "migrate[0]"),
+        ("[[migrate]]\nuninstall_key = \"a/b\"", "Uninstall entry"),
+        ("[[migrate]]\nuninstall_key = 'Software\\Hello'", "Uninstall entry"),
+        ("[[migrate]]\nuninstall_key = \"A\"\n[[migrate]]\nuninstall_key = \"a\"", "listed twice"),
+        ("[[migrate]]\nname = \"x\"", "name"),
+    ];
+    for (body, expected) in cases {
+        let err = format!("{:#}", parse(&format!("{MINIMAL}\n{body}"), &dir).unwrap_err());
+        assert!(err.contains(expected), "{body}: {err}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn run_steps_can_ask_for_administrator_rights() {
     let dir = project_dir("elevated");
     std::fs::create_dir_all(dir.join("build/redist")).unwrap();
