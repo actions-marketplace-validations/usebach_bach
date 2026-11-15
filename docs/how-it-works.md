@@ -188,6 +188,15 @@ the user unless a step says `elevated = true`, which makes Windows ask for
 administrator rights for that program alone. Steps that run before removal can
 fail without stopping the removal.
 
+## An update writes only what changed
+
+The manifest records each file's size and SHA-256. Before unpacking, setup
+checks the files already in the install folder against it, and a file that
+matches is not written again, also when the setup file is a full one. That
+shortens updates and means an unchanged program that is running is no obstacle.
+The free-space check counts only what is written. Setup files built before
+Bach recorded hashes write every file as before.
+
 ## Removal is all or nothing
 
 The uninstaller first looks that the app is closed. Then it renames every file

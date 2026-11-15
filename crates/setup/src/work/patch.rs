@@ -11,13 +11,12 @@ use std::path::Path;
 use bach_pack::manifest::{Choices, FileEntry, Manifest};
 use bach_pack::paths;
 
-/// For an update patch: the chosen files already in the install folder with
-/// exactly the content the patch expects, which the patch leaves out. Empty
-/// for a full setup file.
+/// The chosen files already in the install folder with exactly the content
+/// the manifest records (same size and SHA-256). An update patch leaves them
+/// out of its archive and relies on them; a full setup file has them, but
+/// they are not unpacked again: an update then writes only what changed, and
+/// a program that is running and unchanged is no obstacle.
 pub(super) fn patch_base(manifest: &Manifest, choices: &Choices, dir: &Path) -> HashSet<String> {
-    if manifest.patch_from.is_none() {
-        return HashSet::new();
-    }
     manifest
         .files
         .iter()

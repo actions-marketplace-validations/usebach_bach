@@ -138,10 +138,13 @@ try {
     Check (-not (Get-ChildItem $install -Recurse -Filter '*.bach-*')) 'no .bach-new or .bach-old left'
 
     Write-Host 'Update to 2.0.0'
+    $helloBefore = (Get-Item (Join-Path $install 'hello.exe')).LastWriteTimeUtc
+    Start-Sleep -Milliseconds 1200
     Check ((Run $v2 @('--silent')) -eq 0) 'exits 0'
     Check ((Installed-Version) -eq '2.0.0') 'listed as 2.0.0'
     Check (-not (Test-Path (Join-Path $install 'old.txt'))) 'file 2.0.0 dropped is gone'
     Check (Test-Path (Join-Path $install 'new.txt')) 'new file installed'
+    Check ((Get-Item (Join-Path $install 'hello.exe')).LastWriteTimeUtc -eq $helloBefore) 'a file that did not change is not written again'
 
     Write-Host 'Update whose run step fails after the files were placed'
     $v3 = Build '3.0.0' @('readme.txt', 'three.txt') "[[run]]`nfile = 'fail.exe'`narguments = '/c exit 1'"

@@ -309,6 +309,10 @@ fn unpack(
             return Ok(());
         }
         present.insert(packaged.to_string());
+        if matching.contains(packaged) {
+            // Already here exactly as packaged: nothing to write.
+            return Ok(());
+        }
         let target = paths::under(dir, packaged);
         transaction
             .stage(&target, body, &mut |chunk| {
