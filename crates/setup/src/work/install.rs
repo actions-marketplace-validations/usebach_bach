@@ -192,7 +192,7 @@ pub(super) fn check_elevated_folder(manifest: &Manifest, dir: &Path, texts: &Tex
         crate::log::line(&format!("{} isn't safe to run elevated: {why}.", dir.display()));
         texts.with(Key::error_unsafe_folder, &[("path", &dir.display().to_string())])
     };
-    match crate::system::acl::weakness(dir) {
+    match crate::system::acl::tree_weakness(dir) {
         Ok(None) => Ok(()),
         Ok(Some(why)) => Err(unsafe_folder(&why)),
         Err(why) => Err(unsafe_folder(&why)),

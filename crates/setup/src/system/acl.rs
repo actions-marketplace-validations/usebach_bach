@@ -17,9 +17,16 @@ use windows::Win32::Security::{
     PSID,
 };
 
-/// Accounts whose members may write only where an administrator allowed them
-/// to: Everyone, interactive and network users, Authenticated Users and Users.
-const ORDINARY_USERS: &[&str] = &["S-1-1-0", "S-1-5-4", "S-1-5-2", "S-1-5-11", "S-1-5-32-545"];
+/// The only accounts that may hold a right to change an elevated app's
+/// folder: Administrators, SYSTEM, TrustedInstaller and CREATOR OWNER (an
+/// inherit-only entry that stands for whoever made the item, which is one of
+/// the first three here). Anyone else, a named user included, is a weakness.
+const TRUSTED_WRITERS: &[&str] = &[
+    "S-1-5-32-544",
+    "S-1-5-18",
+    "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
+    "S-1-3-0",
+];
 
 /// Owners that can be trusted with a folder that runs elevated: Administrators,
 /// SYSTEM and TrustedInstaller.
@@ -92,14 +99,19 @@ fn inspect(owner: PSID, dacl: *const ACL) -> Option<String> {
         // SAFETY: GetAce returned a pointer to an ACE inside the ACL; the
         // header comes first and an allowed ACE starts with it.
         let header = unsafe { *(ace as *const ACE_HEADER) };
-        if header.AceType != 0 {
-            continue; // only "access allowed" entries grant anything
+        match header.AceType {
+            0 => {}
+            // Denials and audit entries grant nothing.
+            1 | 2 | 3 | 6 | 7 | 8 | 17 | 18 | 19 => continue,
+            // Object, callback and other allow entries have a different layout
+            // that isn't read here, so they can't be vouched for.
+            _ => return Some("it has an access entry of a kind setup can't check".into()),
         }
         // SAFETY: AceType 0 is an ACCESS_ALLOWED_ACE, whose SID starts at SidStart.
         let allowed = unsafe { &*(ace as *const ACCESS_ALLOWED_ACE) };
         let sid = PSID(std::ptr::addr_of!(allowed.SidStart) as *mut _);
         let Some(who) = sid_text(sid) else { continue };
-        if ORDINARY_USERS.contains(&who.as_str()) && allowed.Mask & CHANGE_RIGHTS != 0 {
+        if allowed.Mask & CHANGE_RIGHTS != 0 && !TRUSTED_WRITERS.contains(&who.as_str()) {
             return Some(format!("{} may change it", account_name(&who)));
         }
     }
@@ -112,8 +124,56 @@ fn account_name(sid: &str) -> &'static str {
         "S-1-5-4" => "Interactive users",
         "S-1-5-2" => "Network users",
         "S-1-5-11" => "Authenticated Users",
-        _ => "Users",
+        "S-1-5-32-545" => "Users",
+        _ => "Another account",
     }
+}
+
+/// Files that can run, so one swapped by a user would start elevated.
+const RUNNABLE: &[&str] = &["exe", "dll", "msi", "msp", "bat", "cmd", "com", "scr", "sys", "ps1", "vbs", "js", "lnk"];
+
+/// The most items looked at, so a huge install doesn't make setup crawl.
+const LIMIT: usize = 100_000;
+
+/// [`weakness`] for a folder and everything in it that matters: every
+/// subfolder (someone who can write there can add a file), every file that can
+/// run, and any link that could lead somewhere else.
+pub fn tree_weakness(folder: &Path) -> Result<Option<String>, String> {
+    let mut seen = 0usize;
+    walk(folder, &mut seen)
+}
+
+fn walk(folder: &Path, seen: &mut usize) -> Result<Option<String>, String> {
+    if let Some(why) = weakness(folder)? {
+        return Ok(Some(if *seen == 0 { why } else { format!("{}: {why}", folder.display()) }));
+    }
+    *seen += 1;
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return Ok(None);
+    };
+    for entry in entries.flatten() {
+        *seen += 1;
+        if *seen > LIMIT {
+            return Ok(Some("it holds more files than setup can check".into()));
+        }
+        let path = entry.path();
+        let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+        use std::os::windows::fs::MetadataExt;
+        // A symbolic link or junction (a reparse point) can lead out of the folder.
+        if meta.file_attributes() & 0x400 != 0 {
+            return Ok(Some(format!("{} is a link", path.display())));
+        }
+        if meta.is_dir() {
+            if let Some(why) = walk(&path, seen)? {
+                return Ok(Some(why));
+            }
+        } else if path.extension().is_some_and(|ext| RUNNABLE.iter().any(|known| ext.eq_ignore_ascii_case(known))) {
+            if let Some(why) = weakness(&path)? {
+                return Ok(Some(format!("{}: {why}", path.display())));
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn sid_text(sid: PSID) -> Option<String> {
@@ -152,6 +212,30 @@ mod tests {
         if !super::super::elevate::is_elevated() {
             assert!(problem.is_some(), "a folder the user owns can be changed by them");
         }
+    }
+
+    #[test]
+    fn windows_own_tree_is_checked_below_the_top_folder_too() {
+        // Windows' own subfolders belong to administrators alone; a few are
+        // too private for an ordinary user to read, which isn't a weakness.
+        let windows = std::env::var("SystemRoot").unwrap();
+        match tree_weakness(&Path::new(&windows).join("System32").join("en-US")) {
+            Ok(found) => assert_eq!(found, None),
+            Err(why) => assert!(why.contains("can't be read"), "{why}"),
+        }
+    }
+
+    #[test]
+    fn a_weak_file_or_link_deep_in_the_tree_is_found() {
+        let dir = std::env::temp_dir().join(format!("bach-acl-tree-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("sub").join("tool.exe"), b"MZ").unwrap();
+        // The folder is the user's, so the very top already fails; what matters
+        // is that the walk reports a reason instead of an error.
+        if !super::super::elevate::is_elevated() {
+            assert!(tree_weakness(&dir).unwrap().is_some());
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
