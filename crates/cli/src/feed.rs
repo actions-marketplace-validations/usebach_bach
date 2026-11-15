@@ -122,11 +122,16 @@ fn private_key() -> Result<String> {
 pub fn key_command(out: Option<&Path>) -> Result<()> {
     let (private, public) = bach_pack::feedsig::generate()?;
     let file = out.map_or_else(|| PathBuf::from("feed-key.private"), Path::to_path_buf);
-    let mut handle = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&file)
-        .with_context(|| format!("couldn't create {} (it must not exist yet)", file.display()))?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    // Owner only from the moment it exists (not chmod-ed afterwards). On Windows the file gets the
+    // rights of its folder: keep it somewhere only you can read.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut handle = options.open(&file).with_context(|| format!("couldn't create {} (it must not exist yet)", file.display()))?;
     std::io::Write::write_all(&mut handle, format!("{private}\n").as_bytes())?;
     println!("Wrote the private key to {}. Keep it secret and out of Git; it signs your update feeds.", file.display());
     println!("Put this in bach.toml:\n\n[updates]\npublic_key = \"{public}\"\n");

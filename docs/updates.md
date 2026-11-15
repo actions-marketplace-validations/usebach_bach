@@ -255,8 +255,9 @@ away:
 bach feed-key
 ```
 
-writes the private key to `feed-key.private` (it must not exist yet; keep it
-secret and out of Git) and prints the line for `bach.toml`:
+writes the private key to `feed-key.private` (it must not exist yet; on Linux
+and macOS it is readable by you alone, on Windows it has the rights of its
+folder, so keep it in one only you can read, and out of Git) and prints the line for `bach.toml`:
 
 ```toml bach.toml
 [updates]
