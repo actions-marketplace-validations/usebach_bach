@@ -145,6 +145,11 @@ started it can wait for its exit code.
   never the install folder or a folder that contains it.
 - The uninstaller refuses a folder that doesn't hold the app, and an update
   only cleans up after an earlier install of the same app id.
+- A first install into a folder that already holds files of the same names
+  (and no earlier install of this app) warns in the window, naming them, and
+  is refused by a silent run unless it gets `--overwrite`.
+- The uninstaller keeps a file whose SHA-256 no longer matches the manifest,
+  because someone changed it after setup wrote it, and says so in the log.
 - The manifest is checked again when a setup file starts, so a damaged or
   edited file fails with a sentence instead of misbehaving.
 - `PATH` is edited as raw text: exactly one entry is added or removed, the

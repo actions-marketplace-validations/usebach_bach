@@ -114,6 +114,8 @@ pub const PL: Strings = Strings {
     error_run: "Nie udało się skonfigurować: {task} (kod wyjścia {code}). Spróbuj ponownie.",
     step_migrating: "Usuwanie starej wersji {name}",
     error_patch_base: "Ta aktualizacja jest przeznaczona dla innej wersji {name}. Pobierz zamiast tego pełny plik instalacyjny.",
+    overwrite_title: "Ten folder już zawiera pliki",
+    overwrite_subtitle: "Instalacja {name} w tym miejscu zastąpi: {files}. To nie są pliki {name} i zostaną utracone na zawsze. Wybierz inny folder, aby je zachować.",
 };
 
 pub const RU: Strings = Strings {
@@ -228,6 +230,8 @@ pub const RU: Strings = Strings {
     error_run: "Не удалось настроить: {task} (код завершения {code}). Повторите попытку.",
     step_migrating: "Удаление старой версии {name}",
     error_patch_base: "Это обновление предназначено для другой версии {name}. Скачайте полный установочный файл.",
+    overwrite_title: "В этой папке уже есть файлы",
+    overwrite_subtitle: "Установка {name} сюда заменит: {files}. Это не файлы {name}, и они будут безвозвратно потеряны. Выберите другую папку, чтобы сохранить их.",
 };
 
 pub const TR: Strings = Strings {
@@ -342,4 +346,6 @@ pub const TR: Strings = Strings {
     error_run: "{task} ayarlanamadı (çıkış kodu {code}). Yeniden deneyin.",
     step_migrating: "{name} uygulamasının eski sürümü kaldırılıyor",
     error_patch_base: "Bu güncelleme {name} uygulamasının başka bir sürümü içindir. Bunun yerine tam kurulum dosyasını indirin.",
+    overwrite_title: "Bu klasörde zaten dosyalar var",
+    overwrite_subtitle: "{name} buraya kurulursa şunların yerine geçer: {files}. Bunlar {name} dosyaları değil ve kalıcı olarak kaybolur. Saklamak için başka bir klasör seçin.",
 };

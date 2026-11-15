@@ -89,6 +89,7 @@ texts! {
     step_finding, step_fetching, error_fetch,
     access_title, access_subtitle, access_hint, access_button, access_paste, access_wrong, access_get,
     step_running, error_run, step_migrating, error_patch_base,
+    overwrite_title, overwrite_subtitle,
 }
 
 /// A language the setup window speaks.
@@ -125,7 +126,7 @@ pub fn language(code: &str) -> Option<&'static Language> {
 /// Placeholders every text may use.
 pub const COMMON_PLACEHOLDERS: &[&str] = &["name", "version", "publisher"];
 /// Placeholders some texts fill in; harmless (left as is) elsewhere.
-pub const OTHER_PLACEHOLDERS: &[&str] = &["old_version", "path", "size", "free", "error", "description", "requirement", "task", "code"];
+pub const OTHER_PLACEHOLDERS: &[&str] = &["old_version", "path", "size", "free", "error", "description", "requirement", "task", "code", "files"];
 
 /// Picks the language to show: the first of the user's `preferred`
 /// languages (like `de-DE`, most preferred first) that the app `offers`,

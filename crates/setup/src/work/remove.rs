@@ -51,6 +51,11 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     remove_waiting(&program, texts, Key::error_still_open)?;
     for file in &manifest.files {
         let path = paths::under(dir, &file.path);
+        if super::conflicts::changed_since_install(&path, file) {
+            // Not the file setup wrote any more: it holds the user's changes.
+            crate::log::line(&format!("Kept {}: it changed after it was installed.", file.path));
+            continue;
+        }
         remove_file_if_present(&path).map_err(|err| failed(texts, Key::error_delete, &path, &err))?;
     }
     remove_empty_parents(dir, manifest.files.iter().map(|file| file.path.as_str()));

@@ -115,4 +115,6 @@ pub const EN: Strings = Strings {
     error_run: "{task} couldn't be set up (exit code {code}). Try again.",
     step_migrating: "Removing the old version of {name}",
     error_patch_base: "This update is for another version of {name}. Download the full setup file instead.",
+    overwrite_title: "This folder already has files",
+    overwrite_subtitle: "Installing {name} here replaces {files}. They aren't files of {name} and are lost for good. Choose another folder to keep them.",
 };

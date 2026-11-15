@@ -87,6 +87,19 @@ pub fn run(args: &Args, package: Package) -> i32 {
                 );
                 return 2;
             }
+            if start.existing.is_none() && !args.overwrite {
+                let foreign = work::foreign_files(manifest, &choices, &dir);
+                if !foreign.is_empty() {
+                    let files = work::describe_files(&foreign);
+                    eprintln!(
+                        "{} {} Add --overwrite to install anyway.",
+                        texts.get(Key::overwrite_title),
+                        texts.with(Key::overwrite_subtitle, &[("files", files.as_str())])
+                    );
+                    crate::log::line(&format!("Refused: {} existing file(s) would be replaced.", foreign.len()));
+                    return 1;
+                }
+            }
             let plan = work::InstallPlan { package: package.clone(), texts: texts.clone(), dir, choices, key };
             work::install(&plan, &report)
         }

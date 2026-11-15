@@ -283,6 +283,15 @@ impl SetupView {
                 texts.get(Key::remove_button).into(),
             );
         }
+        if !self.overwrites.is_empty() {
+            // Say what would be replaced before it is: the folder isn't this app's.
+            let files = crate::work::describe_files(&self.overwrites);
+            return (
+                texts.get(Key::overwrite_title).into(),
+                Some(texts.with(Key::overwrite_subtitle, &[("files", files.as_str())]).into()),
+                texts.get(Key::downgrade_button).into(),
+            );
+        }
         match &self.existing {
             None => {
                 // No built-in line: the app's own description, if it has one.

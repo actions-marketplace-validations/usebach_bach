@@ -65,6 +65,9 @@ pub struct SetupView {
     pub delete_data: bool,
     /// The installed version is newer than this one.
     pub downgrade: bool,
+    /// Files in the chosen folder that a first install would replace, and
+    /// that aren't from an earlier install of this app.
+    pub overwrites: Vec<String>,
     /// The access key comes after the requirements are met.
     pub access_pending: bool,
     /// What has been typed or pasted so far, or the key given up front.
@@ -132,7 +135,7 @@ impl SetupView {
             None if license_pending => Stage::License,
             None => Stage::Ready,
         };
-        Self {
+        let mut view = Self {
             package,
             texts,
             mode,
@@ -142,6 +145,7 @@ impl SetupView {
             choices,
             delete_data: false,
             downgrade,
+            overwrites: Vec::new(),
             access_pending,
             key,
             key_error: None,
@@ -157,7 +161,19 @@ impl SetupView {
             picker: None,
             closer: None,
             checker: None,
-        }
+        };
+        view.refresh_overwrites();
+        view
+    }
+
+    /// Looks again at which foreign files the chosen folder and options
+    /// would replace. Only a first install into an existing folder can.
+    pub fn refresh_overwrites(&mut self) {
+        self.overwrites = if self.is_removing() || self.existing.is_some() {
+            Vec::new()
+        } else {
+            work::foreign_files(&self.package.manifest, &self.choices, &self.dir)
+        };
     }
 
     /// The first page once nothing is missing: the key, then the license,
@@ -210,6 +226,7 @@ impl SetupView {
             }
             Toggle::DeleteData => self.delete_data = on,
         }
+        self.refresh_overwrites();
         cx.notify();
     }
 
@@ -235,6 +252,7 @@ impl SetupView {
             this.update(cx, |this, cx| {
                 if let Some(folder) = picked {
                     this.dir = install_folder(folder, &folder_name);
+                    this.refresh_overwrites();
                 }
                 this.picker = None;
                 cx.notify();

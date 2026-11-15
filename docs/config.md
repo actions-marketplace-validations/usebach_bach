@@ -634,7 +634,8 @@ a text is given in only one, `bach check` points it out.
 | `error_create`, `error_write`, `error_delete`, `error_shortcut`, `error_delete_data`, `error_not_found` (all `{path}`) | Errors about one file or folder; Windows' own reason follows them. |
 | `error_read_setup`, `error_damaged`, `error_uninstaller`, `error_register`, `error_unregister`, `error_system`, `error_open_failed` (`{error}`) | The rarer errors. |
 | `problem_title`, `problem_damaged` (`{error}`) | The page a damaged setup file shows. |
-| `downgrade_title`, `downgrade_subtitle` (`{old_version}`), `downgrade_button` | Installing over a newer version. |
+| `downgrade_title`, `downgrade_subtitle` (`{old_version}`), `downgrade_button` | Installing over a newer version. `downgrade_button` also confirms the next one. |
+| `overwrite_title`, `overwrite_subtitle` (`{files}`) | A first install into a folder that already holds files the install would replace: the window names up to five of them (and how many more) before it installs. |
 | `close_app`, `error_close_app` | "Close and continue", and what it says when the app won't close. |
 | `requirement_title`, `requirement_subtitle`, `requirement_button` (all `{requirement}`) | The page for a missing requirement. |
 | `step_downloading`, `error_download` (`{error}`) | Updating from the app. |
@@ -762,6 +763,7 @@ Start-Process .\Hello-Setup-1.4.0.exe -Wait -PassThru -ArgumentList '--silent', 
 | `--with a,b` / `--without a,b` | Tick or untick options: `desktop-shortcut`, `start-menu`, `autostart`, `path`, `auto-update`, and component ids. Only options the install page would offer. |
 | `--lang CODE` | The language for messages, instead of Windows' own. |
 | `--allow-downgrade` | Install over a newer version (refused otherwise, with exit code 1). |
+| `--overwrite` | A first install into a folder that already holds files of the same names as the setup file's (and no earlier install of this app) is refused with exit code 1, naming up to five of them; this installs over them anyway. |
 | `--key-file FILE` | The access key (first line of the file) for a setup file with [`[access]`](#access). The `BACH_ACCESS_KEY` environment variable does the same. Without a key a silent run exits with code 2. |
 | `--log FILE` | Where the log goes. By default every run writes `%TEMP%\<app id>-setup.log`. |
 | `--help` (also `-h`, `/?`) | Prints every option. |

@@ -114,6 +114,8 @@ pub const JA: Strings = Strings {
     error_run: "{task} を設定できませんでした（終了コード {code}）。もう一度お試しください。",
     step_migrating: "{name} の古いバージョンを削除しています",
     error_patch_base: "このアップデートは {name} の別のバージョン用です。代わりに完全なセットアップファイルをダウンロードしてください。",
+    overwrite_title: "このフォルダーには既にファイルがあります",
+    overwrite_subtitle: "ここに {name} をインストールすると、{files} が置き換えられます。これらは {name} のファイルではなく、完全に失われます。残すには別のフォルダーを選んでください。",
 };
 
 pub const KO: Strings = Strings {
@@ -228,6 +230,8 @@ pub const KO: Strings = Strings {
     error_run: "{task}을(를) 설정하지 못했습니다(종료 코드 {code}). 다시 시도하세요.",
     step_migrating: "{name}의 이전 버전을 제거하는 중",
     error_patch_base: "이 업데이트는 {name}의 다른 버전용입니다. 대신 전체 설치 파일을 다운로드하세요.",
+    overwrite_title: "이 폴더에 이미 파일이 있습니다",
+    overwrite_subtitle: "여기에 {name}을(를) 설치하면 {files}을(를) 덮어씁니다. {name}의 파일이 아니며 완전히 사라집니다. 보관하려면 다른 폴더를 선택하세요.",
 };
 
 pub const ZH: Strings = Strings {
@@ -342,4 +346,6 @@ pub const ZH: Strings = Strings {
     error_run: "无法设置 {task}（退出代码 {code}）。请重试。",
     step_migrating: "正在移除旧版 {name}",
     error_patch_base: "此更新适用于 {name} 的其他版本。请改为下载完整的安装文件。",
+    overwrite_title: "此文件夹中已有文件",
+    overwrite_subtitle: "在此安装 {name} 会替换 {files}。这些不是 {name} 的文件，将永久丢失。请选择其他文件夹以保留它们。",
 };

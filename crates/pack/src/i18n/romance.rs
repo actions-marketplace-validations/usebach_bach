@@ -114,6 +114,8 @@ pub const FR: Strings = Strings {
     error_run: "{task} n'a pas pu être configuré (code de sortie {code}). Réessayez.",
     step_migrating: "Suppression de l'ancienne version de {name}",
     error_patch_base: "Cette mise à jour est destinée à une autre version de {name}. Téléchargez plutôt le fichier d'installation complet.",
+    overwrite_title: "Ce dossier contient déjà des fichiers",
+    overwrite_subtitle: "Installer {name} ici remplacerait {files}. Ce ne sont pas des fichiers de {name} et ils seraient perdus définitivement. Choisissez un autre dossier pour les conserver.",
 };
 
 pub const ES: Strings = Strings {
@@ -228,6 +230,8 @@ pub const ES: Strings = Strings {
     error_run: "No se pudo configurar {task} (código de salida {code}). Vuelve a intentarlo.",
     step_migrating: "Quitando la versión anterior de {name}",
     error_patch_base: "Esta actualización es para otra versión de {name}. Descarga el archivo de instalación completo.",
+    overwrite_title: "Esta carpeta ya tiene archivos",
+    overwrite_subtitle: "Instalar {name} aquí reemplazaría {files}. No son archivos de {name} y se perderían para siempre. Elige otra carpeta para conservarlos.",
 };
 
 pub const IT: Strings = Strings {
@@ -342,6 +346,8 @@ pub const IT: Strings = Strings {
     error_run: "Impossibile configurare {task} (codice di uscita {code}). Riprova.",
     step_migrating: "Rimozione della versione precedente di {name}",
     error_patch_base: "Questo aggiornamento è per un'altra versione di {name}. Scarica invece il file di installazione completo.",
+    overwrite_title: "Questa cartella contiene già dei file",
+    overwrite_subtitle: "Installando {name} qui verrebbero sostituiti {files}. Non sono file di {name} e andrebbero persi per sempre. Scegli un'altra cartella per conservarli.",
 };
 
 pub const PT: Strings = Strings {
@@ -456,4 +462,6 @@ pub const PT: Strings = Strings {
     error_run: "Não foi possível configurar {task} (código de saída {code}). Tente novamente.",
     step_migrating: "A remover a versão anterior de {name}",
     error_patch_base: "Esta atualização é para outra versão de {name}. Transfira o ficheiro de instalação completo.",
+    overwrite_title: "Esta pasta já tem ficheiros",
+    overwrite_subtitle: "Instalar o {name} aqui substituiria {files}. Não são ficheiros do {name} e perder-se-iam para sempre. Escolha outra pasta para os manter.",
 };

@@ -29,7 +29,7 @@ pub(super) fn patch_base(manifest: &Manifest, choices: &Choices, dir: &Path) -> 
 
 /// Whether the file at `path` is exactly what `file` records: same size and
 /// SHA-256. A file that is missing, unreadable or unrecorded doesn't match.
-fn matches_on_disk(path: &Path, file: &FileEntry) -> bool {
+pub(super) fn matches_on_disk(path: &Path, file: &FileEntry) -> bool {
     let Some(expected) = &file.sha256 else {
         return false;
     };

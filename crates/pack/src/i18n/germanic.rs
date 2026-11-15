@@ -114,6 +114,8 @@ pub const DE: Strings = Strings {
     error_run: "{task} konnte nicht eingerichtet werden (Exitcode {code}). Versuche es erneut.",
     step_migrating: "Alte Version von {name} wird entfernt",
     error_patch_base: "Dieses Update gehört zu einer anderen Version von {name}. Lade stattdessen die vollständige Setup-Datei herunter.",
+    overwrite_title: "Dieser Ordner enthält schon Dateien",
+    overwrite_subtitle: "{name} würde hier {files} ersetzen. Das sind keine Dateien von {name}, sie gingen dauerhaft verloren. Wähle einen anderen Ordner, um sie zu behalten.",
 };
 
 pub const NL: Strings = Strings {
@@ -228,4 +230,6 @@ pub const NL: Strings = Strings {
     error_run: "{task} kon niet worden ingesteld (afsluitcode {code}). Probeer het opnieuw.",
     step_migrating: "De oude versie van {name} wordt verwijderd",
     error_patch_base: "Deze update is voor een andere versie van {name}. Download in plaats daarvan het volledige setupbestand.",
+    overwrite_title: "Deze map bevat al bestanden",
+    overwrite_subtitle: "{name} zou hier {files} vervangen. Dat zijn geen bestanden van {name} en ze gaan definitief verloren. Kies een andere map om ze te behouden.",
 };

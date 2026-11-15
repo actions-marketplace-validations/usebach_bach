@@ -34,6 +34,7 @@ pub const HELP: &str = "Setup file and uninstall.exe options
                           autostart, path, auto-update, or a component id).
   --without IDS           Turn these options off.
   --allow-downgrade       Let a silent run install an older version over a newer one.
+  --overwrite             Let a silent first install replace files that are already in the folder (refused otherwise, exit code 1).
   --delete-data           Silent removal: also delete the app's data folders.
   --key-file FILE         The access key, for a setup file that asks for one (or set BACH_ACCESS_KEY).
   --log FILE              Write this run's log here (default %TEMP%\\<app id>-setup.log).
@@ -75,6 +76,8 @@ pub struct Args {
     pub delete_data: bool,
     /// Lets a silent run install an older version over a newer one.
     pub allow_downgrade: bool,
+    /// Lets a silent first install replace files that are already in the folder.
+    pub overwrite: bool,
     /// `--log FILE`: where this run's log goes.
     pub log: Option<PathBuf>,
     /// `--key-file FILE`: a file holding the access key.
@@ -154,6 +157,7 @@ impl Args {
             without: list("--without"),
             delete_data: has(&["--delete-data"]),
             allow_downgrade: has(&["--allow-downgrade"]),
+            overwrite: has(&["--overwrite"]),
             log: value_of("--log").map(PathBuf::from),
             key_file: value_of("--key-file").map(PathBuf::from),
             update: has(&["--update"]),
@@ -315,7 +319,7 @@ mod tests {
         }
         assert!(!args("--silent").wants_help());
         // Every flag the help text names is one the parser knows.
-        for flag in ["--silent", "--dir", "--with", "--without", "--allow-downgrade", "--delete-data", "--key-file", "--log",
+        for flag in ["--silent", "--dir", "--with", "--without", "--allow-downgrade", "--overwrite", "--delete-data", "--key-file", "--log",
             "--lang", "--theme", "--preview", "--check-update", "--download-update", "--apply-update", "--update", "--auto-update"] {
             assert!(HELP.contains(flag), "{flag} is missing from the help text");
         }

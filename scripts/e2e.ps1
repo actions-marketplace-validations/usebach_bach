@@ -69,6 +69,21 @@ try {
     $v1 = Build '1.0.0' @('readme.txt', 'old.txt')
     $v2 = Build '2.0.0' @('readme.txt', 'new.txt')
 
+    Write-Host 'Install into a folder that holds someone else''s files'
+    New-Item -ItemType Directory -Force -Path $install | Out-Null
+    Set-Content -Path (Join-Path $install 'readme.txt') -Value 'USER OWN SETTINGS'
+    Set-Content -Path (Join-Path $install 'other-app.dll') -Value 'another app'
+    Check ((Run $v1 @('--silent', '--dir', "`"$install`"")) -eq 1) 'refused: readme.txt is not from this app'
+    Check ((Get-Content (Join-Path $install 'readme.txt')) -eq 'USER OWN SETTINGS') 'the foreign file is untouched'
+    Check (-not (Installed-Version)) 'nothing was registered'
+    Check ((Run $v1 @('--silent', '--overwrite', '--dir', "`"$install`"")) -eq 0) '--overwrite installs anyway'
+    Set-Content -Path (Join-Path $install 'readme.txt') -Value 'edited after install'
+    Check ((Run (Join-Path $install 'uninstall.exe') @('--silent')) -eq 0) 'uninstall exits 0'
+    Check ((Get-Content (Join-Path $install 'readme.txt')) -eq 'edited after install') 'a file changed after install is kept'
+    Check (Test-Path (Join-Path $install 'other-app.dll')) 'the other app''s file stays'
+    Check (-not (Test-Path (Join-Path $install 'hello.exe'))) 'unchanged app files are removed'
+    Remove-Item -Recurse -Force $install
+
     Write-Host 'Install 1.0.0'
     Check ((Run $v1 @('--silent', '--dir', "`"$install`"")) -eq 0) 'exits 0'
     Check ((Installed-Version) -eq '1.0.0') 'listed in Settings > Apps as 1.0.0'
