@@ -23,11 +23,11 @@ pub fn command(count: u32, out: Option<&std::path::Path>) -> Result<()> {
             }
             std::fs::write(file, format!("{}\n", keys.join("\n")))
                 .map_err(|err| anyhow::anyhow!("couldn't write {}: {err}", file.display()))?;
-            println!("Wrote {} to {}", if count == 1 { "1 key".to_string() } else { format!("{count} keys") }, file.display());
+            say!("Wrote {} to {}", if count == 1 { "1 key".to_string() } else { format!("{count} keys") }, file.display());
         }
         None => {
             for key in keys {
-                println!("{key}");
+                say!("{key}");
             }
         }
     }

@@ -195,6 +195,9 @@ bach preview --lang de --theme dark
 bach preview --uninstall
 bach build                 # writes dist/<name>-Setup-<version>.exe
 bach inspect dist/My\ App-Setup-1.0.0.exe
+# In scripts, add --json to check, build, inspect, feed or doctor: stdout is one
+# JSON object ({"ok", "setup", "version", "sha256", "size", "warnings", ...}),
+# never text to parse. Fields: schema/bach-output.schema.json.
 ```
 
 Treat every `warning:` line from `bach check` as something to fix or to

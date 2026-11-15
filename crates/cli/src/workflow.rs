@@ -40,16 +40,16 @@ pub fn command(options: Options) -> Result<()> {
     let done = write(&options)?;
     let shown = done.path.display();
     match (done.updated, done.stack) {
-        (true, _) => println!("Updated {shown} to the newest release workflow."),
-        (false, Some(stack)) => println!("Wrote {shown} for this {stack} project."),
-        (false, None) => println!("Wrote {shown}."),
+        (true, _) => say!("Updated {shown} to the newest release workflow."),
+        (false, Some(stack)) => say!("Wrote {shown} for this {stack} project."),
+        (false, None) => say!("Wrote {shown}."),
     }
-    println!("Commit and push it, then release on GitHub under Actions > Release > Run workflow.");
+    say!("Commit and push it, then release on GitHub under Actions > Release > Run workflow.");
     if done.stack.is_none() {
-        println!("Bach didn't recognise the project: put the commands that build your app into the \"Build your app\" step.");
+        say!("Bach didn't recognise the project: put the commands that build your app into the \"Build your app\" step.");
     }
     if done.no_github {
-        println!("This checkout has no GitHub origin yet; the workflow appears under Actions once it is pushed to GitHub.");
+        say!("This checkout has no GitHub origin yet; the workflow appears under Actions once it is pushed to GitHub.");
     }
     Ok(())
 }

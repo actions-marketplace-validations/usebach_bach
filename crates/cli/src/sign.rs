@@ -31,7 +31,7 @@ pub fn command(options: Options) -> Result<()> {
         bail!("{} has no [signing] section, so Bach doesn't know how to sign; see docs/signing.md", options.config.display());
     };
     sign(signing, options.file)?;
-    println!("Signed {}", options.file.display());
+    say!("Signed {}", options.file.display());
     Ok(())
 }
 
@@ -42,7 +42,7 @@ pub fn sign(signing: &Signing, file: &Path) -> Result<()> {
     // so a log never holds them and nobody is surprised by what bach.toml runs.
     let shown = self::arguments(signing, file, |name| Some(format!("{{env:{name}}}")))?;
     let program = find_program(&signing.program);
-    println!("Signing: {} {}", program.display(), shown.join(" "));
+    say!("Signing: {} {}", program.display(), shown.join(" "));
     let status = Command::new(&program).args(&arguments).status().with_context(|| {
         if is_signtool(&signing.program) {
             "couldn't start signtool. It is part of the Windows SDK (install its \"Windows SDK Signing Tools for Desktop Apps\"), \
@@ -65,7 +65,7 @@ pub fn sign(signing: &Signing, file: &Path) -> Result<()> {
     if is_signtool(&signing.program) {
         check_signature(file)?;
     } else {
-        println!("Signature not checked: {} isn't signtool", signing.program);
+        say!("Signature not checked: {} isn't signtool", signing.program);
     }
     Ok(())
 }
@@ -108,20 +108,20 @@ fn check_signature(file: &Path) -> Result<()> {
         .env("BACH_VERIFY_FILE", file)
         .output();
     let Ok(output) = output else {
-        println!("warning: couldn't check the signature of {} (PowerShell isn't available)", file.display());
+        say!("warning: couldn't check the signature of {} (PowerShell isn't available)", file.display());
         return Ok(());
     };
     let text = String::from_utf8_lossy(&output.stdout);
     let mut lines = text.lines().map(str::trim);
     let (status, timestamped) = (lines.next().unwrap_or(""), lines.next() == Some("True"));
     match judge(status, timestamped) {
-        Signed::Fine => println!("Signature checked: valid and timestamped"),
-        Signed::NoTimestamp => println!(
+        Signed::Fine => say!("Signature checked: valid and timestamped"),
+        Signed::NoTimestamp => say!(
             "warning: {} is signed but has no timestamp, so the signature stops being valid when the certificate expires; \
              add a timestamp server to [signing] arguments (signtool: /tr URL /td sha256)",
             file.display()
         ),
-        Signed::NotTrusted(status) => println!(
+        Signed::NotTrusted(status) => say!(
             "warning: {} is signed, but Windows reports \"{status}\" for the signature (a self-signed or unknown root certificate looks like this)",
             file.display()
         ),
@@ -142,7 +142,7 @@ fn find_program(program: &str) -> PathBuf {
     if is_signtool(program) && !on_path(program) {
         let kits = std::env::var_os("ProgramFiles(x86)").map(|files| PathBuf::from(files).join("Windows Kits").join("10").join("bin"));
         if let Some(found) = kits.as_deref().and_then(newest_signtool) {
-            println!("signtool isn't on PATH; using {}", found.display());
+            say!("signtool isn't on PATH; using {}", found.display());
             return found;
         }
     }

@@ -225,26 +225,31 @@ runs:
           fi
         fi
         bach doctor "$CONFIG"
+        # The result comes as JSON (stdout), so no wording of bach's text can break this.
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "::error::jq isn't available on this runner, and the action needs it to read bach's --json result."
+          exit 1
+        fi
+        result="$RUNNER_TEMP/bach-build.json"
         if [ -n "$app_version" ]; then
           # shellcheck disable=SC2086
-          bach build "$CONFIG" --app-version "$app_version" $ARGS | tee "$RUNNER_TEMP/bach-build.log"
+          bach build "$CONFIG" --app-version "$app_version" --json $ARGS > "$result" || { cat "$result"; exit 1; }
         else
           # shellcheck disable=SC2086
-          bach build "$CONFIG" $ARGS | tee "$RUNNER_TEMP/bach-build.log"
+          bach build "$CONFIG" --json $ARGS > "$result" || { cat "$result"; exit 1; }
         fi
-        setup=$(sed -n 's/^Wrote \(.*\.exe\) (.*/\1/p' "$RUNNER_TEMP/bach-build.log" | head -n 1)
+        cat "$result"
+        setup=$(jq -r '.setup // empty' "$result")
         if [ -z "$setup" ]; then
           echo "::error::bach build didn't report a setup file."
           exit 1
         fi
         echo "setup=$setup" >> "$GITHUB_OUTPUT"
         # The online installer, when the config asks for one.
-        web=$(sed -n 's/^Wrote \(.*\.exe\) (.*), the online installer$/\1/p' "$RUNNER_TEMP/bach-build.log" | head -n 1)
-        echo "web-setup=$web" >> "$GITHUB_OUTPUT"
+        echo "web-setup=$(jq -r '.online_setup // empty' "$result")" >> "$GITHUB_OUTPUT"
         # The update patch, when `args` has --patch-from.
-        patch=$(sed -n 's/^Wrote \(.*\.exe\) (.*), the update patch from .*$/\1/p' "$RUNNER_TEMP/bach-build.log" | head -n 1)
-        echo "patch=$patch" >> "$GITHUB_OUTPUT"
-        echo "version=$(bach inspect "$setup" | sed -n 's/^Installer for .* \([^ ]*\)$/\1/p' | head -n 1)" >> "$GITHUB_OUTPUT"
+        echo "patch=$(jq -r '.patch // empty' "$result")" >> "$GITHUB_OUTPUT"
+        echo "version=$(jq -r '.version // empty' "$result")" >> "$GITHUB_OUTPUT"
 
     - name: Sign the setup file
       if: inputs.config != '' && inputs.sign-command != ''

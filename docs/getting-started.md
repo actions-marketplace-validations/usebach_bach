@@ -177,5 +177,11 @@ your app can do to update on quit and for a workflow of your own.
 - **Leave out build leftovers** with `[files] exclude = ["*.pdb", "*.log"]`.
 - **CI.** `bach build` exits with a non-zero code and a readable message on
   any problem, so it fits in a pipeline as is, on Windows, macOS or Linux.
+- **Scripts and agents.** `bach check`, `build`, `inspect`, `feed` and `doctor` take
+  `--json`: stdout is then one JSON object, nothing else, with `ok`, what the
+  command made (`setup`, `online_setup`, `patch`, `feed`, `version`, `sha256`,
+  `size`) and `warnings`. After an error it is `{"ok": false, "error": "…"}` and
+  the exit code is non-zero. The fields are listed in
+  `schema/bach-output.schema.json`; read them instead of cutting up text lines.
 - **IT departments.** Every setup file installs without a window with
   `--silent` (or `/S`); see [silent installs](config.md#silent-installs).

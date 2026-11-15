@@ -15,6 +15,16 @@
 //! bach workflow          add the one-click release workflow to a GitHub repository
 //! ```
 
+/// `println!` for what a person reads: silent with `--json`, where the command
+/// ends with one JSON object instead (see `output::finish`).
+macro_rules! say {
+    ($($t:tt)*) => {
+        if !$crate::output::json() {
+            println!($($t)*);
+        }
+    };
+}
+
 mod builder;
 mod detect;
 mod doctor;
@@ -41,6 +51,10 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "bach", version, about = "Build modern, clean Windows installers from one bach.toml.")]
 struct Cli {
+    /// Print one JSON object with the result (and warnings) instead of text lines.
+    /// Errors are `{"ok": false, "error": "..."}` with a non-zero exit code.
+    #[arg(long, global = true)]
+    json: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -227,6 +241,7 @@ enum Command {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    output::set_json(cli.json);
     let result = match cli.command {
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
         Command::Check { config, app_version } => builder::check(&config, app_version.as_deref()),
@@ -273,9 +288,13 @@ fn main() -> ExitCode {
         }),
     };
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) => {
+            output::finish(None);
+            ExitCode::SUCCESS
+        }
         Err(err) => {
             output::error(&err);
+            output::finish(Some(&err));
             ExitCode::FAILURE
         }
     }

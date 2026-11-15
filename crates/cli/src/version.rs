@@ -132,7 +132,7 @@ fn show(found: &[Found]) -> Result<()> {
     for item in found {
         if !shown.contains(&item) {
             shown.push(item);
-            println!("  {:<28} {}", item.file, item.version);
+            say!("  {:<28} {}", item.file, item.version);
         }
     }
     let first = &found[0].version;
@@ -163,7 +163,7 @@ fn raise(dir: &Path, found: &[Found], target: &str, dry_run: bool) -> Result<()>
     if changes.is_empty() {
         eprintln!("Every file already says {new}.");
     }
-    println!("{new}");
+    say!("{new}");
     Ok(())
 }
 

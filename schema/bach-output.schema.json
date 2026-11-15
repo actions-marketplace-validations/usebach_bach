@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "What `bach ... --json` prints",
+  "description": "One JSON object on stdout, and nothing else there. `ok` is false after an error (the exit code is non-zero too) and then `error` and `causes` say why. Warnings are also printed on stderr. Fields not listed for a command are not there.",
+  "type": "object",
+  "required": ["ok", "warnings"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "error": { "type": "string", "description": "The first sentence of the error." },
+    "causes": { "type": "array", "items": { "type": "string" }, "description": "The sentences underneath it." },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "name": { "type": "string", "description": "check, inspect: the app's name." },
+    "app_id": { "type": "string", "description": "inspect: the app id." },
+    "version": { "type": "string", "description": "check, build, feed, inspect: the app's version." },
+    "publisher": { "type": "string", "description": "inspect." },
+    "executable": { "type": "string", "description": "inspect: the program." },
+    "kind": { "type": "string", "enum": ["installer", "online installer", "uninstaller"], "description": "inspect." },
+    "files": { "type": "integer", "description": "check, inspect: how many files are installed." },
+    "size": { "type": "integer", "description": "Bytes. check, inspect: what is installed; build: the setup file; feed: the setup file." },
+    "setup": { "type": "string", "description": "build: the setup file." },
+    "online_setup": { "type": "string", "description": "build: the online installer, when there is one." },
+    "patch": { "type": "string", "description": "build: the update patch, when --patch-from was given." },
+    "feed": { "type": "string", "description": "build, feed: the update feed (latest.json), when one was written." },
+    "sha256": { "type": "string", "description": "build: the setup file's SHA-256 (after signing); feed: the same, as written to the feed." },
+    "packed": { "type": "integer", "description": "build: the compressed size of the files, in bytes." },
+    "url": { "type": "string", "description": "feed: the link the setup file is downloaded from." },
+    "signed": { "type": "boolean", "description": "feed: whether the feed entry carries the publisher's signature." },
+    "ready": { "type": "boolean", "description": "doctor: whether a build can go ahead." },
+    "problems": { "type": "integer", "description": "doctor: how many things to fix." }
+  },
+  "additionalProperties": false
+}

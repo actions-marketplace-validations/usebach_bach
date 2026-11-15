@@ -9,7 +9,7 @@ use crate::output::field;
 use crate::runtime::{self, Found};
 
 pub fn doctor(config: &Path) -> Result<()> {
-    println!("Bach {} on {} ({})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
+    say!("Bach {} on {} ({})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
     let mut problems = 0;
     let mut signing_program = None;
     match runtime::locate(None) {
@@ -67,11 +67,13 @@ pub fn doctor(config: &Path) -> Result<()> {
             },
         ),
     }
-    println!();
+    say!();
+    crate::output::result("ready", problems == 0);
+    crate::output::result("problems", problems);
     if problems == 0 {
-        println!("Ready to build.");
+        say!("Ready to build.");
     } else {
-        println!("Fix the {} above, then run bach doctor again.", if problems == 1 { "problem" } else { "problems" });
+        say!("Fix the {} above, then run bach doctor again.", if problems == 1 { "problem" } else { "problems" });
     }
     Ok(())
 }

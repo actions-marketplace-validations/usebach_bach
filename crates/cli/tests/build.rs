@@ -615,3 +615,58 @@ fn a_feed_with_a_publisher_key_is_signed_and_refuses_the_wrong_key() {
     std::fs::remove_dir_all(&dir).unwrap();
     std::fs::remove_dir_all(&signed_dir).unwrap();
 }
+
+/// What `--json` prints: one object on stdout and nothing else, with the documented fields.
+fn json_of(out: &Output) -> serde_json::Map<String, serde_json::Value> {
+    let stdout = text(&out.stdout);
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).unwrap_or_else(|err| panic!("stdout isn't one JSON object ({err}): {stdout}"));
+    assert_eq!(stdout.trim().lines().count(), 1, "one line: {stdout}");
+    let object = value.as_object().unwrap().clone();
+    let schema: serde_json::Value = serde_json::from_str(include_str!("../../../schema/bach-output.schema.json")).unwrap();
+    for key in object.keys() {
+        assert!(schema["properties"].get(key).is_some(), "{key} isn't in schema/bach-output.schema.json");
+    }
+    object
+}
+
+#[test]
+fn json_output_is_one_object_with_stable_fields() {
+    need_runtime!();
+    let dir = project("json", &config(UPDATES));
+    let checked = json_of(&run(&dir, &["check", "--json"]));
+    assert_eq!(checked["ok"], true);
+    assert_eq!((checked["name"].as_str(), checked["version"].as_str()), (Some("Hello"), Some("1.0.0")));
+    assert!(checked["files"].as_u64().unwrap() >= 1 && checked["warnings"].is_array());
+
+    let built = run(&dir, &["build", "--fast", "--json"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let built = json_of(&built);
+    let setup = built["setup"].as_str().unwrap();
+    let setup_path = dir.join(setup);
+    assert!(setup_path.is_file() && setup.ends_with("Hello-Setup-1.0.0.exe"), "{setup}");
+    assert_eq!(built["version"], "1.0.0");
+    assert_eq!(built["size"].as_u64().unwrap(), size(&setup_path));
+    assert_eq!(built["sha256"].as_str().unwrap().len(), 64);
+    assert!(built["feed"].as_str().unwrap().ends_with("latest.json"));
+    assert!(built.get("online_setup").is_none() && built.get("patch").is_none(), "only what was made");
+
+    let inspected = json_of(&run(&dir, &["inspect", setup_path.to_str().unwrap(), "--json"]));
+    assert_eq!((inspected["kind"].as_str(), inspected["app_id"].as_str()), (Some("installer"), Some("BachIntegrationTest-Hello")));
+
+    let feed = dir.join("j.json");
+    let fed = json_of(&run(&dir, &["feed", setup_path.to_str().unwrap(), "--out", feed.to_str().unwrap(), "--json"]));
+    assert_eq!((fed["sha256"].clone(), fed["signed"].clone()), (built["sha256"].clone(), serde_json::Value::Bool(false)));
+    assert!(fed["url"].as_str().unwrap().starts_with("https://bach-test.invalid/hello/"));
+
+    let failed = run(&dir, &["check", "--json", "--config-missing-flag"]);
+    assert!(!failed.status.success(), "a mistake in the arguments still fails");
+    let mut missing = bach();
+    missing.current_dir(&dir).args(["check", "nowhere/bach.toml", "--json"]);
+    let missing = missing.output().unwrap();
+    assert!(!missing.status.success());
+    let error = json_of(&missing);
+    assert_eq!(error["ok"], false);
+    assert!(error["error"].as_str().unwrap().len() > 5 && !error.contains_key("setup"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

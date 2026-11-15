@@ -49,11 +49,11 @@ pub fn command(options: Options) -> Result<()> {
     for (name, text) in &files {
         std::fs::write(dir.join(name), text).with_context(|| format!("couldn't write {name}"))?;
     }
-    println!("Wrote the winget manifests for {id} {version} to {}", dir.display());
+    say!("Wrote the winget manifests for {id} {version} to {}", dir.display());
     if options.license.is_none() {
         crate::output::warnings(&["the manifests say License: Proprietary; pass --license with yours (like MIT)".into()]);
     }
-    println!("Check them with `winget validate {}`, then open a pull request to microsoft/winget-pkgs.", dir.display());
+    say!("Check them with `winget validate {}`, then open a pull request to microsoft/winget-pkgs.", dir.display());
     Ok(())
 }
 

@@ -108,9 +108,9 @@ pub fn init(dir: &Path, with_workflow: bool) -> Result<()> {
     std::fs::write(&path, text).with_context(|| format!("couldn't write {}", path.display()))?;
     match &detected {
         Some(found) => {
-            println!("Wrote {} for this {} project. Check [app] and [files], then run `bach check`.", path.display(), found.stack)
+            say!("Wrote {} for this {} project. Check [app] and [files], then run `bach check`.", path.display(), found.stack)
         }
-        None => println!("Wrote {}. Fill in [app] and [files], then run `bach check`.", path.display()),
+        None => say!("Wrote {}. Fill in [app] and [files], then run `bach check`.", path.display()),
     }
     if with_workflow {
         add_workflow(dir);
@@ -123,15 +123,15 @@ pub fn init(dir: &Path, with_workflow: bool) -> Result<()> {
 /// written, and `bach workflow` can be run on its own.
 fn add_workflow(dir: &Path) {
     if crate::github::repository(dir).is_none() {
-        println!("Once this is a GitHub repository, run `bach workflow` to add a one-click release.");
+        say!("Once this is a GitHub repository, run `bach workflow` to add a one-click release.");
         return;
     }
     match crate::workflow::write(&crate::workflow::Options { dir, force: false }) {
-        Ok(done) => println!(
+        Ok(done) => say!(
             "Also wrote {}: after you commit and push it, release from GitHub under Actions > Release > Run workflow.",
             done.path.display()
         ),
-        Err(err) => println!("Didn't add the release workflow: {err:#}. `bach workflow` tries again."),
+        Err(err) => say!("Didn't add the release workflow: {err:#}. `bach workflow` tries again."),
     }
 }
 

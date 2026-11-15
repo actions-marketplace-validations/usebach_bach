@@ -25,12 +25,16 @@ fn load(config_path: &Path, version: Option<&str>) -> Result<Project> {
 pub fn check(config_path: &Path, version: Option<&str>) -> Result<()> {
     let project = load(config_path, version)?;
     let manifest = &project.manifest;
-    println!("{} {} is ready to build.", manifest.app.name, manifest.app.version);
+    output::result("name", manifest.app.name.clone());
+    output::result("version", manifest.app.version.clone());
+    output::result("files", manifest.files.len());
+    output::result("size", manifest.total_size());
+    say!("{} {} is ready to build.", manifest.app.name, manifest.app.version);
     summary(&project);
-    println!();
+    say!();
     for file in &manifest.files {
         let component = file.component.as_deref().map(|id| format!("  ({id})")).unwrap_or_default();
-        println!("  {:>10}  {}{component}", output::size(file.size), file.path);
+        say!("  {:>10}  {}{component}", output::size(file.size), file.path);
     }
     output::warnings(&project.warnings);
     Ok(())
@@ -111,14 +115,14 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     let output = out.map(Path::to_path_buf).unwrap_or_else(|| project.output.clone());
     let runtime = runtime::find(runtime)?;
     let app = &project.manifest.app;
-    println!("Building {} {}", app.name, app.version);
+    say!("Building {} {}", app.name, app.version);
     summary(&project);
 
     output::warnings(&project.warnings);
 
     let sealing = seal(&mut project, key_file, None)?;
     if sealing.is_some() {
-        println!("The files are encrypted with the access key.");
+        say!("The files are encrypted with the access key.");
     }
     let output = tidy(&output);
     record_hashes(&mut project)?;
@@ -126,8 +130,10 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
 
     let size = fs::metadata(&output).map(|meta| meta.len()).unwrap_or(0);
     let installed = project.manifest.total_size().max(1);
-    println!();
-    println!("Wrote {} ({})", output.display(), output::size(size));
+    say!();
+    say!("Wrote {} ({})", output.display(), output::size(size));
+    output::result("setup", output.display().to_string());
+    output::result("version", project.manifest.app.version.clone());
     // Signing is optional: it needs [signing] and a --sign from whoever runs the build.
     let signing = project.signing.as_ref().filter(|_| sign);
     if let Some(signing) = signing {
@@ -137,7 +143,8 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
         let online_output = tidy(&project.online_output);
         write_online_setup(&project, &runtime, &online_output, sealing.as_ref())?;
         let size = fs::metadata(&online_output).map(|meta| meta.len()).unwrap_or(0);
-        println!("Wrote {} ({}), the online installer", online_output.display(), output::size(size));
+        say!("Wrote {} ({}), the online installer", online_output.display(), output::size(size));
+        output::result("online_setup", online_output.display().to_string());
         if let Some(signing) = signing {
             crate::sign::sign(signing, &online_output)?;
         }
@@ -148,17 +155,25 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
             if let Some(signing) = signing {
                 crate::sign::sign(signing, &patch)?;
             }
+            output::result("patch", patch.display().to_string());
             Some((patch, from))
         }
         None => None,
     };
     if project.signing.is_some() && !sign {
-        println!("Not signed: bach.toml has [signing], but signing runs only with --sign (or BACH_SIGN=1).");
+        say!("Not signed: bach.toml has [signing], but signing runs only with --sign (or BACH_SIGN=1).");
     } else if sign && project.signing.is_none() {
         bail!("--sign was given, but bach.toml has no [signing] section that says how to sign");
     }
     if project.manifest.updates.is_some() {
         crate::feed::after_build(&project, &output, patch.as_ref().map(|(file, from)| (file.as_path(), from.as_str())))?;
+    }
+    if output::json() {
+        // Of the file as it is now: signed, if it was signed.
+        let (sha256, final_size) = crate::feed::digest_of(&output)?;
+        output::result("sha256", sha256);
+        output::result("size", final_size);
+        output::result("packed", packed);
     }
     field(
         "Packed",
@@ -228,7 +243,7 @@ fn write_patch(project: &Project, old: &Path, runtime: &Path, output: &Path, key
     let sealing = seal(&mut patch, key_file, None)?;
     write_setup(&patch, runtime, &target, sealing.as_ref())?;
     let size = fs::metadata(&target).map(|meta| meta.len()).unwrap_or(0);
-    println!(
+    say!(
         "Wrote {} ({}), the update patch from {}: {kept} of {} files changed",
         target.display(),
         output::size(size),
@@ -292,7 +307,7 @@ pub fn preview(config_path: &Path, options: PreviewOptions) -> Result<()> {
         command.args(["--lang", lang]);
     }
     command.spawn().with_context(|| format!("couldn't start {}", output.display()))?;
-    println!("Opened the {} preview. Nothing is installed or removed.", if uninstall { "uninstaller" } else { "installer" });
+    say!("Opened the {} preview. Nothing is installed or removed.", if uninstall { "uninstaller" } else { "installer" });
     Ok(())
 }
 

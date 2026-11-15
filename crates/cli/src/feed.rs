@@ -39,6 +39,7 @@ pub fn after_build(project: &Project, setup: &Path, patch: Option<(&Path, &str)>
             // feed, unsigned, with a warning; `bach feed` is where signing is required.
             let written = write(setup, &download_url(template, setup), None, None, delta, None, false)?;
             field("Update feed", written.display());
+            crate::output::result("feed", written.display().to_string());
         }
         None => crate::output::warnings(&["[updates] has no download_url, so no latest.json was written; \
              after uploading the setup file, run `bach feed SETUP --url URL`"
@@ -90,7 +91,8 @@ pub fn command(options: Options) -> Result<()> {
         (None, None) => None,
     };
     let written = write(options.setup, &url, notes.as_deref(), options.rollout, delta.clone(), options.out, true)?;
-    println!("Wrote {}", written.display());
+    crate::output::result("feed", written.display().to_string());
+    say!("Wrote {}", written.display());
     field("Download", &url);
     if let Some(delta) = &delta {
         field("Patch", format!("from {}, {}", delta.from, delta.url));
@@ -133,9 +135,9 @@ pub fn key_command(out: Option<&Path>) -> Result<()> {
     }
     let mut handle = options.open(&file).with_context(|| format!("couldn't create {} (it must not exist yet)", file.display()))?;
     std::io::Write::write_all(&mut handle, format!("{private}\n").as_bytes())?;
-    println!("Wrote the private key to {}. Keep it secret and out of Git; it signs your update feeds.", file.display());
-    println!("Put this in bach.toml:\n\n[updates]\npublic_key = \"{public}\"\n");
-    println!(
+    say!("Wrote the private key to {}. Keep it secret and out of Git; it signs your update feeds.", file.display());
+    say!("Put this in bach.toml:\n\n[updates]\npublic_key = \"{public}\"\n");
+    say!(
         "Sign with it by setting {} to the file's content (or {} to its path) when you run `bach build` or `bach feed`.",
         bach_pack::feedsig::KEY_ENV,
         bach_pack::feedsig::KEY_FILE_ENV
@@ -288,6 +290,11 @@ fn write(
             )]),
         }
     }
+    crate::output::result("version", entry.version.clone());
+    crate::output::result("url", entry.url.clone());
+    crate::output::result("sha256", entry.sha256.clone());
+    crate::output::result("size", size);
+    crate::output::result("signed", entry.signature.is_some());
     let target = match out {
         Some(out) => out.to_path_buf(),
         None => setup.parent().unwrap_or(Path::new(".")).join(FILE_NAME),
