@@ -116,8 +116,8 @@ impl Args {
         self.update || self.check_update || self.download_update || self.apply_update || self.auto_update
     }
 
-    pub fn parse() -> Self {
-        Self::from(std::env::args().skip(1).collect())
+    pub fn parse() -> Result<Self, String> {
+        Self::parse_from(std::env::args().skip(1).collect())
     }
 
     /// The access key given up front: the `--key-file`'s first line, else
@@ -132,46 +132,137 @@ impl Args {
         Ok(std::env::var(KEY_ENV).ok().and_then(|text| first_line(&text)))
     }
 
-    fn from(args: Vec<String>) -> Self {
-        let value_of = |flag: &str| {
-            args.iter()
-                .position(|arg| arg.eq_ignore_ascii_case(flag))
-                .and_then(|index| args.get(index + 1))
-                .cloned()
-        };
-        let has = |flags: &[&str]| args.iter().any(|arg| flags.iter().any(|flag| arg.eq_ignore_ascii_case(flag)));
-        let list = |flag: &str| {
-            value_of(flag)
-                .map(|value| value.split(',').map(|id| id.trim().to_ascii_lowercase()).filter(|id| !id.is_empty()).collect())
-                .unwrap_or_default()
-        };
-        Self {
-            uninstall: has(&["--uninstall"]),
-            preview: has(&["--preview"]),
-            help: has(&["--help", "-h", "/?", "/help"]),
-            // `/S` and `/quiet` are what IT tools try first.
-            silent: has(&["--silent", "/s", "/silent", "/quiet", "/q"]),
-            install_dir: value_of("--install-dir").map(PathBuf::from),
-            dir: value_of("--dir").map(PathBuf::from),
-            with: list("--with"),
-            without: list("--without"),
-            delete_data: has(&["--delete-data"]),
-            allow_downgrade: has(&["--allow-downgrade"]),
-            overwrite: has(&["--overwrite"]),
-            log: value_of("--log").map(PathBuf::from),
-            key_file: value_of("--key-file").map(PathBuf::from),
-            update: has(&["--update"]),
-            check_update: has(&["--check-update"]),
-            download_update: has(&["--download-update"]),
-            apply_update: has(&["--apply-update"]),
-            auto_update: has(&["--auto-update"]),
-            json: has(&["--json"]),
-            wait_for: value_of("--wait-for").and_then(|pid| pid.trim().parse().ok()),
-            launch: has(&["--launch"]),
-            theme: value_of("--theme").and_then(|value| Theme::parse(&value)),
-            lang: value_of("--lang"),
+    /// Reads the command line, or says in one sentence what is wrong with it.
+    /// Setup files are started by IT tools that never look at a window, so a
+    /// mistake must be an exit code and a message, not a silent default.
+    pub fn parse_from(args: Vec<String>) -> Result<Self, String> {
+        // Asking for help never fails on the rest of the line.
+        if args.iter().any(|arg| matches!(arg.to_ascii_lowercase().as_str(), "--help" | "-h" | "/?" | "/help")) {
+            return Ok(Self { help: true, ..Self::default() });
         }
+        let mut parsed = Self::default();
+        let mut index = 0;
+        while index < args.len() {
+            let token = &args[index];
+            index += 1;
+            let Some((name, attached)) = split_flag(token) else {
+                return Err(format!("\"{token}\" isn't an option this setup file knows. Run it with --help to see them."));
+            };
+            let Some(flag) = FLAGS.iter().find(|flag| flag.names.contains(&name.as_str())) else {
+                return Err(format!("{token} isn't an option this setup file knows. Run it with --help to see them."));
+            };
+            let value = if flag.takes_value {
+                match attached {
+                    Some(value) => Some(value),
+                    None => match args.get(index) {
+                        Some(next) if !next.starts_with("--") => {
+                            index += 1;
+                            Some(next.clone())
+                        }
+                        _ => return Err(format!("--{0} needs a value, like --{0} VALUE.", flag.names[0])),
+                    },
+                }
+            } else if attached.is_some() {
+                return Err(format!("--{} doesn't take a value.", flag.names[0]));
+            } else {
+                None
+            };
+            parsed.set(flag.names[0], value)?;
+        }
+        Ok(parsed)
     }
+
+    fn set(&mut self, flag: &str, value: Option<String>) -> Result<(), String> {
+        let text = value.clone().unwrap_or_default();
+        let ids = |text: &str| -> Vec<String> {
+            text.split(',').map(|id| id.trim().to_ascii_lowercase()).filter(|id| !id.is_empty()).collect()
+        };
+        match flag {
+            "uninstall" => self.uninstall = true,
+            "preview" => self.preview = true,
+            "silent" => self.silent = true,
+            "allow-downgrade" => self.allow_downgrade = true,
+            "overwrite" => self.overwrite = true,
+            "delete-data" => self.delete_data = true,
+            "update" => self.update = true,
+            "check-update" => self.check_update = true,
+            "download-update" => self.download_update = true,
+            "apply-update" => self.apply_update = true,
+            "auto-update" => self.auto_update = true,
+            "json" => self.json = true,
+            "launch" => self.launch = true,
+            "install-dir" => self.install_dir = Some(PathBuf::from(text)),
+            "dir" => self.dir = Some(PathBuf::from(text)),
+            "with" => self.with.extend(ids(&text)),
+            "without" => self.without.extend(ids(&text)),
+            "log" => self.log = Some(PathBuf::from(text)),
+            "key-file" => self.key_file = Some(PathBuf::from(text)),
+            "wait-for" => {
+                self.wait_for = Some(text.trim().parse().map_err(|_| format!("--wait-for needs a process number, not \"{text}\"."))?)
+            }
+            "theme" => {
+                self.theme = Some(Theme::parse(&text).ok_or_else(|| format!("--theme is light, dark or system, not \"{text}\"."))?)
+            }
+            "lang" => self.lang = Some(text),
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+/// One option this setup file understands: its names (the first is the
+/// canonical one, spelled `--name` or `/name`) and whether a value follows.
+struct Flag {
+    names: &'static [&'static str],
+    takes_value: bool,
+}
+
+const fn flag(names: &'static [&'static str]) -> Flag {
+    Flag { names, takes_value: false }
+}
+
+const fn valued(names: &'static [&'static str]) -> Flag {
+    Flag { names, takes_value: true }
+}
+
+/// Every option, matched without regard to case. `/S`, `/quiet` and friends
+/// are what IT tools try first.
+const FLAGS: &[Flag] = &[
+    flag(&["silent", "s", "quiet", "q"]),
+    flag(&["uninstall"]),
+    flag(&["preview"]),
+    flag(&["allow-downgrade"]),
+    flag(&["overwrite"]),
+    flag(&["delete-data"]),
+    flag(&["update"]),
+    flag(&["check-update"]),
+    flag(&["download-update"]),
+    flag(&["apply-update"]),
+    flag(&["auto-update"]),
+    flag(&["json"]),
+    flag(&["launch"]),
+    valued(&["install-dir"]),
+    valued(&["dir"]),
+    valued(&["with"]),
+    valued(&["without"]),
+    valued(&["log"]),
+    valued(&["key-file"]),
+    valued(&["wait-for"]),
+    valued(&["theme"]),
+    valued(&["lang"]),
+];
+
+/// `--dir=C:\Apps` or `/DIR=C:\Apps` → ("dir", Some("C:\Apps")); `--silent` →
+/// ("silent", None). None when the token isn't an option at all.
+fn split_flag(token: &str) -> Option<(String, Option<String>)> {
+    let body = token.strip_prefix("--").or_else(|| token.strip_prefix('/'))?;
+    if body.is_empty() {
+        return None;
+    }
+    Some(match body.split_once('=') {
+        Some((name, value)) => (name.to_ascii_lowercase(), Some(value.to_string())),
+        None => (body.to_ascii_lowercase(), None),
+    })
 }
 
 /// Whether this run must start again with administrator rights before it does
@@ -284,7 +375,11 @@ mod tests {
     use super::*;
 
     fn args(line: &str) -> Args {
-        Args::from(line.split_whitespace().map(String::from).collect())
+        Args::parse_from(line.split_whitespace().map(String::from).collect()).unwrap()
+    }
+
+    fn mistake(line: &str) -> String {
+        Args::parse_from(line.split_whitespace().map(String::from).collect()).unwrap_err()
     }
 
     #[test]
@@ -300,6 +395,46 @@ mod tests {
     }
 
     #[test]
+    fn a_value_flag_never_swallows_the_next_flag() {
+        assert!(mistake("--dir --silent").contains("--dir needs a value"));
+        assert!(mistake("--silent --with").contains("--with needs a value"));
+        assert!(mistake("--lang").contains("needs a value"));
+    }
+
+    #[test]
+    fn unknown_options_and_stray_words_are_mistakes() {
+        assert!(mistake("--silnet").contains("--silnet"));
+        assert!(mistake("--silent --no-such-flag").contains("--no-such-flag"));
+        assert!(mistake("--silent stray").contains("stray"));
+        assert!(mistake("--silent=yes").contains("doesn't take a value"));
+        assert!(mistake("--theme purple").contains("light, dark or system"));
+        assert!(mistake("/x").contains("/x"));
+    }
+
+    #[test]
+    fn values_can_be_attached_with_an_equals_sign() {
+        let parsed = args(r"--silent --dir=C:\Apps\Hello /LANG=de /Log=C:\x\a=b.log");
+        assert_eq!(parsed.dir, Some(PathBuf::from(r"C:\Apps\Hello")));
+        assert_eq!(parsed.lang.as_deref(), Some("de"));
+        assert_eq!(parsed.log, Some(PathBuf::from(r"C:\x\a=b.log")));
+        assert!(args("/DIR=D:\\Hello /silent").dir.is_some());
+    }
+
+    #[test]
+    fn lists_and_repeats_combine() {
+        let parsed = args("--with a,b --with C --without x --without y --dir D:\\A --dir D:\\B");
+        assert_eq!(parsed.with, ["a", "b", "c"]);
+        assert_eq!(parsed.without, ["x", "y"]);
+        assert_eq!(parsed.dir, Some(PathBuf::from(r"D:\B")), "the last of a single-value flag wins");
+    }
+
+    #[test]
+    fn help_wins_over_a_mistake() {
+        assert!(args("--silnet --help").wants_help());
+        assert!(args("/?").wants_help());
+    }
+
+    #[test]
     fn keys_are_read_from_files_and_never_from_arguments() {
         assert_eq!(first_line("K7QF-3MWD\r\n"), Some("K7QF-3MWD".into()));
         assert_eq!(first_line("\u{feff}  K7QF-3MWD  \n\nsecond"), Some("K7QF-3MWD".into()));
@@ -309,7 +444,7 @@ mod tests {
         assert_eq!(parsed.key_file, Some(PathBuf::from(r"C:\keys\hello.txt")));
         // A key on the command line would show in every process list.
         assert!(parsed.access_key().is_err(), "a missing file is an error, not no key");
-        assert!(!format!("{:?}", args("--key K7QF-3MWD")).contains("K7QF"), "--key isn't a flag");
+        assert!(!mistake("--key K7QF-3MWD").contains("K7QF"), "--key isn't a flag, and its value isn't echoed");
     }
 
     #[test]
@@ -323,6 +458,12 @@ mod tests {
             "--lang", "--theme", "--preview", "--check-update", "--download-update", "--apply-update", "--update", "--auto-update"] {
             assert!(HELP.contains(flag), "{flag} is missing from the help text");
         }
+        // And the other way round: every option the parser knows is in the help.
+        for flag in FLAGS {
+            let name = format!("--{}", flag.names[0]);
+            let internal = ["json", "launch", "install-dir", "uninstall"].contains(&flag.names[0]);
+            assert!(HELP.contains(&name) || internal, "{name} is parsed but not in the help text");
+        }
     }
 
     #[test]
@@ -334,6 +475,6 @@ mod tests {
         assert!(args("--auto-update").updating());
         assert!(args("--download-update").download_update);
         assert!(!args("--silent").updating());
-        assert_eq!(args("--wait-for soon").wait_for, None);
+        assert!(mistake("--wait-for soon").contains("process number"));
     }
 }

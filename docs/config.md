@@ -791,6 +791,21 @@ own quotes:
 Start-Process .\Hello-Setup-1.4.0.exe -Wait -PassThru -ArgumentList '--silent', '--dir', '"D:\My Apps\Hello"', '--with', 'samples,path'
 ```
 
+A value can follow the flag after a space or be attached with an equals sign:
+`--dir "D:\My Apps\Hello"` and `--dir="D:\My Apps\Hello"` are the same, and
+every flag also works with a slash (`/DIR=D:\Apps\Hello`). Flag names ignore
+case. `--with` and `--without` can be given several times and add up; another
+flag given twice keeps its last value.
+
+A mistake in the command line is never guessed at: an unknown flag, a stray
+word, a flag that needs a value and gets none (or gets another flag, as in
+`--dir --silent`), a value on a flag that takes none, a `--theme` that isn't
+`light`, `dark` or `system` and a `--wait-for` that isn't a number all stop
+setup with exit code 2 and a sentence that names the flag, before anything is
+installed. A terminal gets the sentence on its error output; a double-clicked
+file gets a message box; a service or deployment tool (session 0) only gets
+the exit code. `--help` always works, whatever else is on the line.
+
 | Flag | Meaning |
 | --- | --- |
 | `--silent` (also `/S`, `/quiet`) | No window. Exit code 0 when done, 1 when it failed (the reason is printed in a terminal), 2 for a command-line mistake. |

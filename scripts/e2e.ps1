@@ -84,6 +84,17 @@ try {
     Check (-not (Test-Path (Join-Path $install 'hello.exe'))) 'unchanged app files are removed'
     Remove-Item -Recurse -Force $install
 
+    Write-Host 'Command line mistakes and --flag=value'
+    Check ((Run $v1 @('--silent', '--no-such-flag-qa')) -eq 2) 'an unknown flag exits 2'
+    Check ((Run $v1 @('--silnet')) -eq 2) 'a typo of --silent exits 2 instead of opening a window'
+    Check ((Run $v1 @('--silent', '--dir', '--allow-downgrade')) -eq 2) '--dir never swallows the next flag'
+    Check (-not (Installed-Version)) 'none of them installed anything'
+    $equals = Join-Path $work 'Installed\Equals'
+    Check ((Run $v1 @('--silent', "--dir=`"$equals`"")) -eq 0) '--dir=folder installs'
+    Check (Test-Path (Join-Path $equals 'hello.exe')) 'into the folder it names'
+    Check ((Run (Join-Path $equals 'uninstall.exe') @('--silent')) -eq 0) 'and uninstalls'
+    Remove-Item -Recurse -Force $equals -ErrorAction SilentlyContinue
+
     Write-Host 'Install 1.0.0'
     Check ((Run $v1 @('--silent', '--dir', "`"$install`"")) -eq 0) 'exits 0'
     Check ((Installed-Version) -eq '1.0.0') 'listed in Settings > Apps as 1.0.0'

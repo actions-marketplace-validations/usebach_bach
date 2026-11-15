@@ -116,6 +116,33 @@ pub fn attach_parent_console() {
     }
 }
 
+/// Tells the person who started setup what is wrong with its command line.
+/// A terminal gets the sentence on stderr. Someone who double-clicked it, in a
+/// session with a screen, gets a message box; a service or deployment tool
+/// (session 0) gets only the exit code, because nobody could ever click it.
+pub fn show_command_line_mistake(text: &str) {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE};
+    use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+
+    attach_parent_console();
+    eprintln!("{text}");
+    // Safety: plain handle and session queries; the text outlives the call.
+    unsafe {
+        let has_console = GetStdHandle(STD_ERROR_HANDLE).is_ok_and(|handle: HANDLE| !handle.is_invalid() && !handle.0.is_null());
+        let mut session = 0u32;
+        let _ = ProcessIdToSessionId(GetCurrentProcessId(), &mut session);
+        if !has_console && session != 0 {
+            let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+            let title: Vec<u16> = "Setup".encode_utf16().chain(std::iter::once(0)).collect();
+            MessageBoxW(None, PCWSTR(wide.as_ptr()), PCWSTR(title.as_ptr()), MB_OK | MB_ICONERROR);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

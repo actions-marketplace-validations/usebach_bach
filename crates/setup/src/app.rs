@@ -28,7 +28,14 @@ const ROW_HEIGHT: f32 = 73.;
 const MAX_SCREEN_SHARE: f32 = 0.85;
 
 pub fn main() {
-    let args = Args::parse();
+    let args = match Args::parse() {
+        Ok(args) => args,
+        Err(mistake) => {
+            // Exit code 2 is "a mistake in the options", as for every silent run.
+            crate::system::host::show_command_line_mistake(&mistake);
+            std::process::exit(2);
+        }
+    };
     if args.wants_help() {
         crate::system::host::attach_parent_console();
         print!("{}", launch::HELP);
