@@ -33,7 +33,7 @@ pub fn main() {
         Err(mistake) => {
             // Exit code 2 is "a mistake in the options", as for every silent run.
             crate::system::host::show_command_line_mistake(&mistake);
-            std::process::exit(2);
+            std::process::exit(launch::exit::USAGE);
         }
     };
     if args.wants_help() {

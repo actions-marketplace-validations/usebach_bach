@@ -38,7 +38,7 @@ use crate::texts::Texts;
 /// Exit code of `--check-update` when a newer version is out, and of
 /// `--download-update` and `--auto-update` when one is ready but not yet
 /// installed.
-pub const UPDATE_AVAILABLE: i32 = 10;
+pub use crate::launch::exit::UPDATE_AVAILABLE;
 
 /// What one update run knows.
 pub struct Context<'a> {

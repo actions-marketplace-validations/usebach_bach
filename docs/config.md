@@ -799,6 +799,14 @@ $p = Start-Process .\Hello-Setup-1.4.0.exe -ArgumentList '--silent' -Wait -PassT
 $p.ExitCode        # 0: done
 ```
 
+Exit codes of a setup file and its uninstaller (a test keeps them from
+changing): `0` done, or nothing to do; `1` failed (a missing requirement, a
+refused downgrade or overwrite, the app is open, a full disk, a file that
+couldn't be written, a failed step, a declined administrator prompt; the reason
+is printed and logged); `2` a mistake in the command line or a missing access
+key; `10` from `--check-update` and `--download-update`: a newer version is
+available.
+
 A setup file is a windowed program, so a shell doesn't wait for it: running
 `.\Hello-Setup-1.4.0.exe --silent` directly installs but returns at once,
 without an exit code. `Start-Process -Wait -PassThru` waits and hands you the

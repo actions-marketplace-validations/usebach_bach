@@ -10,7 +10,7 @@ use std::sync::Arc;
 use bach_pack::i18n::Key;
 use bach_pack::manifest::{choices_auto_update, OPTION_AUTO_UPDATE, OPTION_AUTOSTART, OPTION_DESKTOP, OPTION_PATH, OPTION_START_MENU};
 
-use crate::launch::{self, Args, Mode};
+use crate::launch::{self, exit, Args, Mode};
 use crate::package::Package;
 use crate::system::host;
 use crate::texts::Texts;
@@ -45,7 +45,7 @@ pub fn run(args: &Args, package: Package) -> i32 {
                 let values = [("requirement", requirement.name.as_str())];
                 eprintln!("{} {}", texts.with(Key::requirement_subtitle, &values), requirement.url);
                 crate::log::line(&format!("Missing requirement: {}", requirement.name));
-                return 1;
+                return exit::FAILED;
             }
             if start.downgrade && !args.allow_downgrade {
                 let installed = start.existing.as_ref().map(|installed| installed.version.as_str()).unwrap_or("?");
@@ -53,7 +53,7 @@ pub fn run(args: &Args, package: Package) -> i32 {
                     "{} Add --allow-downgrade to install it anyway.",
                     texts.with(Key::downgrade_subtitle, &[("old_version", installed)])
                 );
-                return 1;
+                return exit::FAILED;
             }
             failed = if start.existing.is_some() { Key::update_failed } else { Key::install_failed };
             let mut choices = start.choices;
@@ -61,7 +61,7 @@ pub fn run(args: &Args, package: Package) -> i32 {
                 for id in ids {
                     if !choices.set(manifest, id, on) {
                         eprintln!("{} isn't an option this installer offers. It offers: {}.", id, offered(&package).join(", "));
-                        return 2;
+                        return exit::USAGE;
                     }
                 }
             }
@@ -69,20 +69,20 @@ pub fn run(args: &Args, package: Package) -> i32 {
                 (Some(dir), false) if manifest.install.change_folder => dir.clone(),
                 (Some(_), false) => {
                     eprintln!("{} always installs to its own folder; --dir isn't allowed.", manifest.app.name);
-                    return 2;
+                    return exit::USAGE;
                 }
                 // An update stays where it is.
                 _ => start.dir,
             };
             if !dir.is_absolute() {
                 eprintln!("--dir must be a full path, like C:\\Apps\\{}.", manifest.install.folder);
-                return 2;
+                return exit::USAGE;
             }
             let key = match args.access_key() {
                 Ok(key) => key,
                 Err(problem) => {
                     eprintln!("{problem}");
-                    return 2;
+                    return exit::USAGE;
                 }
             };
             if manifest.access.is_some() && key.is_none() {
@@ -91,7 +91,7 @@ pub fn run(args: &Args, package: Package) -> i32 {
                     manifest.app.name,
                     launch::KEY_ENV
                 );
-                return 2;
+                return exit::USAGE;
             }
             if start.existing.is_none() && !args.overwrite {
                 let foreign = work::foreign_files(manifest, &choices, &dir);
@@ -103,7 +103,7 @@ pub fn run(args: &Args, package: Package) -> i32 {
                         texts.with(Key::overwrite_subtitle, &[("files", files.as_str())])
                     );
                     crate::log::line(&format!("Refused: {} existing file(s) would be replaced.", foreign.len()));
-                    return 1;
+                    return exit::FAILED;
                 }
             }
             let plan = work::InstallPlan { package: package.clone(), texts: texts.clone(), dir, choices, key };
@@ -115,12 +115,12 @@ pub fn run(args: &Args, package: Package) -> i32 {
         }
     };
     match result {
-        Ok(()) => 0,
+        Ok(()) => exit::OK,
         Err(message) => {
             let title = texts.get(failed);
             eprintln!("{title}: {message}");
             crate::log::line(&format!("Failed: {message}"));
-            1
+            exit::FAILED
         }
     }
 }

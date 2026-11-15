@@ -63,6 +63,22 @@ pub enum Mode {
     Remove { dir: PathBuf },
 }
 
+/// The exit codes of a setup file and its uninstaller, as documented for
+/// scripts and deployment tools. A test pins them, so they can't change by
+/// accident.
+pub mod exit {
+    /// The install, update or removal is done (or there was nothing to do).
+    pub const OK: i32 = 0;
+    /// It failed: a missing requirement, a refused downgrade or overwrite, an
+    /// app that is open, a full disk, a file that couldn't be written, a failed
+    /// step, a declined administrator prompt. The reason is printed and logged.
+    pub const FAILED: i32 = 1;
+    /// A mistake in the command line, or a missing access key.
+    pub const USAGE: i32 = 2;
+    /// `--check-update` and `--download-update`: a newer version is available.
+    pub const UPDATE_AVAILABLE: i32 = 10;
+}
+
 #[derive(Debug, Default)]
 pub struct Args {
     pub uninstall: bool,
@@ -385,6 +401,11 @@ mod tests {
 
     fn mistake(line: &str) -> String {
         Args::parse_from(line.split_whitespace().map(String::from).collect()).unwrap_err()
+    }
+
+    #[test]
+    fn the_documented_exit_codes_do_not_change() {
+        assert_eq!((exit::OK, exit::FAILED, exit::USAGE, exit::UPDATE_AVAILABLE), (0, 1, 2, 10));
     }
 
     #[test]
