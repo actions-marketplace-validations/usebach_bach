@@ -188,6 +188,19 @@ the user unless a step says `elevated = true`, which makes Windows ask for
 administrator rights for that program alone. Steps that run before removal can
 fail without stopping the removal.
 
+## Removal is all or nothing
+
+The uninstaller first looks that the app is closed. Then it renames every file
+the manifest lists to `<name>.bach-old`, which is quick and can be undone. If
+one can't move (a locked DLL, security software, a cloud folder), the ones
+already moved go back, the message names the file, and the app keeps working and
+stays registered. Only when all have moved does it remove shortcuts and
+integration; if that fails before the app is unregistered, the files go back
+too. Then the Settings > Apps entry goes, and the renamed files are deleted. A
+file whose content changed after setup wrote it is not touched (see above), and
+a locked file counts as unchanged, so it stops the removal instead of being
+kept silently.
+
 ## When a step after the files fails
 
 An update (or first install) puts its files in place first, then runs the

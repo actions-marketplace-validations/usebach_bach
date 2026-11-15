@@ -162,6 +162,15 @@ try {
     Check ((Run $damaged @('--silent', '--allow-downgrade')) -eq 1) 'refused'
     Check ((Installed-Version) -eq '2.0.0') 'install untouched'
 
+    Write-Host 'Uninstall while a file is locked (all or nothing)'
+    $lock = [IO.File]::Open((Join-Path $install 'readme.txt'), 'Open', 'Read', 'None')
+    try { $code = Run (Join-Path $install 'uninstall.exe') @('--silent') } finally { $lock.Close() }
+    Check ($code -eq 1) 'exits 1'
+    Check ((Installed-Version) -eq '2.0.0') 'still registered'
+    Check (Test-Path (Join-Path $install 'hello.exe')) 'the program is still there'
+    Check (Test-Path (Join-Path $install 'new.txt')) 'and every other file'
+    Check (-not (Get-ChildItem $install -Recurse -Force | Where-Object { $_.Name -match '\.bach-' })) 'nothing left set aside'
+
     Write-Host 'Uninstall'
     Set-Content -Path (Join-Path $install 'mine.txt') -Value 'a file the user made'
     Check ((Run (Join-Path $install 'uninstall.exe') @('--silent')) -eq 0) 'exits 0'

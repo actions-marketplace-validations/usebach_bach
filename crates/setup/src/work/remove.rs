@@ -49,7 +49,11 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     super::steps::run_removal_steps(manifest, dir, texts, report, 0.05);
     report(0.1, &texts.get(Key::step_removing));
     let program = manifest.executable_in(dir);
-    remove_waiting(&program, texts, Key::error_still_open)?;
+    wait_until_closed(&program, texts)?;
+    // All or nothing: every file steps aside first (a rename, which is quick
+    // and can be undone), and only when all of them have are they deleted. A
+    // file that can't move leaves the app as it was, still working.
+    let mut wanted = Vec::new();
     for file in &manifest.files {
         let path = paths::under(dir, &file.path);
         if super::conflicts::changed_since_install(&path, file) {
@@ -57,9 +61,13 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
             crate::log::line(&format!("Kept {}: it changed after it was installed.", file.path));
             continue;
         }
-        remove_file_if_present(&path).map_err(|err| failed(texts, Key::error_delete, &path, &err))?;
+        wanted.push(path);
     }
-    remove_empty_parents(dir, manifest.files.iter().map(|file| file.path.as_str()));
+    let aside = set_aside(&wanted).map_err(|(path, err)| failed(texts, Key::error_delete, &path, &err))?;
+    let put_back = |problem: String| {
+        restore(&aside);
+        problem
+    };
 
     report(0.4, &texts.get(Key::step_removing_shortcuts));
     let extra = system::extra_shortcuts(manifest).into_iter().map(|(link, _)| link);
@@ -76,10 +84,16 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
             let _ = fs::remove_dir(folder);
         }
     }
-    undo_integration(manifest, dir, &program, texts)?;
+    undo_integration(manifest, dir, &program, texts).map_err(put_back)?;
 
     report(0.6, &texts.get(Key::step_unregistering));
-    system::unregister(manifest).map_err(|err| format!("{} {}", texts.get(Key::error_unregister), plain(&err)))?;
+    system::unregister(manifest)
+        .map_err(|err| put_back(format!("{} {}", texts.get(Key::error_unregister), plain(&err))))?;
+    // From here on the app is gone from Windows' point of view: finish the job.
+    for (_, moved) in &aside {
+        let _ = remove_file_if_present(moved);
+    }
+    remove_empty_parents(dir, manifest.files.iter().map(|file| file.path.as_str()));
     // The access key kept for updates goes with the app.
     system::secret::forget(&manifest.app.id);
 
@@ -138,6 +152,47 @@ fn undo_integration(manifest: &Manifest, dir: &Path, program: &Path, texts: &Tex
     }
     changes::undo(&changes::at(manifest), manifest, dir);
     Ok(())
+}
+
+/// Waits a moment for the app to close; an app that still runs from its
+/// program file can't be removed, and Windows would let the file be renamed
+/// anyway, so it is looked for explicitly.
+fn wait_until_closed(program: &Path, texts: &Texts) -> Result<(), String> {
+    for _ in 0..20 {
+        if !super::is_running(program) {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    Err(texts.get(Key::error_still_open))
+}
+
+/// Renames each file to `<name>.bach-old`. If one can't be renamed, those
+/// already moved go back and the file at fault is reported.
+fn set_aside(files: &[PathBuf]) -> Result<Vec<(PathBuf, PathBuf)>, (PathBuf, std::io::Error)> {
+    let mut done: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(files.len());
+    for path in files {
+        if fs::symlink_metadata(path).is_err() {
+            continue; // already gone
+        }
+        let moved = super::place::with_suffix(path, ".bach-old");
+        let _ = fs::remove_file(&moved);
+        match fs::rename(path, &moved) {
+            Ok(()) => done.push((path.clone(), moved)),
+            Err(err) => {
+                restore(&done);
+                return Err((path.clone(), err));
+            }
+        }
+    }
+    Ok(done)
+}
+
+/// Undoes [`set_aside`], last file first.
+fn restore(done: &[(PathBuf, PathBuf)]) {
+    for (path, moved) in done.iter().rev() {
+        let _ = fs::rename(moved, path);
+    }
 }
 
 /// Refuses a folder that isn't plainly this app's install, so a wrong
