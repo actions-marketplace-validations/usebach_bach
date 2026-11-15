@@ -82,7 +82,10 @@ impl Context<'_> {
 
     /// The version that is installed now.
     fn current_version(&self) -> String {
-        system::installed(self.manifest()).map(|installed| installed.version).filter(|v| !v.is_empty()).unwrap_or_else(|| self.manifest().app.version.clone())
+        system::installed(self.manifest())
+            .map(|installed| installed.version)
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| self.manifest().app.version.clone())
     }
 
     /// The key to send with requests, when the app wants it sent, tied to
@@ -205,8 +208,7 @@ fn check(ctx: &Context) -> Result<i32, String> {
     let entry = ctx.latest()?;
     let current = ctx.current_version();
     let newer = feed::is_newer(&entry.version, &current) && ctx.in_rollout(&entry);
-    let ready = newer
-        && stage::read(&stage::folder(&ctx.manifest().app.id)).is_some_and(|staged| staged.is_for(&entry));
+    let ready = newer && stage::read(&stage::folder(&ctx.manifest().app.id)).is_some_and(|staged| staged.is_for(&entry));
     if ctx.args.json {
         let answer = json!({
             "app": ctx.manifest().app.name,

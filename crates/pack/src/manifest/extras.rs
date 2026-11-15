@@ -44,9 +44,7 @@ impl Check {
             Self::Webview2 => Some(("Microsoft Edge WebView2", "https://go.microsoft.com/fwlink/p/?LinkId=2124703")),
             Self::Dotnet { desktop: true, .. } => Some((".NET Desktop Runtime", "https://dotnet.microsoft.com/download/dotnet")),
             Self::Dotnet { desktop: false, .. } => Some((".NET Runtime", "https://dotnet.microsoft.com/download/dotnet")),
-            Self::Vcredist => {
-                Some(("Microsoft Visual C++ Redistributable", "https://aka.ms/vs/17/release/vc_redist.x64.exe"))
-            }
+            Self::Vcredist => Some(("Microsoft Visual C++ Redistributable", "https://aka.ms/vs/17/release/vc_redist.x64.exe")),
             Self::File { .. } | Self::Registry { .. } | Self::Windows { .. } => None,
         }
     }
@@ -214,10 +212,7 @@ pub fn is_https(url: &str) -> bool {
 /// Whether `name` can name a `.lnk` file.
 pub fn is_valid_shortcut_name(name: &str) -> bool {
     let name = name.trim();
-    !name.is_empty()
-        && name.len() <= 100
-        && !name.chars().any(|c| r#"<>:"/\|?*"#.contains(c) || c.is_control())
-        && !name.ends_with('.')
+    !name.is_empty() && name.len() <= 100 && !name.chars().any(|c| r#"<>:"/\|?*"#.contains(c) || c.is_control()) && !name.ends_with('.')
 }
 
 #[cfg(test)]

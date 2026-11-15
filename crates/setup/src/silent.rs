@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use bach_pack::i18n::Key;
-use bach_pack::manifest::{choices_auto_update, OPTION_AUTO_UPDATE, OPTION_AUTOSTART, OPTION_DESKTOP, OPTION_PATH, OPTION_START_MENU};
+use bach_pack::manifest::{choices_auto_update, OPTION_AUTOSTART, OPTION_AUTO_UPDATE, OPTION_DESKTOP, OPTION_PATH, OPTION_START_MENU};
 
 use crate::launch::{self, exit, Args, Mode};
 use crate::package::Package;
@@ -37,7 +37,11 @@ pub fn run(args: &Args, package: Package) -> i32 {
             let missing = start::missing_requirements(manifest);
             if args.skip_requirements && !missing.is_empty() {
                 let names: Vec<&str> = missing.iter().map(|index| manifest.requirements[*index].name.as_str()).collect();
-                eprintln!("Not detected, but --skip-requirements was given, so setup goes on: {}. {} may not start without it.", names.join(", "), manifest.app.name);
+                eprintln!(
+                    "Not detected, but --skip-requirements was given, so setup goes on: {}. {} may not start without it.",
+                    names.join(", "),
+                    manifest.app.name
+                );
                 crate::log::line(&format!("Requirements skipped on request: {}", names.join(", ")));
             }
             if let Some(index) = missing.first().filter(|_| !args.skip_requirements) {
@@ -135,8 +139,7 @@ fn offered(package: &Package) -> Vec<String> {
         (OPTION_PATH, install.add_to_path),
         (OPTION_AUTO_UPDATE, choices_auto_update(&package.manifest)),
     ];
-    let mut ids: Vec<String> =
-        builtin.iter().filter(|(_, choice)| choice.offered()).map(|(id, _)| id.to_string()).collect();
+    let mut ids: Vec<String> = builtin.iter().filter(|(_, choice)| choice.offered()).map(|(id, _)| id.to_string()).collect();
     ids.extend(package.manifest.components.iter().map(|component| component.id.clone()));
     if ids.is_empty() {
         ids.push("none".into());

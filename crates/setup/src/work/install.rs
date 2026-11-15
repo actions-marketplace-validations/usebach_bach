@@ -264,10 +264,10 @@ pub fn recover_interrupted(dir: &Path) -> usize {
 
 fn check_free_space(dir: &Path, needed: u64, texts: &Texts) -> Result<(), String> {
     match host::free_space(dir) {
-        Some(free) if free < needed.saturating_add(SPARE_BYTES) => Err(texts.with(
-            Key::error_disk_full,
-            &[("size", &texts::size(needed.saturating_add(SPARE_BYTES))), ("free", &texts::size(free))],
-        )),
+        Some(free) if free < needed.saturating_add(SPARE_BYTES) => {
+            Err(texts
+                .with(Key::error_disk_full, &[("size", &texts::size(needed.saturating_add(SPARE_BYTES))), ("free", &texts::size(free))]))
+        }
         _ => Ok(()),
     }
 }
@@ -288,8 +288,7 @@ fn unpack(
     let manifest = &plan.package.manifest;
     let dir = &plan.dir;
     let read_failed = |err: std::io::Error| format!("{} {}", texts.get(Key::error_read_setup), describe(&err));
-    let wanted: HashSet<&str> =
-        manifest.files.iter().filter(|file| choices.installs(file)).map(|file| file.path.as_str()).collect();
+    let wanted: HashSet<&str> = manifest.files.iter().filter(|file| choices.installs(file)).map(|file| file.path.as_str()).collect();
     for file in &manifest.files {
         place::clear_leftovers(&paths::under(dir, &file.path));
     }
@@ -330,9 +329,9 @@ fn unpack(
     };
     let encryption = manifest.access.as_ref().and_then(|access| access.encryption.as_ref());
     let unpacked = match (encryption, unlocked) {
-        (Some(encryption), Some(unlocked)) => encryption
-            .reader(reader, unlocked)
-            .and_then(|decrypted| archive::read(decrypted, &mut visit)),
+        (Some(encryption), Some(unlocked)) => {
+            encryption.reader(reader, unlocked).and_then(|decrypted| archive::read(decrypted, &mut visit))
+        }
         _ => archive::read(reader, &mut visit),
     };
     if let Err(err) = unpacked {
@@ -345,7 +344,10 @@ fn unpack(
     if manifest.patch_from.is_some() {
         let missing = wanted.iter().find(|path| !present.contains(**path) && !matching.contains(**path));
         if let Some(missing) = missing {
-            crate::log::line(&format!("The update patch needs {missing} as it was in version {}, and it isn't.", manifest.patch_from.as_deref().unwrap_or("?")));
+            crate::log::line(&format!(
+                "The update patch needs {missing} as it was in version {}, and it isn't.",
+                manifest.patch_from.as_deref().unwrap_or("?")
+            ));
             transaction.discard();
             remove_empty_parents(dir, wanted.iter().copied());
             return Err(texts.get(Key::error_patch_base));
@@ -374,12 +376,8 @@ pub fn previous_install(dir: &Path, manifest: &Manifest) -> Option<Manifest> {
 /// Removes what the old install put there and the new one doesn't.
 fn remove_stale(dir: &Path, previous: &Manifest, installed: &Manifest) {
     let keep: HashSet<String> = installed.files.iter().map(|file| file.path.to_lowercase()).collect();
-    let stale: Vec<&str> = previous
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .filter(|path| !keep.contains(&path.to_lowercase()))
-        .collect();
+    let stale: Vec<&str> =
+        previous.files.iter().map(|file| file.path.as_str()).filter(|path| !keep.contains(&path.to_lowercase())).collect();
     for path in &stale {
         // A stale file that won't go is left behind, not a failed update.
         let _ = remove_file_if_present(&paths::under(dir, path));
@@ -471,8 +469,7 @@ fn shortcuts(
         let installed = manifest.files.iter().any(|file| file.path == shortcut.target && choices.installs(file));
         if choices.start_menu_shortcut && installed {
             let description = shortcut.description.clone().unwrap_or_else(|| shortcut.name.clone());
-            system::create_shortcut_with(&link, &target, shortcut.arguments.as_deref(), &description)
-                .map_err(|err| failed(&link, err))?;
+            system::create_shortcut_with(&link, &target, shortcut.arguments.as_deref(), &description).map_err(|err| failed(&link, err))?;
         } else {
             let _ = remove_file_if_present(&link);
         }
@@ -522,11 +519,7 @@ fn integrate(
     // Automatic updates are a per-user scheduled task. A PC that won't allow
     // one just doesn't update by itself; that never fails the install.
     if manifest.updates.is_some() {
-        let result = if choices.auto_update {
-            task::register(manifest, &dir.join(UNINSTALLER))
-        } else {
-            task::unregister(manifest)
-        };
+        let result = if choices.auto_update { task::register(manifest, &dir.join(UNINSTALLER)) } else { task::unregister(manifest) };
         if let Err(err) = result {
             crate::log::line(&format!("Automatic updates: {err:#}"));
         }

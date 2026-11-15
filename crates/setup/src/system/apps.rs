@@ -6,9 +6,7 @@ use std::path::{Path, PathBuf};
 use bach_pack::manifest::Check;
 use windows::core::{HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::ERROR_SUCCESS;
-use windows::Win32::System::RestartManager::{
-    RmEndSession, RmRegisterResources, RmShutdown, RmStartSession, CCH_RM_SESSION_KEY,
-};
+use windows::Win32::System::RestartManager::{RmEndSession, RmRegisterResources, RmShutdown, RmStartSession, CCH_RM_SESSION_KEY};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows_registry::{CURRENT_USER, LOCAL_MACHINE};
@@ -53,9 +51,7 @@ pub fn is_present(check: &Check) -> bool {
     match check {
         Check::Webview2 => {
             const CLIENT: &str = r"Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
-            [format!(r"SOFTWARE\WOW6432Node\{CLIENT}"), format!(r"SOFTWARE\{CLIENT}")]
-                .iter()
-                .any(|key| has_version(LOCAL_MACHINE, key))
+            [format!(r"SOFTWARE\WOW6432Node\{CLIENT}"), format!(r"SOFTWARE\{CLIENT}")].iter().any(|key| has_version(LOCAL_MACHINE, key))
                 || has_version(CURRENT_USER, &format!(r"Software\{CLIENT}"))
         }
         Check::Vcredist => {
@@ -109,9 +105,8 @@ fn dotnet_roots() -> Vec<PathBuf> {
 
 /// Whether `<root>\shared\<runtime>` has a folder for `version`.
 fn runtime_folder_has(root: &Path, runtime: &str, version: &str) -> bool {
-    std::fs::read_dir(root.join("shared").join(runtime)).is_ok_and(|entries| {
-        entries.flatten().any(|entry| version_matches(&entry.file_name().to_string_lossy(), version))
-    })
+    std::fs::read_dir(root.join("shared").join(runtime))
+        .is_ok_and(|entries| entries.flatten().any(|entry| version_matches(&entry.file_name().to_string_lossy(), version)))
 }
 
 /// `8.0.4` and `8.0.4-preview` are the version `8.0`; `80.0.1` is not.
@@ -122,14 +117,7 @@ fn version_matches(installed: &str, version: &str) -> bool {
 /// The build number of this Windows (22631 for Windows 11 23H2), which is
 /// what tells versions apart; `CurrentVersion` stays "6.3" for all of them.
 pub fn windows_build() -> Option<u32> {
-    LOCAL_MACHINE
-        .open(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
-        .ok()?
-        .get_string("CurrentBuildNumber")
-        .ok()?
-        .trim()
-        .parse()
-        .ok()
+    LOCAL_MACHINE.open(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion").ok()?.get_string("CurrentBuildNumber").ok()?.trim().parse().ok()
 }
 
 /// `SOFTWARE\Vendor\App` as `SOFTWARE\WOW6432Node\Vendor\App`.
@@ -139,9 +127,7 @@ fn wow64_variant(key: &str) -> Option<String> {
 }
 
 fn has_version(hive: &windows_registry::Key, key: &str) -> bool {
-    hive.open(key)
-        .and_then(|key| key.get_string("pv"))
-        .is_ok_and(|version| !version.is_empty() && version != "0.0.0.0")
+    hive.open(key).and_then(|key| key.get_string("pv")).is_ok_and(|version| !version.is_empty() && version != "0.0.0.0")
 }
 
 #[cfg(test)]

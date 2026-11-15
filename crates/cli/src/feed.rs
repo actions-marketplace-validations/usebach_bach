@@ -84,9 +84,7 @@ pub fn command(options: Options) -> Result<()> {
     };
     let notes = match (options.notes, options.notes_file) {
         (Some(notes), _) => Some(notes.to_string()),
-        (None, Some(file)) => {
-            Some(bach_pack::textfile::read(file).with_context(|| format!("couldn't read {}", file.display()))?)
-        }
+        (None, Some(file)) => Some(bach_pack::textfile::read(file).with_context(|| format!("couldn't read {}", file.display()))?),
         (None, None) => None,
     };
     let written = write(options.setup, &url, notes.as_deref(), options.rollout, delta.clone(), options.out)?;
@@ -117,10 +115,9 @@ fn url_from_config(setup: &Path, file: &Path, config: Option<&Path>) -> Result<S
     let project = config::load_with(&path, &Overrides { version: Some(version) })?;
     match project.update_download_url {
         Some(template) => Ok(download_url(&template, file)),
-        None => bail!(
-            "{} has no [updates] download link; give github = \"owner/repo\" or download_url there, or pass --url",
-            path.display()
-        ),
+        None => {
+            bail!("{} has no [updates] download link; give github = \"owner/repo\" or download_url there, or pass --url", path.display())
+        }
     }
 }
 
@@ -192,7 +189,14 @@ pub fn digest_of(path: &Path) -> Result<(String, u64)> {
     Ok((sha256, size))
 }
 
-fn write(setup: &Path, url: &str, notes: Option<&str>, rollout: Option<u8>, delta: Option<DeltaEntry>, out: Option<&Path>) -> Result<PathBuf> {
+fn write(
+    setup: &Path,
+    url: &str,
+    notes: Option<&str>,
+    rollout: Option<u8>,
+    delta: Option<DeltaEntry>,
+    out: Option<&Path>,
+) -> Result<PathBuf> {
     if rollout.is_some_and(|percent| percent > 100) {
         bail!("--rollout is a percentage, from 0 to 100");
     }
@@ -213,15 +217,7 @@ fn write(setup: &Path, url: &str, notes: Option<&str>, rollout: Option<u8>, delt
     }
     let (sha256, size) = digest_of(setup)?;
     let notes = notes.map(str::trim).filter(|notes| !notes.is_empty()).map(|notes| notes.chars().take(MAX_NOTES).collect());
-    let entry = FeedEntry {
-        version: manifest.app.version.clone(),
-        url: url.to_string(),
-        sha256,
-        notes,
-        size: Some(size),
-        rollout,
-        delta,
-    };
+    let entry = FeedEntry { version: manifest.app.version.clone(), url: url.to_string(), sha256, notes, size: Some(size), rollout, delta };
     let target = match out {
         Some(out) => out.to_path_buf(),
         None => setup.parent().unwrap_or(Path::new(".")).join(FILE_NAME),

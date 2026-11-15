@@ -171,11 +171,8 @@ fn an_unreachable_feed_fails_the_online_installer_cleanly() {
     assert!(run(&dir, &["build", "--fast"]).status.success());
     let online = dir.join("dist/Hello-Web-Setup.exe");
     let install_dir = dir.join("installed");
-    let out = Command::new(&online)
-        .args(["--silent", "--lang", "en", "--dir"])
-        .arg(&install_dir)
-        .output()
-        .expect("the online installer starts");
+    let out =
+        Command::new(&online).args(["--silent", "--lang", "en", "--dir"]).arg(&install_dir).output().expect("the online installer starts");
     let message = text(&out.stderr);
     assert_eq!(out.status.code(), Some(1), "{message}");
     assert!(message.contains("Couldn't download Hello"), "{message}");
@@ -519,7 +516,8 @@ fn a_patch_carries_only_the_files_that_changed() {
     assert_eq!(feed["delta"]["sha256"].as_str().unwrap().len(), 64);
 
     // Not the right inputs.
-    let out = run(&dir, &["build", "--fast", "--patch-from", "dist/Hello-Setup-1.0.0.exe", "--app-version", "1.2.0", "--out", "dist/x.exe"]);
+    let out =
+        run(&dir, &["build", "--fast", "--patch-from", "dist/Hello-Setup-1.0.0.exe", "--app-version", "1.2.0", "--out", "dist/x.exe"]);
     assert!(out.status.success());
     let out = run(&dir, &["feed", patch.to_str().unwrap()]);
     assert!(text(&out.stderr).contains("update patch"), "{}", text(&out.stderr));

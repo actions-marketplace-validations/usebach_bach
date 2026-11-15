@@ -44,8 +44,7 @@ impl SetupView {
     /// Whether the last attempt failed because the app is open, so the
     /// failed page can offer to close it.
     pub fn app_is_open(&self) -> bool {
-        !self.is_removing()
-            && matches!(&self.stage, Stage::Failed(message) if message.as_ref() == self.texts.get(Key::error_still_open))
+        !self.is_removing() && matches!(&self.stage, Stage::Failed(message) if message.as_ref() == self.texts.get(Key::error_still_open))
     }
 
     /// Asks the app to close (it may ask the user to save first), then

@@ -200,12 +200,9 @@ impl SetupView {
             Toggle::StartWithWindows => choices.start_with_windows,
             Toggle::AddToPath => choices.add_to_path,
             Toggle::AutoUpdate => choices.auto_update,
-            Toggle::Component(index) => self
-                .package
-                .manifest
-                .components
-                .get(index)
-                .is_some_and(|component| choices.components.contains(&component.id)),
+            Toggle::Component(index) => {
+                self.package.manifest.components.get(index).is_some_and(|component| choices.components.contains(&component.id))
+            }
             Toggle::DeleteData => self.delete_data,
         }
     }
@@ -414,9 +411,7 @@ fn needs_license(manifest: &Manifest, previous: Option<&Manifest>, mode: &Mode, 
 
 /// Installing into "D:\Apps" means "D:\Apps\Hello"; "D:\Apps\Hello" stays.
 fn install_folder(picked: PathBuf, folder_name: &str) -> PathBuf {
-    let named_already = picked
-        .file_name()
-        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(folder_name));
+    let named_already = picked.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(folder_name));
     if named_already {
         picked
     } else {

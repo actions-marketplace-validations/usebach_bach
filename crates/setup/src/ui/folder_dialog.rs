@@ -12,16 +12,11 @@ use std::path::PathBuf;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use gpui::Window;
-use raw_window_handle::{
-    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawWindowHandle, WindowHandle,
-};
+use raw_window_handle::{DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawWindowHandle, WindowHandle};
 
 /// Opens the folder picker. Resolves to None when the user cancels.
 pub fn pick_folder(title: &str, window: &Window) -> BoxFuture<'static, Option<PathBuf>> {
-    dialog(title, window)
-        .pick_folder()
-        .map(|picked| picked.map(|handle| handle.path().to_path_buf()))
-        .boxed()
+    dialog(title, window).pick_folder().map(|picked| picked.map(|handle| handle.path().to_path_buf())).boxed()
 }
 
 fn dialog(title: &str, window: &Window) -> rfd::AsyncFileDialog {

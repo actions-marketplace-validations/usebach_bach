@@ -96,9 +96,7 @@ pub fn check_key(key: &str) -> Result<(), String> {
         return Err(format!("is too long; use at most {MAX_KEY} characters"));
     }
     if let Some(bad) = key.chars().find(|c| !c.is_ascii_alphanumeric() && !"-_.~+/=:".contains(*c)) {
-        return Err(format!(
-            "has {bad:?} in it; use letters, digits and - _ . ~ + / = : (it travels in an HTTP header too)"
-        ));
+        return Err(format!("has {bad:?} in it; use letters, digits and - _ . ~ + / = : (it travels in an HTTP header too)"));
     }
     Ok(())
 }
@@ -290,9 +288,7 @@ impl<W: Write> Write for EncryptWriter<W> {
         // Strictly more than a chunk: the last chunk is never empty.
         while self.buffer.len() > CHUNK {
             let sealer = self.sealer.as_mut().ok_or_else(|| io::Error::other("already finished"))?;
-            let sealed = sealer
-                .encrypt_next(&self.buffer[..CHUNK])
-                .map_err(|_| io::Error::other("couldn't seal a chunk"))?;
+            let sealed = sealer.encrypt_next(&self.buffer[..CHUNK]).map_err(|_| io::Error::other("couldn't seal a chunk"))?;
             self.buffer.drain(..CHUNK);
             self.inner.write_all(&sealed)?;
         }

@@ -67,12 +67,8 @@ pub fn motion_progress(motion: Motion, elapsed: Duration) -> f32 {
 }
 
 /// A page rising into place as it replaces the last one.
-pub const PAGE_ENTER: Transition = Transition {
-    opacity: Tween::new(220, EASE_OUT),
-    enter_y: 6.0,
-    exit_y: 6.0,
-    y: Motion::Spring(RISE_SPRING),
-};
+pub const PAGE_ENTER: Transition =
+    Transition { opacity: Tween::new(220, EASE_OUT), enter_y: 6.0, exit_y: 6.0, y: Motion::Spring(RISE_SPRING) };
 
 /// One sweep of the shimmering status line.
 pub const SHIMMER: Duration = Duration::from_millis(720);

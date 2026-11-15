@@ -3,8 +3,7 @@
 use bach_pack::i18n::Key;
 use bach_pack::manifest::{choices_auto_update, Manifest};
 use gpui::{
-    div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Pixels, SharedString,
-    StatefulInteractiveElement, Styled,
+    div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Pixels, SharedString, StatefulInteractiveElement, Styled,
 };
 
 use super::{footer, subtitle_text, PageLayout};
@@ -41,8 +40,8 @@ pub fn row_count(manifest: &Manifest, removing: bool) -> usize {
         choices_auto_update(manifest),
     ]
     .iter()
-        .filter(|choice| choice.offered())
-        .count();
+    .filter(|choice| choice.offered())
+    .count();
     1 + manifest.components.len() + offered
 }
 
@@ -51,28 +50,13 @@ impl SetupView {
         let theme = cx.theme().clone();
         let texts = &self.texts;
         let license = self.package.manifest.license(texts.language.code).unwrap_or_default().to_string();
-        let paragraphs = license.split("\n\n").map(|paragraph| {
-            div().text_size(px(13.)).line_height(px(19.)).child(SharedString::from(paragraph.trim().to_string()))
-        });
-        let text = div()
-            .id("setup-license")
-            .size_full()
-            .overflow_y_scroll()
-            .p(px(16.))
-            .flex()
-            .flex_col()
-            .gap(px(10.))
-            .children(paragraphs);
+        let paragraphs = license
+            .split("\n\n")
+            .map(|paragraph| div().text_size(px(13.)).line_height(px(19.)).child(SharedString::from(paragraph.trim().to_string())));
+        let text = div().id("setup-license").size_full().overflow_y_scroll().p(px(16.)).flex().flex_col().gap(px(10.)).children(paragraphs);
         // The card fills the room left, so a short license and a long one
         // make the same calm page; a long one scrolls inside it.
-        let content = div()
-            .mt(px(24.))
-            .flex_1()
-            .min_h_0()
-            .rounded(RADIUS)
-            .border_1()
-            .border_color(theme.border)
-            .child(text);
+        let content = div().mt(px(24.)).flex_1().min_h_0().rounded(RADIUS).border_1().border_color(theme.border).child(text);
         let buttons = vec![
             FormButton::new("setup-cancel", texts.get(Key::cancel))
                 .outline()
@@ -98,11 +82,8 @@ impl SetupView {
         let theme = cx.theme().clone();
         let choices = self.choices();
         let count = choices.len();
-        let rows: Vec<AnyElement> = choices
-            .into_iter()
-            .enumerate()
-            .map(|(index, choice)| self.row(choice, index, index + 1 == count, cx))
-            .collect();
+        let rows: Vec<AnyElement> =
+            choices.into_iter().enumerate().map(|(index, choice)| self.row(choice, index, index + 1 == count, cx)).collect();
 
         let (title, subtitle, action) = self.ready_copy();
         let go = FormButton::new("setup-go", action)
@@ -121,14 +102,7 @@ impl SetupView {
             .border_1()
             .border_color(theme.border)
             .children(rows);
-        let choices = div()
-            .relative()
-            .mt(px(28.))
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .child(list)
-            .children(self.scrollbar(&theme));
+        let choices = div().relative().mt(px(28.)).min_h_0().flex().flex_col().child(list).children(self.scrollbar(&theme));
         PageLayout {
             mark: self.mark(false, &theme),
             subtitle: subtitle.map(|text| subtitle_text(text, &theme)),
@@ -219,9 +193,21 @@ impl SetupView {
         }
         let install = &manifest.install;
         let builtin = [
-            (install.desktop_shortcut, Key::desktop_shortcut, Key::desktop_shortcut_description, "device-desktop-filled", Toggle::DesktopShortcut),
+            (
+                install.desktop_shortcut,
+                Key::desktop_shortcut,
+                Key::desktop_shortcut_description,
+                "device-desktop-filled",
+                Toggle::DesktopShortcut,
+            ),
             (install.start_menu_shortcut, Key::start_menu, Key::start_menu_description, "layout-grid-filled", Toggle::StartMenu),
-            (install.start_with_windows, Key::start_with_windows, Key::start_with_windows_description, "bolt-filled", Toggle::StartWithWindows),
+            (
+                install.start_with_windows,
+                Key::start_with_windows,
+                Key::start_with_windows_description,
+                "bolt-filled",
+                Toggle::StartWithWindows,
+            ),
             (install.add_to_path, Key::add_to_path, Key::add_to_path_description, "terminal-2", Toggle::AddToPath),
             (choices_auto_update(manifest), Key::auto_update, Key::auto_update_description, "refresh", Toggle::AutoUpdate),
         ];
@@ -243,11 +229,7 @@ impl SetupView {
             Action::Location => Target::Location,
             Action::Toggle(toggle) => Target::Toggle(toggle),
         };
-        let row = Row::new(choice.title)
-            .icon(choice.icon)
-            .divided(index > 0)
-            .last(last)
-            .focused(self.is_focused(target));
+        let row = Row::new(choice.title).icon(choice.icon).divided(index > 0).last(last).focused(self.is_focused(target));
         let row = match choice.description {
             Some(description) => row.description(description),
             None => row,

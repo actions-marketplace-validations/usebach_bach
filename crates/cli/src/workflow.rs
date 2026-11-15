@@ -149,11 +149,8 @@ fn render(dir: &str, project: &Project) -> Result<String> {
     if !dir.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | ' ')) {
         bail!("the folder \"{dir}\" has characters the workflow can't carry; rename it to letters, digits, spaces, '.', '_' or '-'");
     }
-    let defaults = if dir.is_empty() {
-        String::new()
-    } else {
-        format!("    defaults:\n      run:\n        working-directory: \"{dir}\"\n")
-    };
+    let defaults =
+        if dir.is_empty() { String::new() } else { format!("    defaults:\n      run:\n        working-directory: \"{dir}\"\n") };
     let config = if dir.is_empty() { "bach.toml".to_string() } else { format!("{dir}/bach.toml") };
     let mut setup = String::new();
     if let Some(node) = &project.node {
@@ -174,7 +171,10 @@ fn render(dir: &str, project: &Project) -> Result<String> {
         .replace("@SETUP@\n", &setup)
         .replace("@BUILD@\n", &build)
         .replace("@CONFIG@", &config);
-    debug_assert!(["@DEFAULTS@", "@SETUP@", "@BUILD@", "@CONFIG@"].iter().all(|token| !text.contains(token)), "every placeholder is filled");
+    debug_assert!(
+        ["@DEFAULTS@", "@SETUP@", "@BUILD@", "@CONFIG@"].iter().all(|token| !text.contains(token)),
+        "every placeholder is filled"
+    );
     Ok(text)
 }
 
@@ -191,12 +191,18 @@ const DOTNET_TOOLCHAIN: &str = "
 fn build_step(project: &Project) -> String {
     let (commands, note): (&str, &str) = match project.stack {
         Some("Rust") => ("cargo build --release", ""),
-        Some("Tauri") if project.tauri_uses_node => ("npm run build --if-present\n          npx tauri build --no-bundle", "# Tauri 2; for Tauri 1 use `npx tauri build --bundles none` instead.\n"),
+        Some("Tauri") if project.tauri_uses_node => (
+            "npm run build --if-present\n          npx tauri build --no-bundle",
+            "# Tauri 2; for Tauri 1 use `npx tauri build --bundles none` instead.\n",
+        ),
         Some("Tauri") => ("cargo build --release --manifest-path src-tauri/Cargo.toml", ""),
         Some("Electron") if project.forge => ("npm run build --if-present\n          npx electron-forge package --platform=win32", ""),
         Some("Electron") => ("npm run build --if-present\n          npx electron-builder --win --dir", ""),
         Some(".NET") => ("dotnet publish -c Release -r win-x64 --self-contained", ""),
-        _ => ("echo \"Add the commands that build your app here.\"", "# TODO: build your app into the folder bach.toml's [files] source names.\n"),
+        _ => (
+            "echo \"Add the commands that build your app here.\"",
+            "# TODO: build your app into the folder bach.toml's [files] source names.\n",
+        ),
     };
     let comment = note.lines().map(|line| format!("      {line}\n")).collect::<String>();
     format!("\n{comment}      - name: Build your app\n        shell: bash\n        run: |\n          {commands}\n")
@@ -218,11 +224,19 @@ fn node_steps(node: &Node) -> String {
             .to_string()
     } else {
         let (frozen, fix, drift) = match manager {
-            Manager::Npm => ("npm ci", "npm install --package-lock-only --ignore-scripts", "are in sync|Missing: .* from lock file|Invalid: lock file"),
-            Manager::Pnpm => ("pnpm install --frozen-lockfile", "pnpm install --lockfile-only", "ERR_PNPM_OUTDATED_LOCKFILE|ERR_PNPM_LOCKFILE_CONFIG_MISMATCH"),
+            Manager::Npm => {
+                ("npm ci", "npm install --package-lock-only --ignore-scripts", "are in sync|Missing: .* from lock file|Invalid: lock file")
+            }
+            Manager::Pnpm => (
+                "pnpm install --frozen-lockfile",
+                "pnpm install --lockfile-only",
+                "ERR_PNPM_OUTDATED_LOCKFILE|ERR_PNPM_LOCKFILE_CONFIG_MISMATCH",
+            ),
             Manager::Bun => ("bun install --frozen-lockfile", "bun install --lockfile-only", "lockfile had changes|lockfile is frozen"),
             Manager::Yarn => ("yarn install --frozen-lockfile", "yarn install", "lockfile needs to be updated"),
-            Manager::YarnBerry => ("yarn install --immutable", "yarn install --mode=update-lockfile", "YN0028|lockfile would have been modified"),
+            Manager::YarnBerry => {
+                ("yarn install --immutable", "yarn install --mode=update-lockfile", "YN0028|lockfile would have been modified")
+            }
         };
         format!(
             "log=\"$RUNNER_TEMP/install.log\"\n          if ! {frozen} 2>&1 | tee \"$log\"; then\n            if grep -Eq '{drift}' \"$log\"; then\n              echo \"::warning::package.json and its lock file were out of sync. The lock file was brought up to date from package.json (nothing is upgraded beyond what package.json allows) and is committed with this release.\"\n              {fix}\n              {frozen}\n            else\n              exit 1\n            fi\n          fi"
@@ -279,15 +293,26 @@ mod tests {
         let rust = project("rust", &[("Cargo.toml", "[package]\nname = \"a\"\nversion = \"1.0.0\"\n")]);
         write(&Options { dir: &rust, force: false }).unwrap();
         let text = written(&rust);
-        assert!(text.contains("dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable") && text.contains("cargo build --release"));
+        assert!(
+            text.contains("dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable")
+                && text.contains("cargo build --release")
+        );
         assert!(!text.contains("setup-node"), "a Rust project needs no Node");
 
-        let forge = project("forge", &[("package.json", r#"{"devDependencies":{"electron":"30","@electron-forge/cli":"7"}}"#), ("pnpm-lock.yaml", "")]);
+        let forge = project(
+            "forge",
+            &[("package.json", r#"{"devDependencies":{"electron":"30","@electron-forge/cli":"7"}}"#), ("pnpm-lock.yaml", "")],
+        );
         write(&Options { dir: &forge, force: false }).unwrap();
         let text = written(&forge);
-        assert!(text.contains("electron-forge package") && text.contains("pnpm install --frozen-lockfile") && text.contains("--lockfile-only"));
+        assert!(
+            text.contains("electron-forge package") && text.contains("pnpm install --frozen-lockfile") && text.contains("--lockfile-only")
+        );
 
-        let dotnet = project("dotnet", &[("A.csproj", "<Project><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>")]);
+        let dotnet = project(
+            "dotnet",
+            &[("A.csproj", "<Project><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>")],
+        );
         write(&Options { dir: &dotnet, force: false }).unwrap();
         assert!(written(&dotnet).contains("dotnet publish -c Release -r win-x64 --self-contained"));
 
@@ -314,7 +339,10 @@ mod tests {
         assert!(text.contains("working-directory: \"desktop\""));
         assert!(text.contains("config: desktop/bach.toml"));
         std::fs::remove_dir_all(dir).unwrap();
-        assert!(render("a\"b", &Project { stack: None, node: None, forge: false, tauri_uses_node: false }).is_err(), "no quotes in a folder name");
+        assert!(
+            render("a\"b", &Project { stack: None, node: None, forge: false, tauri_uses_node: false }).is_err(),
+            "no quotes in a folder name"
+        );
         assert!(render("a$(x)", &Project { stack: None, node: None, forge: false, tauri_uses_node: false }).is_err());
     }
 

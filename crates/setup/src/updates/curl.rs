@@ -78,8 +78,19 @@ fn curl_path() -> Result<PathBuf, String> {
 /// `follow` lets curl follow redirects itself (https only).
 fn arguments(how: Fetch, follow: bool) -> Vec<String> {
     let mut args: Vec<String> = [
-        "--fail", "--silent", "--show-error", "--proto", "=https",
-        "--retry", "3", "--retry-delay", "2", "--connect-timeout", "20", "--header", "Cache-Control: no-cache",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--proto",
+        "=https",
+        "--retry",
+        "3",
+        "--retry-delay",
+        "2",
+        "--connect-timeout",
+        "20",
+        "--header",
+        "Cache-Control: no-cache",
     ]
     .iter()
     .map(|arg| arg.to_string())
@@ -105,7 +116,9 @@ fn arguments(how: Fetch, follow: bool) -> Vec<String> {
 /// server refused the access key".
 fn key_config(key: &str) -> Result<String, String> {
     if key.is_empty() || !key.chars().all(|c| c.is_ascii_graphic() && c != '"' && c != '\\') {
-        return Err("the access key has a character that can't be sent (a space, a quote or a backslash); check that it was copied whole".into());
+        return Err(
+            "the access key has a character that can't be sent (a space, a quote or a backslash); check that it was copied whole".into()
+        );
     }
     Ok(format!("header = \"Authorization: Bearer {key}\"\n"))
 }
@@ -142,13 +155,7 @@ fn verdict(http: Option<u16>, reason: &str, url: &str, resume: bool) -> Result<(
 /// reports how many bytes `to` holds about every tenth of a second, so a
 /// window can draw a bar. A resumed download starts from the bytes it
 /// already had.
-pub fn download_with(
-    url: &str,
-    to: &Path,
-    how: Fetch,
-    bearer: Option<&Bearer>,
-    progress: &mut dyn FnMut(u64),
-) -> Result<(), String> {
+pub fn download_with(url: &str, to: &Path, how: Fetch, bearer: Option<&Bearer>, progress: &mut dyn FnMut(u64)) -> Result<(), String> {
     let Some(bearer) = bearer else {
         return run(url, to, how, None, true, progress);
     };
@@ -160,14 +167,7 @@ pub fn download_with(
 }
 
 /// One curl run, with the progress polling.
-fn run(
-    url: &str,
-    to: &Path,
-    how: Fetch,
-    key: Option<&str>,
-    follow: bool,
-    progress: &mut dyn FnMut(u64),
-) -> Result<(), String> {
+fn run(url: &str, to: &Path, how: Fetch, key: Option<&str>, follow: bool, progress: &mut dyn FnMut(u64)) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let curl = curl_path()?;
@@ -240,9 +240,28 @@ fn probe(url: &str, key: Option<&str>) -> Result<(u16, String), String> {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let mut command = Command::new(curl_path()?);
     command.args([
-        "--silent", "--show-error", "--proto", "=https", "--connect-timeout", "20", "--max-time", "60",
-        "--retry", "2", "--retry-delay", "2", "--range", "0-0", "--max-filesize", "1024", "--header",
-        "Cache-Control: no-cache", "--output", "NUL", "--write-out", "%{http_code} %{redirect_url}",
+        "--silent",
+        "--show-error",
+        "--proto",
+        "=https",
+        "--connect-timeout",
+        "20",
+        "--max-time",
+        "60",
+        "--retry",
+        "2",
+        "--retry-delay",
+        "2",
+        "--range",
+        "0-0",
+        "--max-filesize",
+        "1024",
+        "--header",
+        "Cache-Control: no-cache",
+        "--output",
+        "NUL",
+        "--write-out",
+        "%{http_code} %{redirect_url}",
     ]);
     if key.is_some() {
         command.args(["--config", "-"]);
@@ -322,7 +341,14 @@ mod tests {
     fn plain_http_is_refused() {
         let to = std::env::temp_dir().join(format!("bach-curl-{}", std::process::id()));
         assert!(download_with("http://example.com/", &to, Fetch::FEED, None, &mut |_| {}).is_err());
-        assert!(download_with("http://example.com/", &to, Fetch::FEED, Bearer::for_feed("secret-key-1234", "https://example.com/x").as_ref(), &mut |_| {}).is_err());
+        assert!(download_with(
+            "http://example.com/",
+            &to,
+            Fetch::FEED,
+            Bearer::for_feed("secret-key-1234", "https://example.com/x").as_ref(),
+            &mut |_| {}
+        )
+        .is_err());
         let _ = std::fs::remove_file(to);
     }
 
@@ -401,10 +427,7 @@ mod tests {
         let (result, asked) = follow_allowing(
             "https://example.com/latest/setup.exe",
             "example.com",
-            &[
-                ("https://example.com/latest/setup.exe", 302, "https://cdn.other.net/blob/1"),
-                ("https://cdn.other.net/blob/1", 206, ""),
-            ],
+            &[("https://example.com/latest/setup.exe", 302, "https://cdn.other.net/blob/1"), ("https://cdn.other.net/blob/1", 206, "")],
         );
         assert_eq!(result.unwrap(), "https://cdn.other.net/blob/1");
         assert_eq!(
@@ -417,11 +440,8 @@ mod tests {
     /// named gets no key: not on the first request, and not on a redirect.
     #[test]
     fn a_download_link_a_feed_names_never_gets_the_key() {
-        let (result, asked) = follow_allowing(
-            "https://evil.example/steal.exe",
-            "downloads.example.com",
-            &[("https://evil.example/steal.exe", 206, "")],
-        );
+        let (result, asked) =
+            follow_allowing("https://evil.example/steal.exe", "downloads.example.com", &[("https://evil.example/steal.exe", 206, "")]);
         assert_eq!(result.unwrap(), "https://evil.example/steal.exe");
         assert_eq!(asked, [("https://evil.example/steal.exe".to_string(), false)]);
 
@@ -482,7 +502,10 @@ mod tests {
         assert!(!other.contains("refused the access key"), "{other}");
         // The real statuses still mean what they did.
         assert!(verdict(Some(416), "The requested URL returned error: 416", "u", true).is_ok());
-        assert!(verdict(Some(416), "The requested URL returned error: 416", "u", false).is_err(), "only a resumed download can be complete");
+        assert!(
+            verdict(Some(416), "The requested URL returned error: 416", "u", false).is_err(),
+            "only a resumed download can be complete"
+        );
         assert!(verdict(Some(403), "error: 403", "u", true).unwrap_err().contains("refused the access key"));
     }
 }

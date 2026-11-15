@@ -21,11 +21,7 @@ const MAX_SETTLE: f32 = 10.0;
 impl Spring {
     /// A spring with mass 1, the web's default.
     pub const fn new(stiffness: f32, damping: f32) -> Self {
-        Self {
-            stiffness,
-            damping,
-            mass: 1.0,
-        }
+        Self { stiffness, damping, mass: 1.0 }
     }
 
     pub const fn with_mass(mut self, mass: f32) -> Self {
@@ -130,12 +126,9 @@ mod tests {
 
     #[test]
     fn every_regime_settles_at_its_target() {
-        for spring in [
-            Spring::new(380.0, 38.0).with_mass(0.9),
-            Spring::new(600.0, 32.0),
-            Spring::new(320.0, 32.0),
-            Spring::new(100.0, 20.0),
-        ] {
+        for spring in
+            [Spring::new(380.0, 38.0).with_mass(0.9), Spring::new(600.0, 32.0), Spring::new(320.0, 32.0), Spring::new(100.0, 20.0)]
+        {
             let end = spring.duration().as_secs_f32();
             let (x, v) = spring.evaluate(1.0, 0.0, end);
             assert!(x.abs() < 0.002 && v.abs() < 0.02, "{spring:?}: {x} {v}");

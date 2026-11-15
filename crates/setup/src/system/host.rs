@@ -10,9 +10,7 @@ use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS
 use windows::Win32::Globalization::{GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
 use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
-use windows::Win32::System::Threading::{
-    CreateMutexW, OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
-};
+use windows::Win32::System::Threading::{CreateMutexW, OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
 
 /// The user's Windows display languages, most preferred first, like
 /// `["de-DE", "en-US"]`. Empty if Windows won't say.
@@ -30,11 +28,7 @@ pub fn ui_languages() -> Vec<String> {
             return Vec::new();
         }
         // A list of NUL-terminated names, ending in an empty one.
-        buffer
-            .split(|unit| *unit == 0)
-            .filter(|name| !name.is_empty())
-            .map(String::from_utf16_lossy)
-            .collect()
+        buffer.split(|unit| *unit == 0).filter(|name| !name.is_empty()).map(String::from_utf16_lossy).collect()
     }
 }
 

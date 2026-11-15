@@ -113,12 +113,7 @@ fn hash_file(path: &Path) -> io::Result<String> {
 /// [`ensure_with`] for every entry that offers the version, in turn (the
 /// main feed's, then its mirrors'): the first one that downloads wins. When
 /// none does, the first one's complaint is the answer.
-pub fn ensure_any(
-    entries: &[FeedEntry],
-    app_id: &str,
-    bearer: Option<&Bearer>,
-    progress: &mut dyn FnMut(u64),
-) -> Result<Staged, String> {
+pub fn ensure_any(entries: &[FeedEntry], app_id: &str, bearer: Option<&Bearer>, progress: &mut dyn FnMut(u64)) -> Result<Staged, String> {
     let mut first_error = None;
     for entry in entries {
         match ensure_with(entry, app_id, bearer, progress) {
@@ -133,12 +128,7 @@ pub fn ensure_any(
 }
 
 /// [`ensure`], telling `progress` how many bytes of the download are on disk.
-pub fn ensure_with(
-    entry: &FeedEntry,
-    app_id: &str,
-    bearer: Option<&Bearer>,
-    progress: &mut dyn FnMut(u64),
-) -> Result<Staged, String> {
+pub fn ensure_with(entry: &FeedEntry, app_id: &str, bearer: Option<&Bearer>, progress: &mut dyn FnMut(u64)) -> Result<Staged, String> {
     let dir = folder(app_id);
     fs::create_dir_all(&dir).map_err(|err| format!("couldn't create {}: {err}", dir.display()))?;
     let expected = entry.sha256.trim().to_ascii_lowercase();
@@ -190,12 +180,7 @@ pub fn ensure_with(
 /// Downloads the update patch `entry` offers (a smaller download for
 /// computers that have `delta.from`), and remembers the full setup file to
 /// fall back on when the patch can't be applied.
-pub fn ensure_delta(
-    entry: &FeedEntry,
-    bearer: Option<&Bearer>,
-    app_id: &str,
-    progress: &mut dyn FnMut(u64),
-) -> Result<Staged, String> {
+pub fn ensure_delta(entry: &FeedEntry, bearer: Option<&Bearer>, app_id: &str, progress: &mut dyn FnMut(u64)) -> Result<Staged, String> {
     let delta = entry.delta.as_ref().ok_or("the feed offers no patch")?;
     let patch = FeedEntry {
         version: entry.version.clone(),

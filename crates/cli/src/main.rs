@@ -242,12 +242,7 @@ fn main() -> ExitCode {
         Command::Sign { file, config } => sign::command(sign::Options { file: &file, config: &config }),
         Command::Preview { config, uninstall, theme, lang, runtime } => builder::preview(
             &config,
-            builder::PreviewOptions {
-                uninstall,
-                theme: theme.as_deref(),
-                lang: lang.as_deref(),
-                runtime: runtime.as_deref(),
-            },
+            builder::PreviewOptions { uninstall, theme: theme.as_deref(), lang: lang.as_deref(), runtime: runtime.as_deref() },
         ),
         Command::Inspect { file } => inspect::inspect(&file),
         Command::Doctor { config } => doctor::doctor(&config),
@@ -255,12 +250,9 @@ fn main() -> ExitCode {
             version::command(version::Options { config: &config, target: target.as_deref(), dry_run })
         }
         Command::Workflow { dir, force } => workflow::command(workflow::Options { dir: &dir, force }),
-        Command::Winget { file, url, license, out } => winget::command(winget::Options {
-            setup: &file,
-            url: &url,
-            license: license.as_deref(),
-            out: out.as_deref(),
-        }),
+        Command::Winget { file, url, license, out } => {
+            winget::command(winget::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
+        }
         Command::Feed { file, url, config, notes, notes_file, rollout, out, patch, patch_url } => feed::command(feed::Options {
             setup: &file,
             url: url.as_deref(),

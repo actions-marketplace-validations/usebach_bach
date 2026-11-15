@@ -126,7 +126,8 @@ pub fn language(code: &str) -> Option<&'static Language> {
 /// Placeholders every text may use.
 pub const COMMON_PLACEHOLDERS: &[&str] = &["name", "version", "publisher"];
 /// Placeholders some texts fill in; harmless (left as is) elsewhere.
-pub const OTHER_PLACEHOLDERS: &[&str] = &["old_version", "path", "size", "free", "error", "description", "requirement", "task", "code", "files"];
+pub const OTHER_PLACEHOLDERS: &[&str] =
+    &["old_version", "path", "size", "free", "error", "description", "requirement", "task", "code", "files"];
 
 /// Picks the language to show: the first of the user's `preferred`
 /// languages (like `de-DE`, most preferred first) that the app `offers`,

@@ -88,8 +88,9 @@ impl<'de> Deserialize<'de> for Choice {
         match Raw::deserialize(deserializer)? {
             Raw::Bool(true) => Ok(Self::On),
             Raw::Bool(false) => Ok(Self::Off),
-            Raw::Word(word) => Self::parse(&word)
-                .ok_or_else(|| serde::de::Error::custom(format!("\"{word}\" isn't on, off, always or never"))),
+            Raw::Word(word) => {
+                Self::parse(&word).ok_or_else(|| serde::de::Error::custom(format!("\"{word}\" isn't on, off, always or never")))
+            }
         }
     }
 }
@@ -124,12 +125,7 @@ impl Choices {
             start_with_windows: install.start_with_windows.starts_on(),
             add_to_path: install.add_to_path.starts_on(),
             auto_update: auto_update_setting(manifest).starts_on(),
-            components: manifest
-                .components
-                .iter()
-                .filter(|component| component.default)
-                .map(|component| component.id.clone())
-                .collect(),
+            components: manifest.components.iter().filter(|component| component.default).map(|component| component.id.clone()).collect(),
         }
     }
 

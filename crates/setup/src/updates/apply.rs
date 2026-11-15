@@ -117,10 +117,7 @@ fn run_setup(ctx: &Context, setup: &Path) -> Result<i32, String> {
         // by other programs.
         command.env(crate::launch::KEY_ENV, key);
     }
-    let status = command
-        .creation_flags(CREATE_NO_WINDOW)
-        .status()
-        .map_err(|err| format!("couldn't start the update: {err}"))?;
+    let status = command.creation_flags(CREATE_NO_WINDOW).status().map_err(|err| format!("couldn't start the update: {err}"))?;
     Ok(status.code().unwrap_or(1))
 }
 
@@ -140,10 +137,7 @@ fn launch_app(ctx: &Context) {
         })
         .unwrap_or_else(|| ctx.manifest().clone());
     let program = installed.executable_in(dir);
-    let started = Command::new(&program)
-        .current_dir(dir)
-        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
-        .spawn();
+    let started = Command::new(&program).current_dir(dir).creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP).spawn();
     match started {
         Ok(_) => crate::log::line(&format!("Started {}", program.display())),
         Err(err) => crate::log::line(&format!("Couldn't start {}: {err}", program.display())),

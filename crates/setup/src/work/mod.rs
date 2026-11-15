@@ -160,9 +160,7 @@ mod delete_tests {
 /// Removes the now-empty folders above each removed file, deepest first,
 /// stopping at `root` (which stays).
 fn remove_empty_parents<'a>(root: &Path, files: impl Iterator<Item = &'a str>) {
-    let unique: std::collections::BTreeSet<&str> = files
-        .flat_map(|file| file.match_indices('/').map(move |(at, _)| &file[..at]))
-        .collect();
+    let unique: std::collections::BTreeSet<&str> = files.flat_map(|file| file.match_indices('/').map(move |(at, _)| &file[..at])).collect();
     let mut folders: Vec<&str> = unique.into_iter().collect();
     folders.sort_by_key(|folder| std::cmp::Reverse(folder.matches('/').count()));
     for folder in folders {

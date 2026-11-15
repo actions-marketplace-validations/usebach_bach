@@ -60,7 +60,9 @@ pub const KEY_ENV: &str = "BACH_ACCESS_KEY";
 pub enum Mode {
     Install,
     /// Remove the install in `dir`.
-    Remove { dir: PathBuf },
+    Remove {
+        dir: PathBuf,
+    },
 }
 
 /// The exit codes of a setup file and its uninstaller, as documented for
@@ -144,8 +146,7 @@ impl Args {
     /// sentence when the file can't be read.
     pub fn access_key(&self) -> Result<Option<String>, String> {
         if let Some(file) = &self.key_file {
-            let text = bach_pack::textfile::read(file)
-                .map_err(|err| format!("couldn't read the key file {}: {err}", file.display()))?;
+            let text = bach_pack::textfile::read(file).map_err(|err| format!("couldn't read the key file {}: {err}", file.display()))?;
             return Ok(first_line(&text));
         }
         Ok(std::env::var(KEY_ENV).ok().and_then(|text| first_line(&text)))
@@ -193,9 +194,8 @@ impl Args {
 
     fn set(&mut self, flag: &str, value: Option<String>) -> Result<(), String> {
         let text = value.clone().unwrap_or_default();
-        let ids = |text: &str| -> Vec<String> {
-            text.split(',').map(|id| id.trim().to_ascii_lowercase()).filter(|id| !id.is_empty()).collect()
-        };
+        let ids =
+            |text: &str| -> Vec<String> { text.split(',').map(|id| id.trim().to_ascii_lowercase()).filter(|id| !id.is_empty()).collect() };
         match flag {
             "uninstall" => self.uninstall = true,
             "preview" => self.preview = true,
@@ -220,9 +220,7 @@ impl Args {
             "wait-for" => {
                 self.wait_for = Some(text.trim().parse().map_err(|_| format!("--wait-for needs a process number, not \"{text}\"."))?)
             }
-            "theme" => {
-                self.theme = Some(Theme::parse(&text).ok_or_else(|| format!("--theme is light, dark or system, not \"{text}\"."))?)
-            }
+            "theme" => self.theme = Some(Theme::parse(&text).ok_or_else(|| format!("--theme is light, dark or system, not \"{text}\"."))?),
             "lang" => self.lang = Some(text),
             _ => {}
         }
@@ -291,11 +289,7 @@ fn split_flag(token: &str) -> Option<(String, Option<String>)> {
 /// preview, `--help` and the update checks change nothing system-wide (an
 /// update starts the new setup file, which asks for itself).
 pub fn needs_elevation(args: &Args, package: &Package) -> bool {
-    package.manifest.install.scope.is_machine()
-        && !args.preview
-        && !args.help
-        && !args.updating()
-        && !elevate::is_elevated()
+    package.manifest.install.scope.is_machine() && !args.preview && !args.help && !args.updating() && !elevate::is_elevated()
 }
 
 /// Starts this setup again elevated with the same command line and waits for
@@ -480,8 +474,26 @@ mod tests {
         }
         assert!(!args("--silent").wants_help());
         // Every flag the help text names is one the parser knows.
-        for flag in ["--silent", "--dir", "--with", "--without", "--allow-downgrade", "--overwrite", "--skip-requirements", "--delete-data", "--key-file", "--log",
-            "--lang", "--theme", "--preview", "--check-update", "--download-update", "--apply-update", "--update", "--auto-update"] {
+        for flag in [
+            "--silent",
+            "--dir",
+            "--with",
+            "--without",
+            "--allow-downgrade",
+            "--overwrite",
+            "--skip-requirements",
+            "--delete-data",
+            "--key-file",
+            "--log",
+            "--lang",
+            "--theme",
+            "--preview",
+            "--check-update",
+            "--download-update",
+            "--apply-update",
+            "--update",
+            "--auto-update",
+        ] {
             assert!(HELP.contains(flag), "{flag} is missing from the help text");
         }
         // And the other way round: every option the parser knows is in the help.

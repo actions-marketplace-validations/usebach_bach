@@ -7,10 +7,7 @@
 
 use std::time::Instant;
 
-use gpui::{
-    div, point, px, radians, size, svg, App, ElementId, IntoElement,
-    ParentElement, RenderOnce, Styled, Transformation, Window,
-};
+use gpui::{div, point, px, radians, size, svg, App, ElementId, IntoElement, ParentElement, RenderOnce, Styled, Transformation, Window};
 
 use super::motion::{reduced_motion, PETAL_FLIP_EASE};
 use crate::theme::ActiveTheme;
@@ -67,11 +64,7 @@ pub struct BachMark {
 impl BachMark {
     /// The mark at 26px, centred in a 20px slot.
     pub fn new(id: impl Into<ElementId>) -> Self {
-        Self {
-            id: id.into(),
-            size: 26.0,
-            slot: 20.0,
-        }
+        Self { id: id.into(), size: 26.0, slot: 20.0 }
     }
 
     pub fn size(mut self, size: f32) -> Self {
@@ -92,15 +85,9 @@ struct MarkState {
 
 impl RenderOnce for BachMark {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let state = window.use_keyed_state(self.id, cx, |_, _| MarkState {
-            mounted: Instant::now(),
-        });
+        let state = window.use_keyed_state(self.id, cx, |_, _| MarkState { mounted: Instant::now() });
         let still = reduced_motion(cx);
-        let elapsed = if still {
-            0.0
-        } else {
-            state.read(cx).mounted.elapsed().as_secs_f32()
-        };
+        let elapsed = if still { 0.0 } else { state.read(cx).mounted.elapsed().as_secs_f32() };
         if !still {
             window.request_animation_frame();
         }
@@ -137,14 +124,7 @@ impl RenderOnce for BachMark {
             .relative()
             .flex_none()
             .size(px(self.slot))
-            .child(
-                div()
-                    .absolute()
-                    .left(px(offset))
-                    .top(px(offset))
-                    .size(px(self.size))
-                    .children(petals),
-            )
+            .child(div().absolute().left(px(offset)).top(px(offset)).size(px(self.size)).children(petals))
     }
 }
 

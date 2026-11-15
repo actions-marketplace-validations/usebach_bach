@@ -40,12 +40,8 @@ const SECRET_NAMES: &[(&str, &str)] = &[
 ];
 
 /// Folder names whose whole contents are secret.
-const SECRET_FOLDERS: &[(&str, &str)] = &[
-    (".git", "Git history and settings"),
-    (".ssh", "SSH keys"),
-    (".aws", "AWS credentials"),
-    (".gnupg", "GPG keys"),
-];
+const SECRET_FOLDERS: &[(&str, &str)] =
+    &[(".git", "Git history and settings"), (".ssh", "SSH keys"), (".aws", "AWS credentials"), (".gnupg", "GPG keys")];
 
 /// Names that only add weight: warned about, never refused.
 const CLUTTER_NAMES: &[&str] = &["*.pdb", "*.log", ".DS_Store", "Thumbs.db"];
@@ -89,8 +85,7 @@ pub fn check(sources: &[Source], allowed: &[String], warnings: &mut Vec<String>)
              or package it on purpose with files.allow_secrets = [\"{first}\"]"
         );
     }
-    let clutter: Vec<&str> =
-        sources.iter().map(|source| source.packaged.as_str()).filter(|path| is_clutter(path)).collect();
+    let clutter: Vec<&str> = sources.iter().map(|source| source.packaged.as_str()).filter(|path| is_clutter(path)).collect();
     if let Some(first) = clutter.first() {
         warnings.push(format!(
             "files.source holds {} file(s) that rarely belong in an installer, such as \"{first}\"; \
@@ -156,7 +151,10 @@ mod tests {
     fn a_secret_stops_the_build_until_it_is_allowed() {
         let found = sources(&["app.exe", ".env", "id_rsa"]);
         let err = check(&found, &[], &mut Vec::new()).unwrap_err().to_string();
-        assert!(err.contains("files.source") && err.contains("\".env\"") && err.contains("1 more") && err.contains("files.allow_secrets"), "{err}");
+        assert!(
+            err.contains("files.source") && err.contains("\".env\"") && err.contains("1 more") && err.contains("files.allow_secrets"),
+            "{err}"
+        );
         assert!(check(&found, &[".env".into(), "id_rsa".into()], &mut Vec::new()).is_ok());
         assert!(check(&found, &["*".into()], &mut Vec::new()).is_ok(), "a pattern covers many files");
         assert!(check(&found, &[".ENV".into()], &mut Vec::new()).is_err(), "id_rsa is still refused");

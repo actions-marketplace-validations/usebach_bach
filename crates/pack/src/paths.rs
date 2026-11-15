@@ -15,9 +15,38 @@ const FORBIDDEN: &[char] = &['<', '>', ':', '"', '|', '?', '*'];
 
 /// Names Windows reserves for devices, with or without an extension.
 const RESERVED: &[&str] = &[
-    "con", "prn", "aux", "nul", "conin$", "conout$", "com0", "com1", "com2", "com3", "com4", "com5", "com6",
-    "com7", "com8", "com9", "com\u{b9}", "com\u{b2}", "com\u{b3}", "lpt0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5",
-    "lpt6", "lpt7", "lpt8", "lpt9", "lpt\u{b9}", "lpt\u{b2}", "lpt\u{b3}",
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    "conin$",
+    "conout$",
+    "com0",
+    "com1",
+    "com2",
+    "com3",
+    "com4",
+    "com5",
+    "com6",
+    "com7",
+    "com8",
+    "com9",
+    "com\u{b9}",
+    "com\u{b2}",
+    "com\u{b3}",
+    "lpt0",
+    "lpt1",
+    "lpt2",
+    "lpt3",
+    "lpt4",
+    "lpt5",
+    "lpt6",
+    "lpt7",
+    "lpt8",
+    "lpt9",
+    "lpt\u{b9}",
+    "lpt\u{b2}",
+    "lpt\u{b3}",
 ];
 
 /// The longest one name (a file or a folder) may be: 255 UTF-16 units.
@@ -179,9 +208,7 @@ pub fn expand_data_folder(template: &str, lookup: impl Fn(&str) -> Option<String
     let rest = normalize(&rest).ok()?;
     let folder = under(Path::new(&base), &rest);
     let holds_a_root = DATA_ROOTS.iter().any(|name| {
-        lookup(name)
-            .filter(|value| !value.trim().is_empty())
-            .is_some_and(|value| is_same_or_inside(Path::new(&value), &folder))
+        lookup(name).filter(|value| !value.trim().is_empty()).is_some_and(|value| is_same_or_inside(Path::new(&value), &folder))
     });
     (!holds_a_root).then_some(folder)
 }
@@ -190,13 +217,7 @@ pub fn expand_data_folder(template: &str, lookup: impl Fn(&str) -> Option<String
 /// separators and the difference between `/` and `\`.
 pub fn is_same_or_inside(inner: &Path, outer: &Path) -> bool {
     let parts = |path: &Path| -> Vec<String> {
-        path.to_string_lossy()
-            .replace('\\', "/")
-            .to_lowercase()
-            .split('/')
-            .filter(|part| !part.is_empty())
-            .map(str::to_string)
-            .collect()
+        path.to_string_lossy().replace('\\', "/").to_lowercase().split('/').filter(|part| !part.is_empty()).map(str::to_string).collect()
     };
     let (inner, outer) = (parts(inner), parts(outer));
     inner.len() >= outer.len() && inner[..outer.len()] == outer[..]
@@ -318,7 +339,25 @@ mod tests {
 
     #[test]
     fn device_names_are_not_ids_folders_or_paths() {
-        for name in ["nul", "NUL", "con", "Aux", "prn", "COM1", "com9", "LPT9", "lpt1", "Com0", "lpt0", "nul.txt", "Com1.log", "con .txt", "com\u{b2}", "LPT\u{b9}", "CONIN$"] {
+        for name in [
+            "nul",
+            "NUL",
+            "con",
+            "Aux",
+            "prn",
+            "COM1",
+            "com9",
+            "LPT9",
+            "lpt1",
+            "Com0",
+            "lpt0",
+            "nul.txt",
+            "Com1.log",
+            "con .txt",
+            "com\u{b2}",
+            "LPT\u{b9}",
+            "CONIN$",
+        ] {
             assert!(!is_valid_id(name), "{name:?} must not be an id or folder");
             assert!(normalize(&format!("sub/{name}")).is_err(), "{name:?} must not be a packaged name");
         }

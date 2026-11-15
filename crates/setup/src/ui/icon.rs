@@ -26,15 +26,7 @@ pub struct Icon {
 impl Icon {
     /// An icon by its exported kebab-case name, e.g. "circle-check-filled".
     pub fn new(name: impl Into<SharedString>) -> Self {
-        Self {
-            name: name.into(),
-            size: 16.0,
-            stroke: None,
-            color: None,
-            scale: 1.0,
-            rotate_deg: 0.0,
-            offset: Point::default(),
-        }
+        Self { name: name.into(), size: 16.0, stroke: None, color: None, scale: 1.0, rotate_deg: 0.0, offset: Point::default() }
     }
 
     /// Box size in px, the web's `size={…}`.
@@ -82,9 +74,7 @@ impl Icon {
     /// The asset path this icon resolves to.
     pub fn path(&self) -> SharedString {
         match self.stroke {
-            Some(stroke) if (stroke - 2.0).abs() > f32::EPSILON => {
-                format!("icons/{}@{}.svg", self.name, trim_float(stroke)).into()
-            }
+            Some(stroke) if (stroke - 2.0).abs() > f32::EPSILON => format!("icons/{}@{}.svg", self.name, trim_float(stroke)).into(),
             _ => crate::assets::icon(&self.name),
         }
     }

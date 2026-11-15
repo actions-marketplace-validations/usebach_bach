@@ -85,8 +85,7 @@ fn find_program(program: &str) -> PathBuf {
 /// Whether a program of this name is in a folder on `PATH`.
 fn on_path(program: &str) -> bool {
     let names = [program.to_string(), format!("{program}.exe")];
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| names.iter().any(|name| dir.join(name).is_file())))
+    std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| names.iter().any(|name| dir.join(name).is_file())))
 }
 
 /// The newest `signtool.exe` below `bin`, the SDK's folder of versioned
@@ -209,7 +208,9 @@ mod tests {
     fn the_newest_signtool_in_the_sdk_is_found() {
         let bin = std::env::temp_dir().join(format!("bach-kits-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&bin);
-        for (version, arch) in [("10.0.19041.0", "x64"), ("10.0.26100.0", "x86"), ("10.0.26100.0", "x64"), ("10.0.9.0", "x64"), ("notes", "x64")] {
+        for (version, arch) in
+            [("10.0.19041.0", "x64"), ("10.0.26100.0", "x86"), ("10.0.26100.0", "x64"), ("10.0.9.0", "x64"), ("notes", "x64")]
+        {
             let folder = bin.join(version).join(arch);
             std::fs::create_dir_all(&folder).unwrap();
             std::fs::write(folder.join("signtool.exe"), b"").unwrap();

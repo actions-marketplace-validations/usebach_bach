@@ -81,8 +81,7 @@ fn seal(project: &mut Project, key_file: Option<&Path>, key: Option<&str>) -> Re
 
 fn read_key(env: &str, key_file: Option<&Path>) -> Result<String> {
     let key = match key_file {
-        Some(file) => bach_pack::textfile::read(file)
-            .with_context(|| format!("couldn't read the key file {}", file.display()))?,
+        Some(file) => bach_pack::textfile::read(file).with_context(|| format!("couldn't read the key file {}", file.display()))?,
         None => std::env::var(env).map_err(|_| {
             anyhow::anyhow!(
                 "bach.toml has [access], so the files are encrypted and the build needs the access key. \
@@ -202,12 +201,7 @@ fn write_patch(project: &Project, old: &Path, runtime: &Path, output: &Path, key
     };
     let earlier = container::read_manifest(&mut file, &layout)?;
     if earlier.app.id != project.manifest.app.id {
-        bail!(
-            "--patch-from {} is a setup file for \"{}\", not for \"{}\"",
-            old.display(),
-            earlier.app.id,
-            project.manifest.app.id
-        );
+        bail!("--patch-from {} is a setup file for \"{}\", not for \"{}\"", old.display(), earlier.app.id, project.manifest.app.id);
     }
     if earlier.files.iter().any(|entry| entry.sha256.is_none()) {
         bail!(
@@ -282,11 +276,8 @@ pub fn preview(config_path: &Path, options: PreviewOptions) -> Result<()> {
             let _ = fs::remove_file(entry.path());
         }
     }
-    let output = dir.join(format!(
-        "{}-Setup-preview-{}.exe",
-        bach_pack::paths::safe_dir_name(&project.manifest.app.id),
-        std::process::id()
-    ));
+    let output =
+        dir.join(format!("{}-Setup-preview-{}.exe", bach_pack::paths::safe_dir_name(&project.manifest.app.id), std::process::id()));
     write_setup(&project, &runtime, &output, sealing.as_ref())?;
 
     let mut command = std::process::Command::new(&output);
@@ -345,13 +336,7 @@ fn write_online_setup(project: &Project, runtime_path: &Path, output: &Path, sea
 
 type WriteSetup = fn(&Project, &[u8], &Path, Option<&Sealing>) -> Result<u64>;
 
-fn write_file(
-    project: &Project,
-    runtime_path: &Path,
-    output: &Path,
-    sealing: Option<&Sealing>,
-    write: WriteSetup,
-) -> Result<u64> {
+fn write_file(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>, write: WriteSetup) -> Result<u64> {
     let runtime = runtime::read(runtime_path)?;
     if let Some(dir) = output.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         fs::create_dir_all(dir).with_context(|| format!("couldn't create {}", dir.display()))?;
@@ -444,10 +429,7 @@ fn brand(project: &Project, path: &Path) -> Result<()> {
         Some(icon) => Some(fs::read(icon).with_context(|| format!("couldn't read {}", icon.display()))?),
         None => None,
     };
-    let file_name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().trim_end_matches(".partial").to_string())
-        .unwrap_or_default();
+    let file_name = path.file_name().map(|name| name.to_string_lossy().trim_end_matches(".partial").to_string()).unwrap_or_default();
     crate::resources::apply(path, icon.as_deref(), &project.manifest.app, &file_name)
 }
 

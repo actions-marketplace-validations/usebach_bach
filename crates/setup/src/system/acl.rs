@@ -13,25 +13,18 @@ use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
 use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT};
 use windows::Win32::Security::{
-    GetAce, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
-    PSID,
+    GetAce, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
 };
 
 /// The only accounts that may hold a right to change an elevated app's
 /// folder: Administrators, SYSTEM, TrustedInstaller and CREATOR OWNER (an
 /// inherit-only entry that stands for whoever made the item, which is one of
 /// the first three here). Anyone else, a named user included, is a weakness.
-const TRUSTED_WRITERS: &[&str] = &[
-    "S-1-5-32-544",
-    "S-1-5-18",
-    "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
-    "S-1-3-0",
-];
+const TRUSTED_WRITERS: &[&str] = &["S-1-5-32-544", "S-1-5-18", "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464", "S-1-3-0"];
 
 /// Owners that can be trusted with a folder that runs elevated: Administrators,
 /// SYSTEM and TrustedInstaller.
-const TRUSTED_OWNERS: &[&str] =
-    &["S-1-5-32-544", "S-1-5-18", "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"];
+const TRUSTED_OWNERS: &[&str] = &["S-1-5-32-544", "S-1-5-18", "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"];
 
 /// Any right that changes what is in a folder or who may: write data, append,
 /// extended attributes, delete a child, attributes, delete, change the access

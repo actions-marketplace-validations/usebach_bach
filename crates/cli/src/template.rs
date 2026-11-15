@@ -106,11 +106,9 @@ pub fn init(dir: &Path, with_workflow: bool) -> Result<()> {
     let text = fill(detected.as_ref(), &guess_name(dir), dir);
     std::fs::write(&path, text).with_context(|| format!("couldn't write {}", path.display()))?;
     match &detected {
-        Some(found) => println!(
-            "Wrote {} for this {} project. Check [app] and [files], then run `bach check`.",
-            path.display(),
-            found.stack
-        ),
+        Some(found) => {
+            println!("Wrote {} for this {} project. Check [app] and [files], then run `bach check`.", path.display(), found.stack)
+        }
         None => println!("Wrote {}. Fill in [app] and [files], then run `bach check`.", path.display()),
     }
     if with_workflow {

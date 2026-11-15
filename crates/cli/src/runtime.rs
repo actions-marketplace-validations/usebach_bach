@@ -187,7 +187,10 @@ fn download(url: &str) -> Result<PathBuf> {
         let bytes = std::fs::read(&partial)?;
         let actual = sha256_of(&bytes);
         if expected.len() != 64 || expected != actual {
-            bail!("the downloaded runtime doesn't match {}, so it wasn't used", if PINNED_SHA256.is_some() { "the SHA-256 built into this bach" } else { "its published SHA-256" });
+            bail!(
+                "the downloaded runtime doesn't match {}, so it wasn't used",
+                if PINNED_SHA256.is_some() { "the SHA-256 built into this bach" } else { "its published SHA-256" }
+            );
         }
         check_bare(&bytes, &partial)?;
         std::fs::write(sidecar(&target), format!("{actual}\n"))?;
@@ -336,7 +339,8 @@ mod tests {
 
     #[test]
     fn curl_follows_only_https() {
-        let args: Vec<String> = curl_args("https://x.example/a", Path::new("out")).iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        let args: Vec<String> =
+            curl_args("https://x.example/a", Path::new("out")).iter().map(|a| a.to_string_lossy().into_owned()).collect();
         let joined = args.join(" ");
         assert!(joined.contains("--proto =https") && joined.contains("--proto-redir =https"), "{joined}");
         assert_eq!(args.last().map(String::as_str), Some("https://x.example/a"));

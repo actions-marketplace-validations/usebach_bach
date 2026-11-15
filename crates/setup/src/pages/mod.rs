@@ -15,8 +15,8 @@ mod requirement;
 
 use bach_pack::i18n::Key;
 use gpui::{
-    div, img, px, AnyElement, Context, ElementId, FontWeight, InteractiveElement, IntoElement, KeyDownEvent,
-    ObjectFit, ParentElement, Render, SharedString, Styled, StyledImage, Window,
+    div, img, px, AnyElement, Context, ElementId, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ObjectFit, ParentElement,
+    Render, SharedString, Styled, StyledImage, Window,
 };
 
 use crate::assets::LOGO_PATH;
@@ -79,16 +79,8 @@ impl SetupView {
         // A wide logo keeps its shape, up to the width of the column.
         let width = (height * look.logo_aspect.unwrap_or(1.0)).clamp(height * 0.25, 420.);
         Some(match &self.package.logo {
-            Some(Logo::Svg(_)) => gpui::svg()
-                .path(LOGO_PATH)
-                .size(px(height))
-                .text_color(theme.foreground)
-                .into_any_element(),
-            Some(Logo::Png(image)) => img(image.clone())
-                .w(px(width))
-                .h(px(height))
-                .object_fit(ObjectFit::Contain)
-                .into_any_element(),
+            Some(Logo::Svg(_)) => gpui::svg().path(LOGO_PATH).size(px(height)).text_color(theme.foreground).into_any_element(),
+            Some(Logo::Png(image)) => img(image.clone()).w(px(width)).h(px(height)).object_fit(ObjectFit::Contain).into_any_element(),
             None if working => BachMark::new("setup-mark").size(68.).slot(MARK_SLOT).into_any_element(),
             None => page_icon("bach", theme.foreground),
         })
@@ -132,7 +124,11 @@ impl PageLayout {
         let heading_gap = if self.mark.is_some() { 18. } else { 0. };
         let content = self.content.map(|content| {
             let holder = div().flex().flex_col().min_h_0().child(content);
-            if self.grow { holder.flex_1() } else { holder.flex_shrink() }
+            if self.grow {
+                holder.flex_1()
+            } else {
+                holder.flex_shrink()
+            }
         });
         div()
             .size_full()
@@ -145,9 +141,10 @@ impl PageLayout {
                     .flex_none()
                     .flex_col()
                     .items_center()
-                    .children(self.mark.map(|mark| {
-                        div().min_w(px(MARK_SLOT)).min_h(px(MARK_SLOT)).flex().items_center().justify_center().child(mark)
-                    }))
+                    .children(
+                        self.mark
+                            .map(|mark| div().min_w(px(MARK_SLOT)).min_h(px(MARK_SLOT)).flex().items_center().justify_center().child(mark)),
+                    )
                     .child(heading(self.title).mt(px(heading_gap)))
                     .children(self.subtitle),
             )

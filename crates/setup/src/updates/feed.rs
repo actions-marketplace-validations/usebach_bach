@@ -130,9 +130,7 @@ mod tests {
 
     #[test]
     fn a_bad_feed_is_refused() {
-        let with = |version: &str, url: &str, sha: &str| {
-            format!(r#"{{"version":"{version}","url":"{url}","sha256":"{sha}"}}"#)
-        };
+        let with = |version: &str, url: &str, sha: &str| format!(r#"{{"version":"{version}","url":"{url}","sha256":"{sha}"}}"#);
         assert!(parse("not json").is_err());
         assert!(parse(&with("nightly", "https://x/y.exe", SHA)).is_err(), "no version to compare");
         assert!(parse(&with("1.0", "http://x/y.exe", SHA)).is_err(), "not https");

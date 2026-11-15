@@ -76,11 +76,9 @@ pub(crate) fn quoted(text: &str) -> String {
 /// machine field of its PE header: the x64 runtime unless it was built with the
 /// ARM64 (or an x86) one.
 fn architecture(bytes: &[u8]) -> &'static str {
-    let machine = bytes
-        .get(0x3c..0x40)
-        .and_then(|at| at.try_into().ok())
-        .map(u32::from_le_bytes)
-        .and_then(|pe| bytes.get(usize::try_from(pe).ok()?.checked_add(4)?..)?.get(..2).map(|machine| u16::from_le_bytes([machine[0], machine[1]])));
+    let machine = bytes.get(0x3c..0x40).and_then(|at| at.try_into().ok()).map(u32::from_le_bytes).and_then(|pe| {
+        bytes.get(usize::try_from(pe).ok()?.checked_add(4)?..)?.get(..2).map(|machine| u16::from_le_bytes([machine[0], machine[1]]))
+    });
     match machine {
         Some(0xAA64) => "arm64",
         Some(0x014C) => "x86",
@@ -120,11 +118,7 @@ fn manifests(manifest: &Manifest, id: &str, url: &str, sha256: &str, license: Op
         yaml(license.unwrap_or("Proprietary")),
         yaml(&description)
     );
-    vec![
-        (format!("{id}.yaml"), version_file),
-        (format!("{id}.installer.yaml"), installer),
-        (format!("{id}.locale.en-US.yaml"), locale),
-    ]
+    vec![(format!("{id}.yaml"), version_file), (format!("{id}.installer.yaml"), installer), (format!("{id}.locale.en-US.yaml"), locale)]
 }
 
 #[cfg(test)]

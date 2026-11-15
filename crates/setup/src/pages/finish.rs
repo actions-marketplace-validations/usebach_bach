@@ -25,10 +25,7 @@ impl SetupView {
             .text_size(px(14.))
             .line_height(px(20.))
             .child(Shimmer::new(label).color(theme.muted_foreground));
-        let bar = div()
-            .mt(px(32.))
-            .px(px(56.))
-            .child(ProgressBar::new(("setup-progress", self.attempt), progress));
+        let bar = div().mt(px(32.)).px(px(56.)).child(ProgressBar::new(("setup-progress", self.attempt), progress));
         PageLayout {
             centered: true,
             mark: self.mark(true, theme),
@@ -56,13 +53,7 @@ impl SetupView {
             FormButton::new("setup-link", label)
                 .outline()
                 .focused(self.is_focused(Target::Link))
-                .on_click(cx.listener(|this, _, _, _| {
-                    if this.is_removing() {
-                        this.open_feedback()
-                    } else {
-                        this.open_website()
-                    }
-                }))
+                .on_click(cx.listener(|this, _, _, _| if this.is_removing() { this.open_feedback() } else { this.open_website() }))
                 .into_any_element()
         });
         if self.is_removing() {
@@ -76,10 +67,7 @@ impl SetupView {
                 centered: true,
                 mark: Some(done_icon),
                 subtitle: Some(subtitle_text(subtitle, &theme)),
-                ..PageLayout::new(
-                    texts.get(Key::removed_title),
-                    footer(None, link.into_iter().chain([close(true, cx)]).collect(), &theme),
-                )
+                ..PageLayout::new(texts.get(Key::removed_title), footer(None, link.into_iter().chain([close(true, cx)]).collect(), &theme))
             }
             .render();
         }

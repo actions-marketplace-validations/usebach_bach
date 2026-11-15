@@ -145,9 +145,9 @@ pub fn requirements(sections: &[RequirementSection]) -> Result<Vec<Requirement>>
                     };
                     Check::Windows { build }
                 }
-                other => bail!(
-                    "{at}.kind is \"{other}\"; use \"webview2\", \"dotnet\", \"vcredist\", \"file\", \"registry\" or \"windows\""
-                ),
+                other => {
+                    bail!("{at}.kind is \"{other}\"; use \"webview2\", \"dotnet\", \"vcredist\", \"file\", \"registry\" or \"windows\"")
+                }
             };
             let defaults = check.defaults();
             let name = section.name.clone().or_else(|| match &check {
@@ -248,7 +248,17 @@ pub fn run_steps(sections: &[RunSection], files: &[FileEntry], components: &[Com
                 Some(id) if components.iter().any(|known| known.id == id) => Some(id.to_string()),
                 Some(id) => bail!("{at}.component is \"{id}\", but no [[components]] has that id"),
             };
-            Ok(RunStep { name, file, arguments, when, success_codes, ignore_errors: section.ignore_errors, component, elevated: section.elevated, timeout_minutes: section.timeout_minutes })
+            Ok(RunStep {
+                name,
+                file,
+                arguments,
+                when,
+                success_codes,
+                ignore_errors: section.ignore_errors,
+                component,
+                elevated: section.elevated,
+                timeout_minutes: section.timeout_minutes,
+            })
         })
         .collect()
 }
@@ -338,17 +348,12 @@ pub fn access(section: Option<&AccessSection>, has_updates: bool) -> Result<Opti
         Some(name) => bail!("access.key_env is \"{name}\"; use an environment variable's name, like \"{DEFAULT_KEY_ENV}\""),
     };
     let get_key_url = https(&section.get_key_url, "access.get_key_url")?;
-    Ok(Some(AccessSettings {
-        manifest: Access { get_key_url, send_key, encryption: None },
-        encrypt,
-        key_env,
-    }))
+    Ok(Some(AccessSettings { manifest: Access { get_key_url, send_key, encryption: None }, encrypt, key_env }))
 }
 
 fn is_env_name(name: &str) -> bool {
     let mut chars = name.chars();
-    chars.next().is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    chars.next().is_some_and(|first| first.is_ascii_alphabetic() || first == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// `owner/name`, as GitHub allows them.

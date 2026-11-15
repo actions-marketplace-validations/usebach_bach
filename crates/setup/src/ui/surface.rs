@@ -16,13 +16,7 @@ use crate::theme::Theme;
 
 /// An inset-style stroke drawn as a rounded overlay.
 fn edge(radius: Pixels, color: Hsla, top_only: bool) -> Div {
-    let overlay = div()
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .rounded(radius)
-        .border_color(color);
+    let overlay = div().absolute().top_0().left_0().size_full().rounded(radius).border_color(color);
     if top_only {
         overlay.border_t(px(1.))
     } else {
@@ -34,10 +28,7 @@ pub trait Surfaces: Styled + ParentElement + Sized {
     /// A sunken well: `--well` fill, a 1px outline all round and a top edge
     /// that catches light.
     fn well(self, theme: &Theme, radius: Pixels) -> Self {
-        self.bg(theme.well)
-            .rounded(radius)
-            .child(edge(radius, theme.well_highlight, true))
-            .child(edge(radius, theme.well_outline, false))
+        self.bg(theme.well).rounded(radius).child(edge(radius, theme.well_highlight, true)).child(edge(radius, theme.well_outline, false))
     }
 }
 

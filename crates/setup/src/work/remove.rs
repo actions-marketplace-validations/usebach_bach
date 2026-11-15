@@ -16,10 +16,7 @@ use bach_pack::i18n::Key;
 use bach_pack::manifest::{Choice, Manifest, UNINSTALLER};
 use bach_pack::paths;
 
-use super::{
-    delete_after_exit, describe, failed, plain, remove_empty_parents, remove_file_if_present, remove_waiting, same_file,
-    Report,
-};
+use super::{delete_after_exit, describe, failed, plain, remove_empty_parents, remove_file_if_present, remove_waiting, same_file, Report};
 use crate::package::Package;
 use crate::system::{self, changes, env_path, host, integration, task};
 use crate::texts::Texts;
@@ -71,11 +68,7 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
 
     report(0.4, &texts.get(Key::step_removing_shortcuts));
     let extra = system::extra_shortcuts(manifest).into_iter().map(|(link, _)| link);
-    for shortcut in [system::start_menu_shortcut(manifest), system::desktop_shortcut(manifest)]
-        .into_iter()
-        .flatten()
-        .chain(extra)
-    {
+    for shortcut in [system::start_menu_shortcut(manifest), system::desktop_shortcut(manifest)].into_iter().flatten().chain(extra) {
         let _ = remove_file_if_present(&shortcut);
     }
     if manifest.install.start_menu_folder.is_some() {
@@ -87,8 +80,7 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     undo_integration(manifest, dir, &program, texts).map_err(put_back)?;
 
     report(0.6, &texts.get(Key::step_unregistering));
-    system::unregister(manifest)
-        .map_err(|err| put_back(format!("{} {}", texts.get(Key::error_unregister), plain(&err))))?;
+    system::unregister(manifest).map_err(|err| put_back(format!("{} {}", texts.get(Key::error_unregister), plain(&err))))?;
     // From here on the app is gone from Windows' point of view: finish the job.
     for (_, moved) in &aside {
         let _ = remove_file_if_present(moved);

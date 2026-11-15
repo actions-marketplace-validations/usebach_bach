@@ -60,12 +60,7 @@ pub struct Source {
 
 /// Compresses `sources` into `out`, calling `progress` with the bytes read
 /// so far. Returns `out` once the stream is finished.
-pub fn write<W: Write>(
-    out: W,
-    sources: &[Source],
-    compression: Compression,
-    progress: &mut dyn FnMut(u64),
-) -> Result<W> {
+pub fn write<W: Write>(out: W, sources: &[Source], compression: Compression, progress: &mut dyn FnMut(u64)) -> Result<W> {
     let mut encoder = zstd::stream::Encoder::new(out, compression.level())?;
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()) as u32;
     // Multithreading only changes speed, never the format; ignore a build
@@ -80,8 +75,7 @@ pub fn write<W: Write>(
         let Ok(name_len) = u16::try_from(name.len()) else {
             bail!("\"{packaged}\" is too long a path to package");
         };
-        let mut file = File::open(&source.path)
-            .with_context(|| format!("couldn't open {}", source.path.display()))?;
+        let mut file = File::open(&source.path).with_context(|| format!("couldn't open {}", source.path.display()))?;
         let size = file.metadata()?.len();
         if size != source.size {
             bail!("{} changed size while it was being packaged", source.path.display());
@@ -106,10 +100,7 @@ pub fn write<W: Write>(
 /// Reads an archive front to back, handing each file to `visit` with its
 /// packaged path, its size and a reader over exactly its bytes. Whatever
 /// `visit` leaves unread is skipped.
-pub fn read<R: Read>(
-    input: R,
-    visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -> Result<()>,
-) -> Result<()> {
+pub fn read<R: Read>(input: R, visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -> Result<()>) -> Result<()> {
     let mut decoder = zstd::stream::Decoder::new(BufReader::new(input))?;
     loop {
         let mut kind = [0u8; 1];
@@ -142,11 +133,7 @@ pub fn read<R: Read>(
 }
 
 /// `io::copy` that reports each chunk as it goes.
-pub fn copy_counting(
-    from: &mut dyn Read,
-    to: &mut dyn Write,
-    progress: &mut dyn FnMut(u64),
-) -> io::Result<u64> {
+pub fn copy_counting(from: &mut dyn Read, to: &mut dyn Write, progress: &mut dyn FnMut(u64)) -> io::Result<u64> {
     let mut buffer = vec![0u8; 256 * 1024];
     let mut total = 0u64;
     loop {

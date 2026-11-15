@@ -40,10 +40,8 @@ fn app_name(raw: &str) -> Option<String> {
         Some(scoped) => scoped.split_once('/').map_or(scoped, |(_, name)| name),
         None => raw.trim(),
     };
-    let spaced: String = unscoped
-        .chars()
-        .map(|c| if c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_') { c } else { ' ' })
-        .collect();
+    let spaced: String =
+        unscoped.chars().map(|c| if c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_') { c } else { ' ' }).collect();
     let words: Vec<&str> = spaced.split_whitespace().collect();
     let name = words.join(" ");
     let name = name.trim_matches(|c| c == '.' || c == ' ').to_string();
@@ -263,17 +261,30 @@ mod tests {
 
     #[test]
     fn stacks_are_recognised() {
-        let rust = project("rust", &[("Cargo.toml", "[package]\nname = \"note-pad\"\nversion = \"0.3.1\"\nauthors = [\"Jane Doe <jane@x.dev>\"]\n")]);
+        let rust = project(
+            "rust",
+            &[("Cargo.toml", "[package]\nname = \"note-pad\"\nversion = \"0.3.1\"\nauthors = [\"Jane Doe <jane@x.dev>\"]\n")],
+        );
         let found = detect(&rust).unwrap();
         assert_eq!((found.stack, found.name.as_deref(), found.version.as_deref()), ("Rust", Some("Note Pad"), Some("0.3.1")));
         assert_eq!(found.executable.as_deref(), Some("note-pad.exe"));
         assert_eq!(found.publisher.as_deref(), Some("Jane Doe"));
 
-        let electron = project("electron", &[("package.json", r#"{"name":"notes","productName":"Notes","version":"2.0.0","author":{"name":"Acme"},"devDependencies":{"electron":"30"}}"#)]);
+        let electron = project(
+            "electron",
+            &[(
+                "package.json",
+                r#"{"name":"notes","productName":"Notes","version":"2.0.0","author":{"name":"Acme"},"devDependencies":{"electron":"30"}}"#,
+            )],
+        );
         let found = detect(&electron).unwrap();
-        assert_eq!((found.stack, found.executable.as_deref(), found.source.as_deref()), ("Electron", Some("Notes.exe"), Some("dist/win-unpacked")));
+        assert_eq!(
+            (found.stack, found.executable.as_deref(), found.source.as_deref()),
+            ("Electron", Some("Notes.exe"), Some("dist/win-unpacked"))
+        );
 
-        let tauri = project("tauri", &[("src-tauri/tauri.conf.json", r#"{"productName":"Clip","version":"1.1.0","identifier":"com.acme.clip"}"#)]);
+        let tauri =
+            project("tauri", &[("src-tauri/tauri.conf.json", r#"{"productName":"Clip","version":"1.1.0","identifier":"com.acme.clip"}"#)]);
         let found = detect(&tauri).unwrap();
         assert_eq!((found.stack, found.publisher.as_deref()), ("Tauri", Some("acme")));
         assert!(found.requirements.unwrap().contains("webview2"));

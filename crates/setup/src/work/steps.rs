@@ -335,11 +335,7 @@ mod tests {
 
     #[test]
     fn only_the_end_of_a_long_output_is_kept() {
-        let mut child = Command::new("cmd")
-            .args(["/c", "for /L %i in (1,1,3000) do @echo line%i"])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
+        let mut child = Command::new("cmd").args(["/c", "for /L %i in (1,1,3000) do @echo line%i"]).stdout(Stdio::piped()).spawn().unwrap();
         let kept = Mutex::new(Vec::new());
         Pipe::Out(child.stdout.take().unwrap()).drain_into(&kept);
         let _ = child.wait();
@@ -363,10 +359,7 @@ mod tests {
         assert!(matches!(ended, Ended::TimedOut));
         std::thread::sleep(Duration::from_millis(700));
         let listing = Command::new("tasklist").args(["/FI", "IMAGENAME eq bachqagrandchild.exe"]).output().unwrap();
-        assert!(
-            !String::from_utf8_lossy(&listing.stdout).to_lowercase().contains("bachqagrandchild"),
-            "the grandchild must be gone"
-        );
+        assert!(!String::from_utf8_lossy(&listing.stdout).to_lowercase().contains("bachqagrandchild"), "the grandchild must be gone");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -14,11 +14,7 @@ pub const MAX_LICENSE: usize = 1 << 20;
 
 pub fn manifest(manifest: &Manifest) -> Result<()> {
     if manifest.format != crate::FORMAT_VERSION {
-        bail!(
-            "this setup file uses payload format {}, but this runtime reads format {}",
-            manifest.format,
-            crate::FORMAT_VERSION
-        );
+        bail!("this setup file uses payload format {}, but this runtime reads format {}", manifest.format, crate::FORMAT_VERSION);
     }
     if !paths::is_valid_id(&manifest.app.id) {
         bail!("the app id \"{}\" can't name a folder", manifest.app.id);

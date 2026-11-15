@@ -117,10 +117,7 @@ pub fn command(options: Options) -> Result<()> {
     };
     let found = version_files::read_all(dir)?;
     if found.is_empty() {
-        bail!(
-            "found no version in {} (looked for bach.toml, package.json, Cargo.toml, tauri.conf.json and .csproj files)",
-            dir.display()
-        );
+        bail!("found no version in {} (looked for bach.toml, package.json, Cargo.toml, tauri.conf.json and .csproj files)", dir.display());
     }
     match options.target {
         None => show(&found),
@@ -140,7 +137,13 @@ fn show(found: &[Found]) -> Result<()> {
     }
     let first = &found[0].version;
     if let Some(other) = found.iter().find(|item| &item.version != first) {
-        bail!("{} says {}, but {} says {}. Run `bach version current` to bring them together.", other.file, other.version, found[0].file, first);
+        bail!(
+            "{} says {}, but {} says {}. Run `bach version current` to bring them together.",
+            other.file,
+            other.version,
+            found[0].file,
+            first
+        );
     }
     eprintln!("Everything agrees on {first}.");
     Ok(())
@@ -210,7 +213,10 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.join("package.json")).unwrap(), "{\"version\":\"1.1.0\"}", "bach.toml is the base");
         let empty = dir.join("nothing").join("bach.toml");
         std::fs::create_dir_all(empty.parent().unwrap()).unwrap();
-        assert!(command(Options { config: &empty, target: Some("patch"), dry_run: false }).unwrap_err().to_string().contains("found no version"));
+        assert!(command(Options { config: &empty, target: Some("patch"), dry_run: false })
+            .unwrap_err()
+            .to_string()
+            .contains("found no version"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -235,27 +235,48 @@ fn requirements_shortcuts_and_updates() {
 fn extras_name_their_setting() {
     let dir = project_dir("extras-mistakes");
     let cases = [
-        (r#"[[requirements]]
-kind = "java""#, "requirements[0].kind"),
-        (r#"[[requirements]]
+        (
+            r#"[[requirements]]
+kind = "java""#,
+            "requirements[0].kind",
+        ),
+        (
+            r#"[[requirements]]
 kind = "dotnet"
-version = "8""#, "requirements[0].version"),
-        (r#"[[requirements]]
+version = "8""#,
+            "requirements[0].version",
+        ),
+        (
+            r#"[[requirements]]
 kind = "file"
-path = 'C:\x.dll'"#, "requirements[0].name"),
-        (r#"[[requirements]]
+path = 'C:\x.dll'"#,
+            "requirements[0].name",
+        ),
+        (
+            r#"[[requirements]]
 kind = "registry"
 key = 'HKCR\x'
 name = "x"
-url = "https://x""#, "requirements[0].key"),
-        (r#"[[shortcuts]]
+url = "https://x""#,
+            "requirements[0].key",
+        ),
+        (
+            r#"[[shortcuts]]
 name = "Docs"
-target = "nope.exe""#, "shortcuts[0].target"),
-        (r#"[[shortcuts]]
+target = "nope.exe""#,
+            "shortcuts[0].target",
+        ),
+        (
+            r#"[[shortcuts]]
 name = "a/b"
-target = "hello.exe""#, "shortcuts[0].name"),
-        (r#"[updates]
-feed = "http://insecure""#, "updates.feed"),
+target = "hello.exe""#,
+            "shortcuts[0].name",
+        ),
+        (
+            r#"[updates]
+feed = "http://insecure""#,
+            "updates.feed",
+        ),
         ("[installer]\nlogo_height = 200", "installer.logo_height"),
         ("[installer]\nwebsite_button = true", "installer.website_button"),
         ("[uninstall]\nfeedback_url = \"ftp://x\"", "uninstall.feedback_url"),
@@ -281,9 +302,7 @@ fn github_is_a_whole_update_setup() {
     );
     assert_eq!(project.update_github.as_deref(), Some("usebach/hello"));
 
-    let own = format!(
-        "{MINIMAL}\n[updates]\ngithub = \"usebach/hello\"\nauto = \"never\"\nfeed = \"https://hello.example/latest.json\""
-    );
+    let own = format!("{MINIMAL}\n[updates]\ngithub = \"usebach/hello\"\nauto = \"never\"\nfeed = \"https://hello.example/latest.json\"");
     let project = parse(&own, &dir).unwrap();
     let updates = project.manifest.updates.as_ref().unwrap();
     assert_eq!(updates.feed, "https://hello.example/latest.json", "an explicit feed wins");
@@ -342,15 +361,26 @@ fn an_updating_app_needs_a_comparable_version() {
 #[test]
 fn the_online_installer_needs_a_feed() {
     let dir = project_dir("online-feed");
-    let err = format!("{:#}", parse(&format!("{MINIMAL}
+    let err = format!(
+        "{:#}",
+        parse(
+            &format!(
+                "{MINIMAL}
 [installer]
-online = true"), &dir).unwrap_err());
+online = true"
+            ),
+            &dir
+        )
+        .unwrap_err()
+    );
     assert!(err.contains("installer.online") && err.contains("[updates]"), "{err}");
-    let ok = format!("{MINIMAL}
+    let ok = format!(
+        "{MINIMAL}
 [installer]
 online = true
 [updates]
-github = \"me/hello\"");
+github = \"me/hello\""
+    );
     let project = parse(&ok, &dir).unwrap();
     assert!(project.online);
     assert!(!project.manifest.online, "the full setup file isn't the online one");
@@ -360,19 +390,34 @@ github = \"me/hello\"");
 #[test]
 fn the_online_installer_has_a_name_without_a_version() {
     let dir = project_dir("online-name");
-    let text = MINIMAL.replace("name = \"Hello\"", "name = \"Hello World\"
-id = \"Hello\"");
+    let text = MINIMAL.replace(
+        "name = \"Hello\"",
+        "name = \"Hello World\"
+id = \"Hello\"",
+    );
     let project = parse(&text, &dir).unwrap();
     assert!(!project.online, "off unless asked for");
     assert_eq!(project.online_output, dir.join("dist/Hello World-Web-Setup.exe"));
     // GitHub's file names, as for the setup file.
-    let github = parse(&format!("{text}
+    let github = parse(
+        &format!(
+            "{text}
 [updates]
-github = \"me/hello\""), &dir).unwrap();
+github = \"me/hello\""
+        ),
+        &dir,
+    )
+    .unwrap();
     assert_eq!(github.online_output.file_name().unwrap().to_string_lossy(), "Hello-World-Web-Setup.exe");
-    let custom = parse(&format!("{text}
+    let custom = parse(
+        &format!(
+            "{text}
 [installer]
-online_output = \"out/{{id}}-Web.exe\""), &dir).unwrap();
+online_output = \"out/{{id}}-Web.exe\""
+        ),
+        &dir,
+    )
+    .unwrap();
     assert_eq!(custom.online_output, dir.join("out/Hello-Web.exe"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -380,15 +425,19 @@ online_output = \"out/{{id}}-Web.exe\""), &dir).unwrap();
 #[test]
 fn the_two_installers_never_share_a_file() {
     let dir = project_dir("online-clash");
-    let text = format!("{MINIMAL}
+    let text = format!(
+        "{MINIMAL}
 [installer]
 output = \"dist/Hello.exe\"
-online_output = \"dist/Hello.exe\"");
+online_output = \"dist/Hello.exe\""
+    );
     let err = format!("{:#}", parse(&text, &dir).unwrap_err());
     assert!(err.contains("online_output"), "{err}");
-    let text = format!("{MINIMAL}
+    let text = format!(
+        "{MINIMAL}
 [installer]
-online_output = \"dist/Hello.txt\"");
+online_output = \"dist/Hello.txt\""
+    );
     assert!(format!("{:#}", parse(&text, &dir).unwrap_err()).contains("online_output"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -396,9 +445,15 @@ online_output = \"dist/Hello.txt\"");
 #[test]
 fn access_encrypts_by_default_and_sends_the_key_with_updates() {
     let dir = project_dir("access");
-    let alone = parse(&format!("{MINIMAL}
+    let alone = parse(
+        &format!(
+            "{MINIMAL}
 [access]
-get_key_url = \"https://example.com/buy\""), &dir).unwrap();
+get_key_url = \"https://example.com/buy\""
+        ),
+        &dir,
+    )
+    .unwrap();
     assert!(alone.encrypt);
     assert_eq!(alone.key_env, "BACH_ACCESS_KEY");
     let access = alone.manifest.access.as_ref().unwrap();
@@ -406,11 +461,17 @@ get_key_url = \"https://example.com/buy\""), &dir).unwrap();
     assert_eq!(access.get_key_url.as_deref(), Some("https://example.com/buy"));
     assert!(access.encryption.is_none(), "the builder makes the protection data, with the key");
 
-    let updating = parse(&format!("{MINIMAL}
+    let updating = parse(
+        &format!(
+            "{MINIMAL}
 [access]
 key_env = \"HELLO_KEY\"
 [updates]
-github = \"me/hello\""), &dir).unwrap();
+github = \"me/hello\""
+        ),
+        &dir,
+    )
+    .unwrap();
     assert_eq!(updating.key_env, "HELLO_KEY");
     assert!(updating.manifest.access.as_ref().unwrap().send_key, "private updates by default");
 
@@ -426,39 +487,76 @@ fn access_mistakes_name_their_setting() {
     let updates = "[updates]
 feed = \"https://x/latest.json\"";
     let cases = [
-        (format!("{MINIMAL}
+        (
+            format!(
+                "{MINIMAL}
 [access]
-encrypt = false"), "[access] does nothing"),
-        (format!("{MINIMAL}
+encrypt = false"
+            ),
+            "[access] does nothing",
+        ),
+        (
+            format!(
+                "{MINIMAL}
 [access]
-send_key = true"), "access.send_key"),
-        (format!("{MINIMAL}
+send_key = true"
+            ),
+            "access.send_key",
+        ),
+        (
+            format!(
+                "{MINIMAL}
 [access]
-key_env = \"not a name\""), "access.key_env"),
-        (format!("{MINIMAL}
+key_env = \"not a name\""
+            ),
+            "access.key_env",
+        ),
+        (
+            format!(
+                "{MINIMAL}
 [access]
-key_env = \"1ABC\""), "access.key_env"),
-        (format!("{MINIMAL}
+key_env = \"1ABC\""
+            ),
+            "access.key_env",
+        ),
+        (
+            format!(
+                "{MINIMAL}
 [access]
-get_key_url = \"http://x/buy\""), "access.get_key_url"),
-        (format!("{MINIMAL}
+get_key_url = \"http://x/buy\""
+            ),
+            "access.get_key_url",
+        ),
+        (
+            format!(
+                "{MINIMAL}
 [access]
-key = \"secret\""), "key"),
-        (format!("{MINIMAL}
+key = \"secret\""
+            ),
+            "key",
+        ),
+        (
+            format!(
+                "{MINIMAL}
 [access]
 encrypt = false
 send_key = false
-{updates}"), "[access] does nothing"),
+{updates}"
+            ),
+            "[access] does nothing",
+        ),
     ];
     for (text, expected) in cases {
         let err = format!("{:#}", parse(&text, &dir).unwrap_err());
         assert!(err.contains(expected), "{expected}: {err}");
     }
     // Sending the key without encrypting is fine: a private server can check it.
-    let gate = format!("{MINIMAL}
+    let gate = format!(
+        "{MINIMAL}
 [access]
 encrypt = false
-{updates}");
+{updates}"
+    );
     let project = parse(&gate, &dir).unwrap();
     assert!(!project.encrypt && project.manifest.access.as_ref().unwrap().send_key);
     std::fs::remove_dir_all(&dir).unwrap();
@@ -468,9 +566,11 @@ encrypt = false
 fn a_key_can_never_be_written_into_bach_toml() {
     let dir = project_dir("no-key-in-config");
     for key in ["key", "password", "secret", "access_key"] {
-        let text = format!("{MINIMAL}
+        let text = format!(
+            "{MINIMAL}
 [access]
-{key} = \"K7QF-3MWD-9XPA\"");
+{key} = \"K7QF-3MWD-9XPA\""
+        );
         assert!(parse(&text, &dir).is_err(), "[access] {key} must not exist");
     }
     std::fs::remove_dir_all(&dir).unwrap();
@@ -499,13 +599,25 @@ mirrors = [\"https://mirror.example/hello/latest.json\", \"https://cdn.example/l
     for (bad, expected) in [
         ("mirrors = [\"http://x/latest.json\"]", "https link"),
         ("mirrors = [\"https://a/l.json\", \"https://a/l.json\"]", "twice"),
-        ("mirrors = [\"https://x/latest.json\"]
-feed = \"https://x/latest.json\"", "twice"),
+        (
+            "mirrors = [\"https://x/latest.json\"]
+feed = \"https://x/latest.json\"",
+            "twice",
+        ),
     ] {
-        let err = format!("{:#}", parse(&format!("{MINIMAL}
+        let err = format!(
+            "{:#}",
+            parse(
+                &format!(
+                    "{MINIMAL}
 [updates]
 github = \"me/hello\"
-{bad}"), &dir).unwrap_err());
+{bad}"
+                ),
+                &dir
+            )
+            .unwrap_err()
+        );
         assert!(err.contains(expected), "{bad}: {err}");
     }
     std::fs::remove_dir_all(&dir).unwrap();
@@ -703,60 +815,105 @@ arguments = '--here "%V"'
     assert!(parse(MINIMAL, &dir).unwrap().manifest.system.is_empty());
 
     let cases = [
-        (r#"[[registry]]
+        (
+            r#"[[registry]]
 key = 'Software\Classes\.txt'
-value = "x""#, "registry[0]"),
-        (r#"[[registry]]
+value = "x""#,
+            "registry[0]",
+        ),
+        (
+            r#"[[registry]]
 key = 'HKCU\Software\X'
-value = "x""#, "below Software"),
-        (r#"[[registry]]
+value = "x""#,
+            "below Software",
+        ),
+        (
+            r#"[[registry]]
 key = 'Software\X'
 type = "dword"
-value = -1"#, "dword"),
-        (r#"[[registry]]
+value = -1"#,
+            "dword",
+        ),
+        (
+            r#"[[registry]]
 key = 'Software\X'
 type = "binary"
-value = "x""#, "registry[0].type"),
-        (r#"[[registry]]
+value = "x""#,
+            "registry[0].type",
+        ),
+        (
+            r#"[[registry]]
 key = 'Software\X'
-value = 4"#, "must be text"),
-        (r#"[[registry]]
+value = 4"#,
+            "must be text",
+        ),
+        (
+            r#"[[registry]]
 key = 'Software\X'
 value = "a"
 [[registry]]
 key = 'software\x'
-value = "b""#, "second time"),
-        (r#"[[env]]
+value = "b""#,
+            "second time",
+        ),
+        (
+            r#"[[env]]
 name = "PATH"
-value = "x""#, "belongs to Windows"),
-        (r#"[[env]]
+value = "x""#,
+            "belongs to Windows",
+        ),
+        (
+            r#"[[env]]
 name = "HELLO_A"
 value = "1"
 [[env]]
 name = "hello_a"
-value = "2""#, "set twice"),
-        (r#"[[env]]
+value = "2""#,
+            "set twice",
+        ),
+        (
+            r#"[[env]]
 name = "JAVA_HOME"
-value = "x""#, "doesn't start with HELLO_"),
-        (r#"[[env]]
+value = "x""#,
+            "doesn't start with HELLO_",
+        ),
+        (
+            r#"[[env]]
 name = "NODE_OPTIONS"
 value = "x"
-allow = true"#, "loads code"),
-        (r#"[[registry]]
+allow = true"#,
+            "loads code",
+        ),
+        (
+            r#"[[registry]]
 key = 'Software\Microsoft\Windows Defender\Exclusions\Paths'
-value = "x""#, "registry[0]"),
-        (r#"[[registry]]
+value = "x""#,
+            "registry[0]",
+        ),
+        (
+            r#"[[registry]]
 key = 'Software\Google\Chrome\NativeMessagingHosts\x'
-value = "x""#, "registry[0]"),
-        (r#"[[context_menu]]
-name = "Open""#, "context_menu[0].on"),
-        (r#"[[context_menu]]
+value = "x""#,
+            "registry[0]",
+        ),
+        (
+            r#"[[context_menu]]
+name = "Open""#,
+            "context_menu[0].on",
+        ),
+        (
+            r#"[[context_menu]]
 name = "Open"
-on = ".exe""#, "context_menu[0].on"),
-        (r#"[[context_menu]]
+on = ".exe""#,
+            "context_menu[0].on",
+        ),
+        (
+            r#"[[context_menu]]
 name = "Open"
 on = "files"
-icon = "x""#, "icon"),
+icon = "x""#,
+            "icon",
+        ),
     ];
     for (body, expected) in cases {
         let err = format!("{:#}", parse(&format!("{MINIMAL}\n{body}"), &dir).unwrap_err());

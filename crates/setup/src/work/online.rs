@@ -77,13 +77,7 @@ pub fn forget_download(plan: &InstallPlan) {
 /// choices carried over to its manifest.
 pub fn plan_for(plan: &InstallPlan, downloaded: Package) -> InstallPlan {
     let choices = plan.choices.clone().carry_over(&plan.package.manifest, &downloaded.manifest);
-    InstallPlan {
-        package: Arc::new(downloaded),
-        texts: plan.texts.clone(),
-        dir: plan.dir.clone(),
-        choices,
-        key: plan.key.clone(),
-    }
+    InstallPlan { package: Arc::new(downloaded), texts: plan.texts.clone(), dir: plan.dir.clone(), choices, key: plan.key.clone() }
 }
 
 fn capitalised(text: &str) -> String {

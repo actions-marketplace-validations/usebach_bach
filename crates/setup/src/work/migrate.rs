@@ -66,11 +66,15 @@ fn remove(entry: &Migrate) {
     };
     let already_elevated = elevate::is_elevated();
     if !found.machine && already_elevated {
-        crate::log::line(&format!("The older install \"{key}\" is a per-user one, and setup has administrator rights, so setup leaves it."));
+        crate::log::line(&format!(
+            "The older install \"{key}\" is a per-user one, and setup has administrator rights, so setup leaves it."
+        ));
         return;
     }
     if found.machine && !already_elevated && !entry.elevated {
-        crate::log::line(&format!("The older install \"{key}\" is machine-wide, so setup leaves it (elevated = true in [[migrate]] removes it)."));
+        crate::log::line(&format!(
+            "The older install \"{key}\" is machine-wide, so setup leaves it (elevated = true in [[migrate]] removes it)."
+        ));
         return;
     }
     // Whether the old uninstaller will run with administrator rights.
@@ -247,9 +251,18 @@ mod tests {
 
     #[test]
     fn command_lines_split_at_the_program() {
-        assert_eq!(split_command(r#""C:\Program Files\Hello\unins000.exe" /SILENT"#), Some((r"C:\Program Files\Hello\unins000.exe".into(), "/SILENT".into())));
-        assert_eq!(split_command(r"C:\Program Files\Hello\uninst.exe /S"), Some((r"C:\Program Files\Hello\uninst.exe".into(), "/S".into())));
-        assert_eq!(split_command("MsiExec.exe /I{8A69D345-D564-463C-AFF1-A69D9E530F96}"), Some(("MsiExec.exe".into(), "/I{8A69D345-D564-463C-AFF1-A69D9E530F96}".into())));
+        assert_eq!(
+            split_command(r#""C:\Program Files\Hello\unins000.exe" /SILENT"#),
+            Some((r"C:\Program Files\Hello\unins000.exe".into(), "/SILENT".into()))
+        );
+        assert_eq!(
+            split_command(r"C:\Program Files\Hello\uninst.exe /S"),
+            Some((r"C:\Program Files\Hello\uninst.exe".into(), "/S".into()))
+        );
+        assert_eq!(
+            split_command("MsiExec.exe /I{8A69D345-D564-463C-AFF1-A69D9E530F96}"),
+            Some(("MsiExec.exe".into(), "/I{8A69D345-D564-463C-AFF1-A69D9E530F96}".into()))
+        );
         assert_eq!(split_command(r#""C:\x.exe""#), Some((r"C:\x.exe".into(), String::new())));
         assert_eq!(split_command(""), None);
         assert_eq!(split_command(r#""unterminated"#), None);
@@ -272,7 +285,8 @@ mod tests {
 
     #[test]
     fn a_quiet_command_is_used_as_it_is() {
-        let found = Found { quiet: Some(format!("\"{}\" /c exit 0", cmd())), uninstall: Some(format!("\"{}\"", cmd())), ..Found::default() };
+        let found =
+            Found { quiet: Some(format!("\"{}\" /c exit 0", cmd())), uninstall: Some(format!("\"{}\"", cmd())), ..Found::default() };
         let command = plan(&found, &entry(None), "Hello", &system(), windows_env).unwrap();
         assert_eq!(command.program, PathBuf::from(cmd()));
         assert_eq!(command.arguments.as_deref(), Some("/c exit 0"));

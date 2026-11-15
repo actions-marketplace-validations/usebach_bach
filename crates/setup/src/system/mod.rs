@@ -32,13 +32,11 @@ use anyhow::{anyhow, Context, Result};
 use bach_pack::manifest::{Manifest, Scope, UNINSTALLER};
 use windows::core::{Interface, GUID, HSTRING};
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IPersistFile,
-    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+    CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::UI::Shell::{
-    FOLDERID_CommonPrograms, FOLDERID_Desktop, FOLDERID_ProgramFiles, FOLDERID_Programs, FOLDERID_PublicDesktop,
-    FOLDERID_UserProgramFiles, IShellLinkW, SHChangeNotify,
-    SHGetKnownFolderPath, ShellLink, KF_FLAG_DEFAULT, SHCNE_ASSOCCHANGED, SHCNF_IDLIST,
+    FOLDERID_CommonPrograms, FOLDERID_Desktop, FOLDERID_ProgramFiles, FOLDERID_Programs, FOLDERID_PublicDesktop, FOLDERID_UserProgramFiles,
+    IShellLinkW, SHChangeNotify, SHGetKnownFolderPath, ShellLink, KF_FLAG_DEFAULT, SHCNE_ASSOCCHANGED, SHCNF_IDLIST,
 };
 use windows_registry::{Key, CURRENT_USER, LOCAL_MACHINE};
 
@@ -68,10 +66,7 @@ pub fn installed(manifest: &Manifest) -> Option<Installed> {
     let key = hive(manifest).open(uninstall_key(manifest)).ok()?;
     let dir = PathBuf::from(key.get_string("InstallLocation").ok()?);
     let version = key.get_string("DisplayVersion").unwrap_or_default();
-    manifest
-        .executable_in(&dir)
-        .is_file()
-        .then_some(Installed { dir, version })
+    manifest.executable_in(&dir).is_file().then_some(Installed { dir, version })
 }
 
 /// `%LOCALAPPDATA%\Programs\<folder>`, where per-user apps go, or
@@ -83,11 +78,7 @@ pub fn default_install_dir(manifest: &Manifest) -> PathBuf {
         Scope::Machine => (&FOLDERID_ProgramFiles, "ProgramFiles", ""),
     };
     known_folder(id)
-        .or_else(|_| {
-            std::env::var_os(variable)
-                .map(|base| PathBuf::from(base).join(below))
-                .ok_or_else(|| anyhow!("{variable} isn't set"))
-        })
+        .or_else(|_| std::env::var_os(variable).map(|base| PathBuf::from(base).join(below)).ok_or_else(|| anyhow!("{variable} isn't set")))
         .map(|programs| programs.join(folder))
         .unwrap_or_else(|_| PathBuf::from(r"C:\").join(folder))
 }
@@ -95,10 +86,7 @@ pub fn default_install_dir(manifest: &Manifest) -> PathBuf {
 /// A shortcut's file name: `name`, minus anything Windows doesn't allow in
 /// a file name (or the app id, if nothing is left).
 fn link_name(name: &str, fallback: &str) -> String {
-    let name: String = name
-        .chars()
-        .map(|c| if r#"<>:"/\|?*"#.contains(c) || c.is_control() { ' ' } else { c })
-        .collect();
+    let name: String = name.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) || c.is_control() { ' ' } else { c }).collect();
     let name = name.trim().trim_end_matches('.');
     let name = if name.is_empty() { fallback } else { name };
     format!("{name}.lnk")
@@ -131,11 +119,7 @@ pub fn extra_shortcuts(manifest: &Manifest) -> Vec<(PathBuf, &bach_pack::manifes
     let Ok(folder) = start_menu_folder(manifest) else {
         return Vec::new();
     };
-    manifest
-        .shortcuts
-        .iter()
-        .map(|shortcut| (folder.join(link_name(&shortcut.name, &manifest.app.id)), shortcut))
-        .collect()
+    manifest.shortcuts.iter().map(|shortcut| (folder.join(link_name(&shortcut.name, &manifest.app.id)), shortcut)).collect()
 }
 
 /// Where the desktop shortcut goes (the desktop may live in OneDrive).
@@ -151,8 +135,7 @@ fn known_folder(id: &GUID) -> Result<PathBuf> {
     // Safety: the returned buffer is ours to free, which we do once it's
     // copied into a PathBuf.
     unsafe {
-        let raw = SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None)
-            .context("Windows didn't say where that folder is")?;
+        let raw = SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None).context("Windows didn't say where that folder is")?;
         let path = raw.to_string().map(PathBuf::from);
         CoTaskMemFree(Some(raw.0 as *const _));
         path.context("Windows returned a folder name that isn't valid text")

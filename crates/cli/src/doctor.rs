@@ -9,12 +9,7 @@ use crate::output::field;
 use crate::runtime::{self, Found};
 
 pub fn doctor(config: &Path) -> Result<()> {
-    println!(
-        "Bach {} on {} ({})",
-        env!("CARGO_PKG_VERSION"),
-        std::env::consts::OS,
-        std::env::consts::ARCH
-    );
+    println!("Bach {} on {} ({})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
     let mut problems = 0;
     let mut signing_program = None;
     match runtime::locate(None) {
@@ -65,7 +60,11 @@ pub fn doctor(config: &Path) -> Result<()> {
         Some(program) => field("Signing", format!("[signing] runs {program} when you build with --sign (or BACH_SIGN=1)")),
         None => field(
             "Signing",
-            if has_signtool() { "off, signtool found (add [signing] and build with --sign)" } else { "off (optional: [signing] in bach.toml, see docs/signing.md)" },
+            if has_signtool() {
+                "off, signtool found (add [signing] and build with --sign)"
+            } else {
+                "off (optional: [signing] in bach.toml, see docs/signing.md)"
+            },
         ),
     }
     println!();

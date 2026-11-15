@@ -35,9 +35,7 @@ pub use typography::TypeScale;
 
 /// Everything a page usually needs, in one import.
 pub mod prelude {
-    pub use super::{
-        Appear, BachMark, Checkbox, FormButton, Icon, ProgressBar, Row, Shimmer, TypeScale,
-    };
+    pub use super::{Appear, BachMark, Checkbox, FormButton, Icon, ProgressBar, Row, Shimmer, TypeScale};
 }
 
 /// Motion preferences. Call once at startup, before opening the window.

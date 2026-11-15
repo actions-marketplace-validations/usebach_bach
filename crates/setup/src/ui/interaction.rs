@@ -108,12 +108,7 @@ pub fn use_interaction(id: impl Into<ElementId>, window: &mut Window, cx: &mut A
 }
 
 /// Like [`use_interaction`], with another fade (picker rows use 100ms).
-pub fn use_interaction_with(
-    id: impl Into<ElementId>,
-    fade: Tween,
-    window: &mut Window,
-    cx: &mut App,
-) -> Entity<Interaction> {
+pub fn use_interaction_with(id: impl Into<ElementId>, fade: Tween, window: &mut Window, cx: &mut App) -> Entity<Interaction> {
     let state = window.use_keyed_state(id, cx, move |_, _| Interaction::new(fade));
     if state.read(cx).is_animating() {
         window.request_animation_frame();

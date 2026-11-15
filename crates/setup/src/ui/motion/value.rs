@@ -28,10 +28,7 @@ pub struct Tween {
 
 impl Tween {
     pub const fn new(millis: u64, easing: Easing) -> Self {
-        Self {
-            duration: Duration::from_millis(millis),
-            easing,
-        }
+        Self { duration: Duration::from_millis(millis), easing }
     }
 
     /// As a `gpui::Animation` (for the simple, never-retargeted cases).
@@ -194,9 +191,7 @@ impl AnimatedValue {
         self.length = match motion {
             Motion::Instant => Duration::ZERO,
             Motion::Tween(tween) => tween.duration,
-            Motion::Spring(spring) => {
-                spring.settle_time(value - target, velocity, self.precision)
-            }
+            Motion::Spring(spring) => spring.settle_time(value - target, velocity, self.precision),
         };
         // The move keeps the motion it started with even if set_motion runs.
         self.active = motion;
@@ -216,13 +211,11 @@ impl AnimatedValue {
                 // Finite difference: tweens only need velocity when a spring
                 // takes over from them.
                 let h = 1.0 / 240.0;
-                let ahead = self.from
-                    + span * tween.progress(Duration::from_secs_f32(t + h));
+                let ahead = self.from + span * tween.progress(Duration::from_secs_f32(t + h));
                 (value, (ahead - value) / h)
             }
             Motion::Spring(spring) => {
-                let (x, v) =
-                    spring.evaluate(self.from - self.target, self.velocity, elapsed.as_secs_f32());
+                let (x, v) = spring.evaluate(self.from - self.target, self.velocity, elapsed.as_secs_f32());
                 (self.target + x, v)
             }
         }

@@ -259,20 +259,72 @@ pub fn check_registry_value(value: &RegistryValue) -> Result<()> {
 /// Variables that load code into other programs or redirect their network
 /// traffic and trust. Never settable, whatever the config says.
 const INJECTION_VARIABLES: &[&str] = &[
-    "COR_ENABLE_PROFILING", "COR_PROFILER", "COR_PROFILER_PATH", "CORECLR_ENABLE_PROFILING", "CORECLR_PROFILER",
-    "CORECLR_PROFILER_PATH", "DOTNET_STARTUP_HOOKS", "DOTNET_GCHEAPAFFINITIZEMASK", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS",
-    "JDK_JAVA_OPTIONS", "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED", "PYTHONSTARTUP",
-    "PYTHONPATH", "PYTHONHOME", "PERL5OPT", "PERL5LIB", "RUBYOPT", "RUBYLIB", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
-    "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSLKEYLOGFILE", "LD_PRELOAD",
-    "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
+    "COR_ENABLE_PROFILING",
+    "COR_PROFILER",
+    "COR_PROFILER_PATH",
+    "CORECLR_ENABLE_PROFILING",
+    "CORECLR_PROFILER",
+    "CORECLR_PROFILER_PATH",
+    "DOTNET_STARTUP_HOOKS",
+    "DOTNET_GCHEAPAFFINITIZEMASK",
+    "JAVA_TOOL_OPTIONS",
+    "_JAVA_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+    "NODE_OPTIONS",
+    "NODE_EXTRA_CA_CERTS",
+    "NODE_TLS_REJECT_UNAUTHORIZED",
+    "PYTHONSTARTUP",
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PERL5OPT",
+    "PERL5LIB",
+    "RUBYOPT",
+    "RUBYLIB",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    "SSLKEYLOGFILE",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
 ];
 
 /// Variables that make Windows or other programs misbehave when changed.
 const PROTECTED_VARIABLES: &[&str] = &[
-    "PATH", "PATHEXT", "TEMP", "TMP", "USERNAME", "USERPROFILE", "USERDOMAIN", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT",
-    "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "PROGRAMDATA",
-    "COMMONPROGRAMFILES", "APPDATA", "LOCALAPPDATA", "ALLUSERSPROFILE", "PUBLIC", "COMPUTERNAME", "LOGONSERVER", "OS",
-    "PSMODULEPATH", "DRIVERDATA", "SESSIONNAME", "NUMBER_OF_PROCESSORS",
+    "PATH",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "USERNAME",
+    "USERPROFILE",
+    "USERDOMAIN",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "COMSPEC",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "PROGRAMW6432",
+    "PROGRAMDATA",
+    "COMMONPROGRAMFILES",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "ALLUSERSPROFILE",
+    "PUBLIC",
+    "COMPUTERNAME",
+    "LOGONSERVER",
+    "OS",
+    "PSMODULEPATH",
+    "DRIVERDATA",
+    "SESSIONNAME",
+    "NUMBER_OF_PROCESSORS",
 ];
 
 pub fn check_env_var(var: &EnvVar) -> Result<()> {
@@ -299,8 +351,7 @@ pub fn check_env_var(var: &EnvVar) -> Result<()> {
 /// What an app's own environment variables start with: its id in capitals,
 /// every other character an underscore (`My App` gives `MY_APP_`).
 pub fn env_prefix(app_id: &str) -> String {
-    let mut prefix: String =
-        app_id.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' }).collect();
+    let mut prefix: String = app_id.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' }).collect();
     prefix.push('_');
     prefix
 }
@@ -428,9 +479,23 @@ mod tests {
     #[test]
     fn variables_that_inject_code_or_redirect_traffic_are_never_set() {
         for name in [
-            "COR_ENABLE_PROFILING", "COR_PROFILER", "CORECLR_PROFILER_PATH", "DOTNET_STARTUP_HOOKS", "JAVA_TOOL_OPTIONS",
-            "_JAVA_OPTIONS", "NODE_OPTIONS", "PYTHONSTARTUP", "PYTHONPATH", "PERL5OPT", "HTTPS_PROXY", "https_proxy",
-            "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSLKEYLOGFILE", "DOTNET_PROFILER_X", "LD_PRELOAD",
+            "COR_ENABLE_PROFILING",
+            "COR_PROFILER",
+            "CORECLR_PROFILER_PATH",
+            "DOTNET_STARTUP_HOOKS",
+            "JAVA_TOOL_OPTIONS",
+            "_JAVA_OPTIONS",
+            "NODE_OPTIONS",
+            "PYTHONSTARTUP",
+            "PYTHONPATH",
+            "PERL5OPT",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "NODE_EXTRA_CA_CERTS",
+            "SSL_CERT_FILE",
+            "SSLKEYLOGFILE",
+            "DOTNET_PROFILER_X",
+            "LD_PRELOAD",
         ] {
             assert!(check_env_var(&EnvVar { name: name.into(), value: "x".into() }).is_err(), "{name}");
         }
@@ -462,7 +527,13 @@ mod tests {
     #[test]
     fn menu_texts_in_any_script_get_their_own_keys() {
         let entry = |name: &str| ContextMenuEntry { name: name.into(), on: vec![ContextTarget::Files], arguments: None };
-        let texts = ["\u{6253}\u{5f00}", "\u{5f00}\u{59cb}", "\u{c5f4}\u{ae30}", "\u{41e}\u{442}\u{43a}\u{440}\u{44b}\u{442}\u{44c}", "\u{627}\u{641}\u{62a}\u{62d}"];
+        let texts = [
+            "\u{6253}\u{5f00}",
+            "\u{5f00}\u{59cb}",
+            "\u{c5f4}\u{ae30}",
+            "\u{41e}\u{442}\u{43a}\u{440}\u{44b}\u{442}\u{44c}",
+            "\u{627}\u{641}\u{62a}\u{62d}",
+        ];
         let mut verbs = std::collections::HashSet::new();
         for text in texts {
             check_context_entry(&entry(text)).unwrap_or_else(|err| panic!("{text}: {err}"));

@@ -91,12 +91,8 @@ fn undo_stale(at: &Where, manifest: &Manifest, previous: &Manifest, dir: &Path) 
     }
     for old in &previous.system.context_menu {
         let verb = old.verb(&manifest.app.id);
-        let kept: Vec<&ContextTarget> = now
-            .context_menu
-            .iter()
-            .filter(|new| new.verb(&manifest.app.id) == verb)
-            .flat_map(|new| new.on.iter())
-            .collect();
+        let kept: Vec<&ContextTarget> =
+            now.context_menu.iter().filter(|new| new.verb(&manifest.app.id) == verb).flat_map(|new| new.on.iter()).collect();
         let gone: Vec<ContextTarget> = old.on.iter().filter(|target| !kept.contains(target)).cloned().collect();
         unregister_menu(at, manifest, old, &gone);
     }
@@ -274,11 +270,8 @@ mod tests {
         let at = Where { hive: CURRENT_USER, environment: "Environment" };
         let dir = Path::new(r"C:\Apps\Hello");
         let exe = dir.join("hello.exe");
-        let entry = ContextMenuEntry {
-            name: "Open with Hello".into(),
-            on: vec![ContextTarget::Extension(extension.clone())],
-            arguments: None,
-        };
+        let entry =
+            ContextMenuEntry { name: "Open with Hello".into(), on: vec![ContextTarget::Extension(extension.clone())], arguments: None };
         let ours = manifest("MenuTest", SystemChanges { context_menu: vec![entry.clone()], ..SystemChanges::default() });
         let theirs = manifest("MenuOther", SystemChanges { context_menu: vec![entry.clone()], ..SystemChanges::default() });
         let path = format!(r"{CLASSES}\SystemFileAssociations\{extension}\shell\{}", entry.verb("MenuTest"));

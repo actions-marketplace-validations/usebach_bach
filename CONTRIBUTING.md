@@ -67,6 +67,7 @@ useful for people.
 Both of these must pass; CI runs them too:
 
 ```bash
+cargo fmt --all -- --check   # `cargo fmt --all` fixes it; the style is in rustfmt.toml
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```

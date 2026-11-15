@@ -285,11 +285,9 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         );
     }
     let (updates, update_download_url, update_github) = match update_settings {
-        Some(settings) => (
-            Some(settings.updates),
-            settings.download_url.map(|url| url.replace("{version}", &app.version)),
-            settings.github,
-        ),
+        Some(settings) => {
+            (Some(settings.updates), settings.download_url.map(|url| url.replace("{version}", &app.version)), settings.github)
+        }
         None => (None, None, None),
     };
     let feedback_url = extras::https(&file.uninstall.feedback_url, "uninstall.feedback_url")?;
@@ -350,17 +348,10 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         bail!("{} has no files to install", source_dir.display());
     }
     if let Some(clash) = sources.iter().find(|source| source.packaged.eq_ignore_ascii_case(manifest::UNINSTALLER)) {
-        bail!(
-            "{} would replace the uninstaller Bach adds; rename it or add it to files.exclude",
-            clash.path.display()
-        );
+        bail!("{} would replace the uninstaller Bach adds; rename it or add it to files.exclude", clash.path.display());
     }
     if !sources.iter().any(|source| source.packaged.eq_ignore_ascii_case(&app.executable)) {
-        bail!(
-            "app.executable is \"{}\", but there's no such file in {} (or it's excluded)",
-            app.executable,
-            source_dir.display()
-        );
+        bail!("app.executable is \"{}\", but there's no such file in {} (or it's excluded)", app.executable, source_dir.display());
     }
 
     let mut files: Vec<FileEntry> = sources.iter().map(|source| FileEntry::new(&source.packaged, source.size)).collect();
@@ -569,10 +560,7 @@ fn has_extension(path: &Path, extension: &str) -> bool {
 /// `{name}`, `{version}` and `{id}` in the output path.
 pub fn fill_template(template: &str, app: &manifest::App) -> String {
     let clean = |value: &str| value.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) { '-' } else { c }).collect::<String>();
-    template
-        .replace("{name}", &clean(&app.name))
-        .replace("{version}", &clean(&app.version))
-        .replace("{id}", &clean(&app.id))
+    template.replace("{name}", &clean(&app.name)).replace("{version}", &clean(&app.version)).replace("{id}", &clean(&app.id))
 }
 
 /// `#rrggbb` (or `rrggbb`) as a number.

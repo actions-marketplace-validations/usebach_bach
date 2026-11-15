@@ -208,8 +208,7 @@ pub fn recover(dir: &Path) -> usize {
         let target = PathBuf::from(path);
         // The journal is a plain file in the install folder: only ever act
         // on paths inside it.
-        let inside = target.starts_with(dir)
-            && target.components().all(|part| !matches!(part, std::path::Component::ParentDir));
+        let inside = target.starts_with(dir) && target.components().all(|part| !matches!(part, std::path::Component::ParentDir));
         if path.is_empty() || !inside {
             continue;
         }

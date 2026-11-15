@@ -13,13 +13,7 @@ impl SetupView {
     pub(super) fn requirement_page(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let texts = self.texts.clone();
-        let name = self
-            .package
-            .manifest
-            .requirements
-            .get(index)
-            .map(|requirement| requirement.name.clone())
-            .unwrap_or_default();
+        let name = self.package.manifest.requirements.get(index).map(|requirement| requirement.name.clone()).unwrap_or_default();
         let values = [("requirement", name.as_str())];
         let buttons = vec![
             FormButton::new("setup-cancel", texts.get(Key::cancel))

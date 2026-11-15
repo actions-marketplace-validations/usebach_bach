@@ -2,9 +2,7 @@
 //! and a link to where people get one.
 
 use bach_pack::i18n::Key;
-use gpui::{
-    div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString, Styled,
-};
+use gpui::{div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString, Styled};
 
 use super::{footer, page_icon, subtitle_text, PageLayout};
 use crate::keyboard::Target;
@@ -22,11 +20,7 @@ impl SetupView {
         let has_link = self.package.manifest.access.as_ref().is_some_and(|access| access.get_key_url.is_some());
 
         let empty = self.key.is_empty();
-        let shown: SharedString = if empty {
-            texts.get(Key::access_hint).into()
-        } else {
-            visible_end(&self.key).into()
-        };
+        let shown: SharedString = if empty { texts.get(Key::access_hint).into() } else { visible_end(&self.key).into() };
         let border = if self.key_error.is_some() { theme.destructive } else { theme.input };
         let field = div()
             .id("setup-key-field")
@@ -54,9 +48,9 @@ impl SetupView {
                     .text_color(if empty { theme.muted_foreground } else { theme.foreground })
                     .child(shown)
                     // The caret sits after what was typed, not the hint.
-                    .children((!empty && !self.key_checking).then(|| {
-                        div().ml(px(1.)).w(px(1.5)).h(px(18.)).flex_none().bg(theme.foreground)
-                    })),
+                    .children(
+                        (!empty && !self.key_checking).then(|| div().ml(px(1.)).w(px(1.5)).h(px(18.)).flex_none().bg(theme.foreground)),
+                    ),
             )
             .child(
                 FormButton::new("setup-paste", texts.get(Key::access_paste))
