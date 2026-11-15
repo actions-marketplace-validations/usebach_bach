@@ -15,9 +15,20 @@ const FORBIDDEN: &[char] = &['<', '>', ':', '"', '|', '?', '*'];
 
 /// Names Windows reserves for devices, with or without an extension.
 const RESERVED: &[&str] = &[
-    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
-    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+    "con", "prn", "aux", "nul", "conin$", "conout$", "com0", "com1", "com2", "com3", "com4", "com5", "com6",
+    "com7", "com8", "com9", "com\u{b9}", "com\u{b2}", "com\u{b3}", "lpt0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5",
+    "lpt6", "lpt7", "lpt8", "lpt9", "lpt\u{b9}", "lpt\u{b2}", "lpt\u{b3}",
 ];
+
+/// The longest one name (a file or a folder) may be: 255 UTF-16 units.
+const MAX_NAME_UNITS: usize = 255;
+
+/// Whether Windows takes `name` for a device (`nul`, `Com1.txt`, `lpt\u{b2}`, `con .log`),
+/// with or without an extension and whatever the letter case.
+pub fn is_reserved_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end().to_lowercase();
+    RESERVED.contains(&stem.as_str())
+}
 
 /// Checks a packaged path and returns it in its one canonical spelling:
 /// relative, `/`-separated, no `.` or `..`, no empty parts.
@@ -49,9 +60,11 @@ fn check_component(path: &str, part: &str) -> Result<()> {
     if part.ends_with(['.', ' ']) {
         bail!("\"{path}\" has a part ending in a dot or space, which Windows drops");
     }
-    let stem = part.split('.').next().unwrap_or(part).to_ascii_lowercase();
-    if RESERVED.contains(&stem.as_str()) {
+    if is_reserved_name(part) {
         bail!("\"{path}\" uses \"{part}\", a name Windows reserves for devices");
+    }
+    if part.encode_utf16().count() > MAX_NAME_UNITS {
+        bail!("\"{path}\" has a name part longer than {MAX_NAME_UNITS} characters, which Windows can't create");
     }
     Ok(())
 }
@@ -68,9 +81,12 @@ pub fn under(dir: &Path, packaged: &str) -> PathBuf {
 pub fn is_valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
+        && id.encode_utf16().count() <= MAX_NAME_UNITS
         && id.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_'))
         && !id.starts_with([' ', '.'])
         && !id.ends_with([' ', '.'])
+        // `nul` and `Com1` make a folder Windows can't create or others can't open.
+        && !is_reserved_name(id)
 }
 
 /// An app id as one file or folder name, for the places setup keeps scratch
@@ -254,6 +270,28 @@ mod tests {
         for id in ["My App", "A  B", "x y z"] {
             assert!(normalize(&safe_dir_name(id)).is_ok(), "{id} stays a valid name");
         }
+    }
+
+    #[test]
+    fn device_names_are_not_ids_folders_or_paths() {
+        for name in ["nul", "NUL", "con", "Aux", "prn", "COM1", "com9", "LPT9", "lpt1", "Com0", "lpt0", "nul.txt", "Com1.log", "con .txt", "com\u{b2}", "LPT\u{b9}", "CONIN$"] {
+            assert!(!is_valid_id(name), "{name:?} must not be an id or folder");
+            assert!(normalize(&format!("sub/{name}")).is_err(), "{name:?} must not be a packaged name");
+        }
+        for name in ["Console", "Auxiliary", "Communicator", "Nullable", "com10", "lpt", "con-trol", "Hello"] {
+            assert!(is_valid_id(name), "{name:?} is fine");
+        }
+    }
+
+    #[test]
+    fn a_name_part_has_at_most_255_characters() {
+        let long = "a".repeat(255);
+        assert!(normalize(&format!("{long}/x.txt")).is_ok());
+        assert!(normalize(&format!("{}/x.txt", "a".repeat(256))).is_err());
+        // Counted in UTF-16 units, like Windows: each of these is two.
+        assert!(normalize(&"\u{1d11e}".repeat(127)).is_ok());
+        assert!(normalize(&"\u{1d11e}".repeat(128)).is_err());
+        assert!(!is_valid_id(&"a".repeat(65)), "ids stay at 64");
     }
 
     #[test]

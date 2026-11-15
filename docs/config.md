@@ -33,7 +33,7 @@ default, so a five-line config already builds a complete installer.
 | `version` | yes | Any version text, like `1.2.0` or `2.0.0-beta.1`. Shown in the window and Settings › Apps; the first numbers also go into the setup file's details. |
 | `publisher` | yes | You or your company. Shown in the window's footer and Settings › Apps. |
 | `executable` | yes | The program to start, relative to `[files] source`, for example `my-app.exe` or `bin/my-app.exe`. Shortcuts and the "Open" button start it. |
-| `id` | no | Identifies the install across versions (registry key name). Defaults to `name`. Letters, digits, spaces, `.`, `-` and `_`. Never change it after your first release, or updates install side by side. |
+| `id` | no | Identifies the install across versions (registry key name). Defaults to `name`. Letters, digits, spaces, `.`, `-` and `_`, up to 64 characters, and not a name Windows keeps for devices (`CON`, `PRN`, `AUX`, `NUL`, `COM0` to `COM9`, `LPT0` to `LPT9`, with or without an extension, in any letter case). Never change it after your first release, or updates install side by side. |
 | `description` | no | One line. The shortcut's tooltip, and the line under "Install My App" on the first page (unless `[text] install_subtitle` replaces it). Without it, that line is left out. |
 | `website` | no | An `https://` link, shown as the support link in Settings › Apps. |
 | `icon` | no | A `.ico` file. It becomes the setup file's icon and the window's icon, and, when it holds a PNG image (most modern icons do) and `installer.logo` isn't set, the logo in the window. Include sizes 16 to 256 for crisp results. |
@@ -57,6 +57,11 @@ the first file and why. Leave the file out with `exclude`, or name it in
 `*.log`, `Thumbs.db`, `.DS_Store`, and anything in `node_modules`, `target` or
 `__pycache__`) give a warning, not an error. `bach init` excludes the first
 four for the stacks it recognises.
+
+Every name in the source folder, file or folder, has to be one Windows can
+create: at most 255 characters (counted as Windows counts them) and not a
+device name such as `NUL` or `COM1`. `bach check` reports the first one that
+isn't, before a setup file is built.
 
 The source folder may not contain symbolic links or a file named
 `uninstall.exe` at its top (Bach adds its own).
@@ -111,7 +116,7 @@ signs and publishes both files.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `folder` | the app id | The install folder's name under `%LOCALAPPDATA%\Programs`. When the user picks another place, this name is added to it. |
+| `folder` | the app id | The install folder's name under `%LOCALAPPDATA%\Programs`. When the user picks another place, this name is added to it. Same rules as `app.id`. |
 | `change_folder` | `true` | Whether the user may pick another folder ("Change", or a click on the Location row). Updates always stay where they are. |
 | `open_button` | `true` | Whether the last page offers "Open My App". |
 | `start_menu_folder` | none | A folder in the Start menu for the shortcuts, like your company's name. Removed when it's empty after uninstalling. |
