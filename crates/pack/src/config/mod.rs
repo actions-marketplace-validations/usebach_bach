@@ -365,6 +365,14 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
 
     let mut files: Vec<FileEntry> = sources.iter().map(|source| FileEntry::new(&source.packaged, source.size)).collect();
     let components = options::components(&file.components, &mut files, &app, &languages)?;
+    let system_changes = system::changes(
+        &file.registry,
+        &file.env,
+        &file.context_menu,
+        &file.migrate,
+        &system::Owner { id: &app.id, name: &app.name, publisher: &app.publisher },
+        &mut warnings,
+    )?;
     let manifest = Manifest {
         format: crate::FORMAT_VERSION,
         builder: crate::VERSION.into(),
@@ -381,7 +389,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         requirements: extras::requirements(&file.requirements)?,
         shortcuts: Vec::new(),
         run: Vec::new(),
-        system: system::changes(&file.registry, &file.env, &file.context_menu, &file.migrate)?,
+        system: system_changes,
         updates,
         access: access.as_ref().map(|access| access.manifest.clone()),
         online: false,

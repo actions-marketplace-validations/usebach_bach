@@ -195,11 +195,17 @@ const PROTECTED_KEYS: &[&str] = &[
     "policies",
     "wow6432node",
     "bach",
-    "microsoft\\windows",
-    "microsoft\\windows nt",
-    "microsoft\\internet explorer",
-    "microsoft\\command processor",
-    "microsoft\\active setup",
+    // Whole vendors whose keys hold security settings, trust lists, browser
+    // extension hooks and shell registrations: Office trusted locations,
+    // Defender exclusions, certificates, native messaging hosts and the like.
+    "microsoft",
+    "google",
+    "mozilla",
+    "mozillaplugins",
+    "chromium",
+    "registeredapplications",
+    "clients",
+    "odbc",
 ];
 
 /// Checks a registry key from `bach.toml` or a payload.
@@ -232,6 +238,17 @@ pub fn check_registry_value(value: &RegistryValue) -> Result<()> {
     }
 }
 
+/// Variables that load code into other programs or redirect their network
+/// traffic and trust. Never settable, whatever the config says.
+const INJECTION_VARIABLES: &[&str] = &[
+    "COR_ENABLE_PROFILING", "COR_PROFILER", "COR_PROFILER_PATH", "CORECLR_ENABLE_PROFILING", "CORECLR_PROFILER",
+    "CORECLR_PROFILER_PATH", "DOTNET_STARTUP_HOOKS", "DOTNET_GCHEAPAFFINITIZEMASK", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS",
+    "JDK_JAVA_OPTIONS", "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED", "PYTHONSTARTUP",
+    "PYTHONPATH", "PYTHONHOME", "PERL5OPT", "PERL5LIB", "RUBYOPT", "RUBYLIB", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+    "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSLKEYLOGFILE", "LD_PRELOAD",
+    "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
+];
+
 /// Variables that make Windows or other programs misbehave when changed.
 const PROTECTED_VARIABLES: &[&str] = &[
     "PATH", "PATHEXT", "TEMP", "TMP", "USERNAME", "USERPROFILE", "USERDOMAIN", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT",
@@ -252,10 +269,33 @@ pub fn check_env_var(var: &EnvVar) -> Result<()> {
     if PROTECTED_VARIABLES.contains(&upper.as_str()) || upper.starts_with("PROCESSOR_") || upper.starts_with("BACH_") {
         bail!("the environment variable {} belongs to Windows or Bach; choose a name of your own", var.name);
     }
+    if INJECTION_VARIABLES.contains(&upper.as_str()) || upper.starts_with("DOTNET_") && upper.contains("PROFIL") {
+        bail!("the environment variable {} loads code into other programs or redirects their traffic, so Bach never sets it", var.name);
+    }
     if var.value.is_empty() || var.value.len() > MAX_VALUE || var.value.contains('\0') {
         bail!("the environment variable {} has an empty, too long or damaged value", var.name);
     }
     Ok(())
+}
+
+/// What an app's own environment variables start with: its id in capitals,
+/// every other character an underscore (`My App` gives `MY_APP_`).
+pub fn env_prefix(app_id: &str) -> String {
+    let mut prefix: String =
+        app_id.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' }).collect();
+    prefix.push('_');
+    prefix
+}
+
+/// Whether a registry key's vendor folder (`Software\<vendor>`) is named
+/// after the publisher, the app or its id, ignoring case and punctuation.
+pub fn key_is_named_after(key: &str, names: &[&str]) -> bool {
+    let simple = |text: &str| text.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
+    let Some(vendor) = key.split('\\').nth(1) else {
+        return false;
+    };
+    let vendor = simple(vendor);
+    !vendor.is_empty() && names.iter().any(|name| simple(name) == vendor)
 }
 
 pub fn check_context_entry(entry: &ContextMenuEntry) -> Result<()> {
@@ -314,8 +354,37 @@ mod tests {
         ] {
             assert!(check_registry_key(bad).is_err(), "{bad}");
         }
-        assert!(check_registry_key(r"Software\Microsoft\Office\Thing").is_ok());
         assert!(check_registry_key(r"Software\Microsoftish\App").is_ok());
+        assert!(check_registry_key(r"Software\Vendor\App").is_ok());
+        assert!(check_registry_key(r"Software\My Vendor\My App\Settings").is_ok());
+    }
+
+    #[test]
+    fn whole_vendors_with_security_settings_are_off_limits() {
+        for bad in [
+            r"Software\Microsoft\Office\16.0\Word\Security\Trusted Locations\Location9",
+            r"Software\Microsoft\Office\16.0\Word\Security\VBAWarnings",
+            r"Software\Microsoft\Windows Defender\Exclusions\Paths",
+            r"Software\Microsoft\Windows Script Host\Settings",
+            r"Software\Microsoft\SystemCertificates\Root\Certificates",
+            r"Software\Microsoft\Cryptography\Defaults",
+            r"Software\Google\Chrome\NativeMessagingHosts\x",
+            r"Software\Mozilla\NativeMessagingHosts\x",
+            r"Software\Microsoft\Edge\Extensions",
+            r"Software\RegisteredApplications",
+            r"software\MICROSOFT\x",
+        ] {
+            assert!(check_registry_key(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn keys_named_after_the_publisher_or_app() {
+        assert!(key_is_named_after(r"Software\Example Corp\Hello", &["Example Corp", "Hello", "Hello"]));
+        assert!(key_is_named_after(r"Software\HELLO\x", &["Example", "Hello"]));
+        assert!(key_is_named_after(r"Software\Example-Corp", &["Example Corp"]));
+        assert!(!key_is_named_after(r"Software\Other\Hello", &["Example", "Hello"]));
+        assert!(!key_is_named_after("Software", &["Hello"]));
     }
 
     #[test]
@@ -336,6 +405,24 @@ mod tests {
             assert!(check_env_var(&EnvVar { name: name.into(), value: "x".into() }).is_err(), "{name}");
         }
         assert!(check_env_var(&EnvVar { name: "X".into(), value: String::new() }).is_err());
+    }
+
+    #[test]
+    fn variables_that_inject_code_or_redirect_traffic_are_never_set() {
+        for name in [
+            "COR_ENABLE_PROFILING", "COR_PROFILER", "CORECLR_PROFILER_PATH", "DOTNET_STARTUP_HOOKS", "JAVA_TOOL_OPTIONS",
+            "_JAVA_OPTIONS", "NODE_OPTIONS", "PYTHONSTARTUP", "PYTHONPATH", "PERL5OPT", "HTTPS_PROXY", "https_proxy",
+            "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSLKEYLOGFILE", "DOTNET_PROFILER_X", "LD_PRELOAD",
+        ] {
+            assert!(check_env_var(&EnvVar { name: name.into(), value: "x".into() }).is_err(), "{name}");
+        }
+        assert!(check_env_var(&EnvVar { name: "JAVA_HOME".into(), value: "x".into() }).is_ok(), "ordinary names pass the hard list");
+    }
+
+    #[test]
+    fn an_apps_variables_start_with_its_id() {
+        assert_eq!(env_prefix("Hello"), "HELLO_");
+        assert_eq!(env_prefix("My App-2"), "MY_APP_2_");
     }
 
     #[test]

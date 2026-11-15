@@ -730,11 +730,24 @@ value = "b""#, "second time"),
 name = "PATH"
 value = "x""#, "belongs to Windows"),
         (r#"[[env]]
-name = "A"
+name = "HELLO_A"
 value = "1"
 [[env]]
-name = "a"
+name = "hello_a"
 value = "2""#, "set twice"),
+        (r#"[[env]]
+name = "JAVA_HOME"
+value = "x""#, "doesn't start with HELLO_"),
+        (r#"[[env]]
+name = "NODE_OPTIONS"
+value = "x"
+allow = true"#, "loads code"),
+        (r#"[[registry]]
+key = 'Software\Microsoft\Windows Defender\Exclusions\Paths'
+value = "x""#, "registry[0]"),
+        (r#"[[registry]]
+key = 'Software\Google\Chrome\NativeMessagingHosts\x'
+value = "x""#, "registry[0]"),
         (r#"[[context_menu]]
 name = "Open""#, "context_menu[0].on"),
         (r#"[[context_menu]]

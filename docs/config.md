@@ -360,10 +360,15 @@ Use single quotes for the key, so the backslashes stay as they are. An
 update writes the values again and removes the ones the new version no longer
 lists. Removing the app deletes a value only while it still holds what setup
 wrote, so a setting the user or the app changed since stays, and keys that end
-up empty go too. Keys that belong to Windows, other programs or Bach
-(`Software\Classes`, `Software\Policies`, `Software\Microsoft\Windows…`,
-`Software\Bach`) are refused; use `[[protocols]]`, `[[file_types]]` and
-`[[context_menu]]` for what those are for.
+up empty go too. Keys that belong to Windows, other programs or Bach are
+refused: `Software\Classes`, `Software\Policies`, `Software\Bach`, and every
+key of the vendors `Microsoft`, `Google`, `Mozilla`, `Mozillaplugins`,
+`Chromium`, `RegisteredApplications`, `Clients` and `ODBC` (they hold Office
+trusted locations, Defender exclusions, certificates, browser extension hooks
+and the like). Use `[[protocols]]`, `[[file_types]]` and `[[context_menu]]`
+for what those are for. `bach check` warns when the key isn't below a folder
+named after `app.publisher`, `app.name` or `app.id`, which usually means a
+typo.
 
 ## [[env]]
 
@@ -374,12 +379,24 @@ the install see them; ones already running don't.
 [[env]]
 name = "HELLO_HOME"
 value = '{app}'                 # {app} is the install folder
+# allow = true                  # only for a name that doesn't start with HELLO_
 ```
+
+A name must start with your app's id in capitals, with every character that
+isn't a letter or digit turned into `_` (`Hello` gives `HELLO_`, `My App`
+gives `MY_APP_`), so the variable can't change what other programs read. Set
+`allow = true` to use another name; `bach check` then warns about it.
 
 A value with a `%VARIABLE%` in it is stored so Windows fills it in when it's
 read. Removing the app removes a variable only while it still holds the value
 setup set. Names Windows uses (`PATH`, `TEMP`, `USERPROFILE`, …) are refused;
-`PATH` has its own setting, `add_to_path`.
+`PATH` has its own setting, `add_to_path`. Variables that load code into other
+programs or redirect their traffic are refused whatever `allow` says:
+`COR_PROFILER` and the other `COR_*` and `CORECLR_*` profiler settings,
+`DOTNET_STARTUP_HOOKS`, `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `NODE_OPTIONS`,
+`PYTHONSTARTUP`, `PYTHONPATH`, `PERL5OPT`, `HTTP_PROXY`, `HTTPS_PROXY`,
+`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSLKEYLOGFILE`, `LD_PRELOAD` and a
+few more.
 
 ## [[context_menu]]
 

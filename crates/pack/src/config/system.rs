@@ -22,6 +22,9 @@ pub struct RegistrySection {
 pub struct EnvSection {
     name: String,
     value: String,
+    /// Lets the variable have a name that doesn't start with the app's id.
+    #[serde(default)]
+    allow: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,11 +45,20 @@ pub struct MigrateSection {
     elevated: bool,
 }
 
+/// Who the app is, so keys and variables can be checked against it.
+pub struct Owner<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub publisher: &'a str,
+}
+
 pub fn changes(
     registry: &[RegistrySection],
     env: &[EnvSection],
     menu: &[ContextMenuSection],
     migrate: &[MigrateSection],
+    owner: &Owner,
+    warnings: &mut Vec<String>,
 ) -> Result<SystemChanges> {
     let mut changes = SystemChanges::default();
     for (index, section) in migrate.iter().enumerate() {
@@ -81,6 +93,12 @@ pub fn changes(
             data,
         };
         system::check_registry_value(&value).map_err(|err| anyhow::anyhow!("{at}: {err}"))?;
+        if !system::key_is_named_after(&value.key, &[owner.publisher, owner.name, owner.id]) {
+            warnings.push(format!(
+                "{at}.key is \"{}\", which isn't below a folder named after app.publisher, app.name or app.id; check it for a typo",
+                value.key
+            ));
+        }
         if changes.registry.iter().any(|known| known.key.eq_ignore_ascii_case(&value.key) && known.name.eq_ignore_ascii_case(&value.name)) {
             bail!("{at} sets {}\\{} a second time", value.key, value.name);
         }
@@ -90,6 +108,17 @@ pub fn changes(
         let at = format!("env[{index}]");
         let var = EnvVar { name: section.name.trim().to_string(), value: section.value.clone() };
         system::check_env_var(&var).map_err(|err| anyhow::anyhow!("{at}: {err}"))?;
+        let prefix = system::env_prefix(owner.id);
+        if !var.name.to_ascii_uppercase().starts_with(&prefix) {
+            if !section.allow {
+                bail!(
+                    "{at}.name is \"{}\", which doesn't start with {prefix}; use a name of your own such as {prefix}HOME, \
+                     or set allow = true to change a variable other programs may read",
+                    var.name
+                );
+            }
+            warnings.push(format!("{at}.name is \"{}\", a variable other programs may read; it is allowed by allow = true", var.name));
+        }
         if changes.environment.iter().any(|known| known.name.eq_ignore_ascii_case(&var.name)) {
             bail!("{at}.name is \"{}\", which is set twice", var.name);
         }

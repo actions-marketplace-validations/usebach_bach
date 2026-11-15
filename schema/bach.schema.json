@@ -564,11 +564,16 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Letters, digits and _. Names Windows uses (PATH, TEMP, ...) are refused."
+            "description": "Letters, digits and _, starting with the app id in capitals (Hello gives HELLO_) unless allow is true. Names Windows uses (PATH, TEMP, ...) and variables that inject code or redirect traffic (COR_PROFILER, NODE_OPTIONS, HTTPS_PROXY, ...) are refused."
           },
           "value": {
             "type": "string",
             "description": "The value. {app} stands for the install folder."
+          },
+          "allow": {
+            "type": "boolean",
+            "default": false,
+            "description": "Lets the name differ from the app id prefix. bach check warns about it."
           }
         }
       }
