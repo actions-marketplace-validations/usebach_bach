@@ -109,7 +109,7 @@ impl Context<'_> {
     /// not have reached it yet. An update somebody asks for (`--update`)
     /// doesn't check this.
     fn in_rollout(&self, offer: &Offer) -> bool {
-        let included = rollout::included(rollout::this_computer(&self.manifest().app.id), offer.rollout);
+        let included = rollout::included(rollout::this_computer(&self.manifest().app.id, &offer.version), offer.rollout);
         if !included {
             crate::log::line(&format!(
                 "{} is being rolled out to {}% of computers, and not this one yet.",

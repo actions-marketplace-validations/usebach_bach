@@ -292,8 +292,10 @@ bach feed "dist/Hello-Setup-1.4.0.exe" --rollout 10
 { "version": "1.4.0", "url": "…", "sha256": "…", "rollout": 10 }
 ```
 
-Each computer has a fixed number from 0 to 99 (made from Windows' machine id and
-the app's id), and takes the update by itself when that number is below the
+Each computer has a fixed number from 0 to 99 for each version (made from Windows'
+machine id, the app's id and the version, so the first computers differ from
+release to release and are not always the same test group; installed copies
+built by an older Bach keep using the number without the version), and takes the update by itself when that number is below the
 rollout. Raise it (`--rollout 50`), then write the feed again without
 `--rollout` for everybody. A computer that was in the first ten percent stays
 in all later steps. Computers outside it say "up to date" for
