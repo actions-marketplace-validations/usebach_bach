@@ -2,6 +2,37 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.6.0 (2026-11-15)
+
+### New
+
+- Add update patches: bach build --patch-from and bach feed --patch ([b36c11c](https://github.com/usebach/bach/commit/b36c11c0e176cba40237f966bb35fa8f4deaea09))
+- Add [[migrate]]: remove an older install made by another installer ([48f52cf](https://github.com/usebach/bach/commit/48f52cf2b82c60ae7ef5f2571ae2e68d8bf5b6ab))
+- Add machine-wide installs and elevated run steps ([0c26f4b](https://github.com/usebach/bach/commit/0c26f4b9b790bf6e3fa017659fd781ba80f160b6))
+- Add optional signing: [signing], bach sign and bach build --no-sign ([2e07440](https://github.com/usebach/bach/commit/2e074404d71f409625e6287b2deea58e3f002291))
+- Add registry values, environment variables and right-click menu entries ([2373f56](https://github.com/usebach/bach/commit/2373f567202842f434c5abef97dba7b45e9e6250))
+
+### Fixes
+
+- Fix the commands in the repo docs for PowerShell, cmd and signtool ([d01c9c9](https://github.com/usebach/bach/commit/d01c9c9d063e33aec2e42ff51518d8d83e4d3cc7))
+- Fix winget scope and architecture and the registry hive shown by inspect ([c825644](https://github.com/usebach/bach/commit/c82564477c2a324c2a78c94623f79922dd1ff945))
+- Fix clippy findings in the elevation and registry changes code ([c7e8269](https://github.com/usebach/bach/commit/c7e8269336a7126beeae96c252457c60bb058fc5))
+
+### Improvements
+
+- Make key files and signing work from any shell ([2080948](https://github.com/usebach/bach/commit/208094819fe9f2c3d8e487a912c88ebb8f86a5c2))
+- Hash files with the sha2 0.11 helpers in the patch code ([75a2ba1](https://github.com/usebach/bach/commit/75a2ba1cd07031c6b1248680ad8887e02b042c0c))
+- Keep machine-wide installs inside Program Files ([3cfce7d](https://github.com/usebach/bach/commit/3cfce7dabe2b03cccd5f89cb88dfec5babe9836e))
+- Update the safety rules for machine-wide installs, elevated steps and migration ([2ca2639](https://github.com/usebach/bach/commit/2ca263964325a479c2318dd6d25d4743054903ba))
+- Document building a setup file for Windows on ARM with the ARM64 runtime ([4a1fb52](https://github.com/usebach/bach/commit/4a1fb52dde3ae246144f2f25feb0300b3e580a5b))
+- Apply update patches, and fall back on the full setup file ([b2f045b](https://github.com/usebach/bach/commit/b2f045b9da65de0fb1213ba1c39b95cc02b09e59))
+- Limit what [[migrate]] may run with administrator rights ([aee939b](https://github.com/usebach/bach/commit/aee939be7b5a34bbc75c8d9060b9e70bc8685234))
+- Harden machine-wide setup: remove in place, load DLLs from System32 only ([75faf09](https://github.com/usebach/bach/commit/75faf097b04b65992e3352b5eabf4c1e6b256281))
+- Update: Bump the cargo group across 1 directory with 9 updates (#13) ([6696993](https://github.com/usebach/bach/commit/669699365e323ecf0a99f49256c0618701e82c93))
+- Make signing opt-in: only bach build --sign or BACH_SIGN=1 runs the signer ([4a02937](https://github.com/usebach/bach/commit/4a029373b233db14b1fae662b0b77ce77f298786))
+
+All changes: [v0.5...v0.6.0](https://github.com/usebach/bach/compare/v0.5...v0.6.0)
+
 ## 0.5.0 (2026-11-14)
 
 ### New
