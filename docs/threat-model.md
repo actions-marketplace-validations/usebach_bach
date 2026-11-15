@@ -47,10 +47,11 @@ code as it is; where a protection does not exist yet, it says so.
 
 ## Known gaps
 
-- The update feed is not signed. A host that is compromised can point to
-  another file together with that file's hash, and the updater will accept it.
-  Signing the feed with a key the installed app already knows is planned
-  (KAN-37).
+- An update feed is only as trustworthy as its host unless the app has an
+  `[updates] public_key`. Without one, a compromised host can point to another
+  file together with that file's hash, and the updater will accept it. With one,
+  every entry must carry the publisher's signature (see
+  [signed feeds](updates.md#signed-feeds)). The key can't be rotated yet.
 - An update's setup file is not yet checked for the publisher's Authenticode
   signature (KAN-17).
 - `uninstall.exe` is written on the user's computer and is not signed.
