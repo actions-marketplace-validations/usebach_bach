@@ -26,9 +26,10 @@ signtool verify /pa "dist\My App-Setup-1.0.0.exe"
 
 Signing is never required: without a `[signing]` section `bach build` writes
 unsigned setup files, as before. If you'd rather not sign by hand, tell Bach
-which program signs and with what, and `bach build` signs every setup file it
-writes (the offline and the online installer) before it writes the update
-feed, so the feed already carries the signed file's SHA-256:
+which program signs and with what. `bach build --sign` (or `BACH_SIGN=1`, which
+suits CI) then signs every setup file it writes, the offline and the online
+installer, before it writes the update feed, so the feed already carries the
+signed file's SHA-256:
 
 ```toml
 [signing]
@@ -37,11 +38,15 @@ arguments = '/fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'
 ```
 
 Bach runs `program` with `arguments` and the setup file added at the end
-(write `{file}` where it belongs when it isn't last), without a shell. A
-signer that fails fails the build with its exit code, so an unsigned file
-never goes out by accident. Keep secrets out of `bach.toml` by writing
+(write `{file}` where it belongs when it isn't last), without a shell, and
+prints the command first. A signer that fails fails the build with its exit
+code, so an unsigned file never goes out by accident.
+
+Signing only ever runs when you ask for it with `--sign` or `BACH_SIGN=1`.
+That is on purpose: a `bach.toml` that came from somewhere else can name any
+program, and building it must not run that program behind your back. Keep secrets out of `bach.toml` by writing
 `{env:NAME}`: Bach reads the variable when it builds and fails when it isn't
-set.
+set. The command Bach prints shows `{env:NAME}` as written, never the value.
 
 ```toml
 [signing]
@@ -51,11 +56,12 @@ arguments = 'sign --azure-key-vault-url {env:KV_URL} --azure-key-vault-certifica
 ```
 
 ```bash
-bach build --no-sign          # build without signing, even with [signing]
-bach sign dist/My-App-Setup-1.0.0.exe   # sign a file later, the same way
+bach build --sign                       # build and sign
+bach sign dist/My-App-Setup-1.0.0.exe   # sign a file you built earlier
 ```
 
-Signing needs the signer on the machine that builds; `bach build` on macOS or
+Without `--sign`, a build with `[signing]` says so and leaves the files
+unsigned. Signing needs the signer on the machine that builds; `bach build` on macOS or
 Linux can use a signer that runs there (for example `osslsigncode`). `bach
 doctor` says whether `[signing]` is set.
 

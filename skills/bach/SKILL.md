@@ -218,8 +218,8 @@ window speaks several).
 - Sign the setup file with `signtool` like any program (the payload is
   covered by the signature); unsigned downloads get SmartScreen warnings.
   Signing is optional: `[signing]` (`program`, `arguments` with `{file}` and
-  `{env:NAME}`) makes `bach build` sign by itself; `bach build --no-sign`
-  skips it and `bach sign FILE` signs later.
+  `{env:NAME}`) lets `bach build --sign` (or `BACH_SIGN=1`) sign;
+  without `--sign` nothing runs. `bach sign FILE` signs a built file.
 - To release from GitHub with no setup: `bach workflow`, commit, push, then
   Actions › Release › Run workflow (inputs: `bump`, `version`, `notes`,
   `prerelease`, `draft`, `latest`, `dry_run`; or

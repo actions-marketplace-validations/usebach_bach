@@ -1,9 +1,11 @@
 //! `bach sign` and the optional signing step of `bach build`.
 //!
 //! Signing is never required. A project that has no `[signing]` builds
-//! unsigned setup files, exactly as before. With `[signing]`, `bach build`
-//! signs every setup file it writes (the offline and the online one) before
-//! the update feed is written, so the feed's SHA-256 is the signed file's.
+//! unsigned setup files, exactly as before. With `[signing]`, `bach build
+//! --sign` (or `BACH_SIGN=1`) signs every setup file it writes (the offline
+//! and the online one) before the update feed is written, so the feed's
+//! SHA-256 is the signed file's. It's opt-in on purpose: a `bach.toml` from
+//! somewhere else must not run a program just because it was built.
 //!
 //! Bach doesn't sign anything itself: it runs the program the project names
 //! (`signtool`, Azure's `AzureSignTool`, `osslsigncode`, …) with the project's
@@ -36,7 +38,10 @@ pub fn command(options: Options) -> Result<()> {
 /// Signs `file` with the program and arguments of `signing`.
 pub fn sign(signing: &Signing, file: &Path) -> Result<()> {
     let arguments = arguments(signing, file, |name| std::env::var(name).ok())?;
-    println!("Signing {} with {}", file.display(), signing.program);
+    // The command as it will run, with secrets shown as the variable's name,
+    // so a log never holds them and nobody is surprised by what bach.toml runs.
+    let shown = self::arguments(signing, file, |name| Some(format!("{{env:{name}}}")))?;
+    println!("Signing: {} {}", signing.program, shown.join(" "));
     let status = Command::new(&signing.program).args(&arguments).status().with_context(|| {
         format!(
             "couldn't start {}. Install it or give its full path in [signing] program (Windows' signtool comes with the Windows SDK)",

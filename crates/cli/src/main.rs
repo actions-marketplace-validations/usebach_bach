@@ -91,10 +91,11 @@ enum Command {
         /// variable [access] names.
         #[arg(long)]
         key_file: Option<PathBuf>,
-        /// Don't sign, even though bach.toml has [signing] (sign later with
-        /// `bach sign`, or not at all).
-        #[arg(long)]
-        no_sign: bool,
+        /// Sign the setup files with the program [signing] in bach.toml names
+        /// (or set BACH_SIGN=1). Off by default: a bach.toml never runs a
+        /// program unless you say so.
+        #[arg(long, env = "BACH_SIGN")]
+        sign: bool,
     },
     /// Sign a setup file with the program [signing] in bach.toml names.
     Sign {
@@ -206,7 +207,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
         Command::Check { config, app_version } => builder::check(&config, app_version.as_deref()),
-        Command::Build { config, out, runtime, fast, app_version, online, key_file, no_sign } => {
+        Command::Build { config, out, runtime, fast, app_version, online, key_file, sign } => {
             builder::build(builder::BuildOptions {
                 config: &config,
                 out: out.as_deref(),
@@ -215,7 +216,7 @@ fn main() -> ExitCode {
                 version: app_version.as_deref(),
                 online,
                 key_file: key_file.as_deref(),
-                no_sign,
+                sign,
             })
             .map(|_| ())
         }

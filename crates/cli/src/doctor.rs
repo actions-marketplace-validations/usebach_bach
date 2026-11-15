@@ -55,10 +55,10 @@ pub fn doctor(config: &Path) -> Result<()> {
 
     field("Preview", if cfg!(windows) { "available" } else { "needs Windows (bach check works here)" });
     match signing_program {
-        Some(program) => field("Signing", format!("bach build signs the setup files with {program} ([signing]); --no-sign skips it")),
+        Some(program) => field("Signing", format!("[signing] runs {program} when you build with --sign (or BACH_SIGN=1)")),
         None => field(
             "Signing",
-            if has_signtool() { "off, signtool found (add [signing] to sign)" } else { "off (optional: [signing] in bach.toml, see docs/signing.md)" },
+            if has_signtool() { "off, signtool found (add [signing] and build with --sign)" } else { "off (optional: [signing] in bach.toml, see docs/signing.md)" },
         ),
     }
     println!();

@@ -47,8 +47,9 @@ pub struct BuildOptions<'a> {
     pub online: bool,
     /// A file holding the access key, instead of the environment variable.
     pub key_file: Option<&'a Path>,
-    /// Leave the setup files unsigned even when `[signing]` is set.
-    pub no_sign: bool,
+    /// Sign the setup files with `[signing]`. Never implied by the config: a
+    /// `bach.toml` must not run a program just because it was built.
+    pub sign: bool,
 }
 
 /// The key the files are locked with, and what it unlocks while building.
@@ -90,7 +91,7 @@ fn read_key(env: &str, key_file: Option<&Path>) -> Result<String> {
 }
 
 pub fn build(options: BuildOptions) -> Result<PathBuf> {
-    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file, no_sign } = options;
+    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file, sign } = options;
     let started = Instant::now();
     let mut project = load(config_path, version)?;
     if fast {
@@ -123,8 +124,8 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     let installed = project.manifest.total_size().max(1);
     println!();
     println!("Wrote {} ({})", output.display(), output::size(size));
-    // Signing is optional: only with [signing], and never with --no-sign.
-    let signing = project.signing.as_ref().filter(|_| !no_sign);
+    // Signing is optional: it needs [signing] and a --sign from whoever runs the build.
+    let signing = project.signing.as_ref().filter(|_| sign);
     if let Some(signing) = signing {
         crate::sign::sign(signing, &output)?;
     }
@@ -137,8 +138,10 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
             crate::sign::sign(signing, &online_output)?;
         }
     }
-    if project.signing.is_some() && no_sign {
-        println!("Not signed (--no-sign). Sign it with `bach sign` before you publish it.");
+    if project.signing.is_some() && !sign {
+        println!("Not signed: bach.toml has [signing], but signing runs only with --sign (or BACH_SIGN=1).");
+    } else if sign && project.signing.is_none() {
+        bail!("--sign was given, but bach.toml has no [signing] section that says how to sign");
     }
     if project.manifest.updates.is_some() {
         crate::feed::after_build(&project, &output)?;

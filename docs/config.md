@@ -517,8 +517,8 @@ are: `data = ['%APPDATA%\My App']`.
 
 ## [signing]
 
-Optional. Signs the setup files `bach build` writes, so you don't have to run
-a signing tool yourself. Without this section nothing is signed.
+Optional. Says how to sign the setup files, so `bach build --sign` can do it
+instead of you running a signing tool. Without this section nothing is signed.
 
 ```toml
 [signing]
@@ -531,8 +531,10 @@ arguments = '/fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'
 | `program` | `signtool` | The signing program, started without a shell. Give its full path if it isn't on `PATH`. |
 | `arguments` | required | Its arguments, split like a command line. The setup file is added last; write `{file}` to put it elsewhere. `{env:NAME}` is replaced by an environment variable, so secrets stay out of `bach.toml` (the build fails when it isn't set). |
 
-`bach build --no-sign` skips it once, and `bach sign FILE` signs a file the
-same way later. Signing happens before the update feed is written. Details,
+Signing runs only when you ask: `bach build --sign` (or `BACH_SIGN=1` in CI)
+signs what it writes, and `bach sign FILE` signs a file you built earlier. A
+`bach.toml` never starts a program by itself. Signing happens before the
+update feed is written. Details,
 and why the installed `uninstall.exe` stays unsigned, are in
 [signing](signing.md).
 

@@ -4218,7 +4218,7 @@
     },
     "signing": {
       "type": "object",
-      "description": "Optional. Signs the setup files bach build writes. Without it nothing is signed.",
+      "description": "Optional. How to sign the setup files; bach build --sign (or BACH_SIGN=1) then signs them. Without it nothing is signed.",
       "additionalProperties": false,
       "required": [
         "arguments"

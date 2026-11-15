@@ -134,7 +134,7 @@ Every setting is in the [config reference](docs/config.md).
 | `bach check` | Validates the config and lists every file and option, with warnings. |
 | `bach preview` | Opens the window without installing; `--uninstall`, `--theme dark`, `--lang de`. |
 | `bach build` | Writes the setup file; `--fast` compresses less, `--out` picks the path, `--app-version v1.4.0` sets the version (from a release tag), `--online` also writes the online installer, `--key-file` gives the access key. |
-| `bach sign FILE` | Signs a setup file with the program `[signing]` names; `bach build` does it by itself with `[signing]` (`--no-sign` skips it). Optional. |
+| `bach sign FILE` | Signs a setup file with the program `[signing]` names; `bach build --sign` does it for the files it writes. Optional. |
 | `bach key` | Makes random access keys for an app with `[access]` (`--count N`). |
 | `bach inspect FILE` | Shows what a setup file or an installed `uninstall.exe` carries. |
 | `bach doctor` | Says whether everything a build needs is in place. |

@@ -423,23 +423,33 @@ program = "cmd"
 arguments = "/c copy /y {file} {file}.signed"
 "#;
     let dir = project("sign-on", &format!("{}\n{signing}", config(UPDATES)));
+    // A bach.toml never runs a program by itself: without --sign, nothing runs.
     let out = run(&dir, &["build", "--fast"]);
     assert!(out.status.success(), "{}", text(&out.stderr));
-    assert!(dir.join("dist/Hello-Setup-1.0.0.exe.signed").is_file(), "the setup file was handed to the signer");
-    assert!(dir.join("dist/latest.json").is_file());
-    std::fs::remove_dir_all(dir.join("dist")).unwrap();
-
-    // --no-sign skips it, and says so.
-    let out = run(&dir, &["build", "--fast", "--no-sign"]);
-    assert!(out.status.success(), "{}", text(&out.stderr));
     assert!(!dir.join("dist/Hello-Setup-1.0.0.exe.signed").exists());
-    assert!(text(&out.stdout).contains("Not signed"), "{}", text(&out.stdout));
+    let said = text(&out.stdout);
+    assert!(said.contains("Not signed") && said.contains("--sign"), "{said}");
 
-    // `bach sign` signs a file that was built unsigned.
+    // With --sign the file is handed to the signer, and the command is shown.
+    let out = run(&dir, &["build", "--fast", "--sign"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(dir.join("dist/Hello-Setup-1.0.0.exe.signed").is_file(), "the setup file was handed to the signer");
+    assert!(text(&out.stdout).contains("Signing: cmd /c copy"), "{}", text(&out.stdout));
+    assert!(dir.join("dist/latest.json").is_file());
+    std::fs::remove_file(dir.join("dist/Hello-Setup-1.0.0.exe.signed")).unwrap();
+
+    // `bach sign` is explicit too, and signs a file that was built unsigned.
     let out = run(&dir, &["sign", "dist/Hello-Setup-1.0.0.exe"]);
     assert!(out.status.success(), "{}", text(&out.stderr));
     assert!(dir.join("dist/Hello-Setup-1.0.0.exe.signed").is_file());
     std::fs::remove_dir_all(&dir).unwrap();
+
+    // --sign without a [signing] section is a mistake, not a silent no-op.
+    let none = project("sign-none", &config(""));
+    let out = run(&none, &["build", "--fast", "--sign"]);
+    assert!(!out.status.success());
+    assert!(text(&out.stderr).contains("no [signing]"), "{}", text(&out.stderr));
+    std::fs::remove_dir_all(&none).unwrap();
 }
 
 #[cfg(windows)]
@@ -451,13 +461,13 @@ program = "cmd"
 arguments = "/c exit 3"
 "#;
     let dir = project("sign-fails", &format!("{}\n{signing}", config("")));
-    let out = run(&dir, &["build", "--fast"]);
+    let out = run(&dir, &["build", "--fast", "--sign"]);
     assert!(!out.status.success());
     let error = text(&out.stderr);
     assert!(error.contains("failed to sign") && error.contains("exit code 3"), "{error}");
 
     let missing = project("sign-missing", &format!("{}\n[signing]\nprogram = \"no-such-signer-xyz\"\narguments = \"/a\"\n", config("")));
-    let out = run(&missing, &["build", "--fast"]);
+    let out = run(&missing, &["build", "--fast", "--sign"]);
     assert!(text(&out.stderr).contains("ouldn't start no-such-signer-xyz"), "{}", text(&out.stderr));
 
     let empty = project("sign-empty", &format!("{}\n[signing]\n", config("")));
