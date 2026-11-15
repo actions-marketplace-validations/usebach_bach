@@ -107,9 +107,10 @@ case, an app that installs for one user, with settings instead of code:
   can come out of any CI. Setup files need no .NET and no Visual C++ runtime.
 
 **Use something else when** you need an MSI for Group Policy deployment,
-Windows services or drivers, custom install-time scripts, delta updates
-([Velopack](https://velopack.io) does those), or a small stub: a Bach setup
-file adds about 10 MB to your app.
+Windows services or drivers, custom install-time scripts, binary diffs inside
+a file for updates ([Velopack](https://velopack.io) does those; Bach's patches
+work on whole files), or a small stub: a Bach setup file adds about 10 MB to
+your app.
 
 ## What setup files can do
 
@@ -134,12 +135,12 @@ Every setting is in the [config reference](docs/config.md).
 | `bach version [patch\|minor\|major\|X.Y.Z]` | Lists the version in every file that has one, or raises it in all of them at once: `bach.toml`, `package.json` and its lock file, `Cargo.toml` and `Cargo.lock`, Tauri's config, `.csproj`. |
 | `bach check` | Validates the config and lists every file and option, with warnings. |
 | `bach preview` | Opens the window without installing; `--uninstall`, `--theme dark`, `--lang de`. |
-| `bach build` | Writes the setup file; `--fast` compresses less, `--out` picks the path, `--app-version v1.4.0` sets the version (from a release tag), `--online` also writes the online installer, `--key-file` gives the access key. |
+| `bach build` | Writes the setup file; `--fast` compresses less, `--out` picks the path, `--app-version v1.4.0` sets the version (from a release tag), `--online` also writes the online installer, `--key-file` gives the access key, `--patch-from OLD.exe` also writes an update patch with only the files that changed. |
 | `bach sign FILE` | Signs a setup file with the program `[signing]` names; `bach build --sign` does it for the files it writes. Optional. |
 | `bach key` | Makes random access keys for an app with `[access]` (`--count N`). |
 | `bach inspect FILE` | Shows what a setup file or an installed `uninstall.exe` carries. |
 | `bach doctor` | Says whether everything a build needs is in place. |
-| `bach feed FILE` | Writes the update feed for a (signed) setup file; the link comes from `bach.toml` (or `--url`), `--notes-file` says what's new, `--rollout 10` offers it to 10% of computers first. |
+| `bach feed FILE` | Writes the update feed for a (signed) setup file; the link comes from `bach.toml` (or `--url`), `--notes-file` says what's new, `--rollout 10` offers it to 10% of computers first, `--patch FILE` offers an update patch. |
 | `bach winget FILE --url URL` | Writes the manifests that list a setup file in winget. |
 
 ## Other ways to install

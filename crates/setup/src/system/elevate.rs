@@ -129,19 +129,19 @@ pub fn quote(argument: &str) -> String {
             '\\' => backslashes += 1,
             '"' => {
                 // Backslashes before a quote are doubled, and the quote escaped.
-                out.extend(std::iter::repeat('\\').take(backslashes * 2 + 1));
+                out.extend(std::iter::repeat_n('\\', backslashes * 2 + 1));
                 out.push('"');
                 backslashes = 0;
             }
             c => {
-                out.extend(std::iter::repeat('\\').take(backslashes));
+                out.extend(std::iter::repeat_n('\\', backslashes));
                 out.push(c);
                 backslashes = 0;
             }
         }
     }
     // Trailing backslashes would escape the closing quote.
-    out.extend(std::iter::repeat('\\').take(backslashes * 2));
+    out.extend(std::iter::repeat_n('\\', backslashes * 2));
     out.push('"');
     out
 }
