@@ -15,6 +15,7 @@ default, so a five-line config already builds a complete installer.
 - [`[[file_types]]`](#file_types): files your app opens
 - [`[[requirements]]`](#requirements): what the app needs on the computer first
 - [`[[shortcuts]]`](#shortcuts): more Start menu shortcuts
+- [`[[run]]`](#run): programs setup starts after the files are in place
 - [`[[registry]]`](#registry), [`[[env]]`](#env) and [`[[context_menu]]`](#context_menu): registry values, environment variables and right-click entries
 - [`[[migrate]]`](#migrate): remove an older install made by another installer
 - [`[updates]`](#updates): updates the installed app fetches itself
@@ -327,7 +328,6 @@ success_codes = [0, 3010]              # exit codes that mean it worked; 0 alway
 | `success_codes` | `[0]` | Exit codes that mean it worked (0 always counts). Any other code stops the install with "{name} couldn't be set up (exit code N)". |
 | `ignore_errors` | `false` | Go on when it fails. Not allowed with `when = "uninstall"`, because removing never stops for a failed step. |
 | `component` | the file's component | Only run when this optional component is installed. |
-
 | `timeout_minutes` | `15` | Minutes before setup ends the step and the programs it started. 1 to 120. |
 | `elevated` | `false` | Run this step with administrator rights: Windows asks once when it starts (not at all when setup is elevated already, as with `scope = "machine"`). Setup itself stays unelevated. Declining fails the step like any other failure. |
 
