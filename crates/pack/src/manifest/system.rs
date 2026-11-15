@@ -175,10 +175,28 @@ impl From<ContextTarget> for String {
 impl ContextMenuEntry {
     /// The verb's key name: `Bach.<app>.<menu text>`, letters and digits only,
     /// so it's plainly this app's own key.
+    ///
+    /// A text in a script with no ASCII letters (Chinese, Japanese, Korean,
+    /// Cyrillic, Arabic, ...) has nothing to show there, so those parts also
+    /// carry the first 8 hex digits of the text's SHA-256: `Bach.Hello._ab12cd34`.
+    /// Texts and ids in Latin script keep the key they have always had, so an
+    /// installed app's entries are still found on update and removal.
     pub fn verb(&self, app_id: &str) -> String {
-        let clean = |text: &str| text.chars().filter(char::is_ascii_alphanumeric).collect::<String>();
-        format!("Bach.{}.{}", clean(app_id), clean(&self.name))
+        format!("Bach.{}.{}", key_part(app_id), key_part(&self.name))
     }
+}
+
+/// One part of a key name: its ASCII letters and digits, plus a short hash of
+/// the whole text when it is written in a non-Latin script.
+fn key_part(text: &str) -> String {
+    let mut part: String = text.chars().filter(char::is_ascii_alphanumeric).collect();
+    // From U+0250 on, the letters are no longer Latin (U+0250 starts the IPA block).
+    if text.chars().any(|c| c.is_alphabetic() && c as u32 >= 0x250) {
+        let hash = crate::protect::sha256_hex(text.as_bytes()).unwrap_or_default();
+        part.push('_');
+        part.push_str(&hash[..hash.len().min(8)]);
+    }
+    part
 }
 
 /// `{app}` is the install folder in registry data and environment values.
@@ -439,6 +457,28 @@ mod tests {
         assert_eq!(json, r#"{"name":"Open with Hello!","on":["files"]}"#);
         assert_eq!(serde_json::from_str::<ContextMenuEntry>(&json).unwrap(), entry);
         assert!(serde_json::from_str::<ContextMenuEntry>(r#"{"name":"x","on":["nowhere"]}"#).is_err());
+    }
+
+    #[test]
+    fn menu_texts_in_any_script_get_their_own_keys() {
+        let entry = |name: &str| ContextMenuEntry { name: name.into(), on: vec![ContextTarget::Files], arguments: None };
+        let texts = ["\u{6253}\u{5f00}", "\u{5f00}\u{59cb}", "\u{c5f4}\u{ae30}", "\u{41e}\u{442}\u{43a}\u{440}\u{44b}\u{442}\u{44c}", "\u{627}\u{641}\u{62a}\u{62d}"];
+        let mut verbs = std::collections::HashSet::new();
+        for text in texts {
+            check_context_entry(&entry(text)).unwrap_or_else(|err| panic!("{text}: {err}"));
+            let verb = entry(text).verb("Hello");
+            assert!(verb.starts_with("Bach.Hello._") && verb.is_ascii() && !verb.ends_with('.'), "{verb}");
+            assert!(verbs.insert(verb), "{text} needs its own key");
+        }
+        // Two entries that differ only in CJK, next to a shared Latin word.
+        assert_ne!(entry("\u{6253}\u{5f00}\u{ff08}Hello\u{ff09}").verb("x"), entry("\u{5173}\u{95ed}\u{ff08}Hello\u{ff09}").verb("x"));
+        // An app id in a non-Latin script gets a key part too.
+        assert!(entry("Open").verb("\u{6d4b}\u{8bd5}").starts_with("Bach._"));
+        // Latin texts keep the key they always had, accents dropped as before.
+        assert_eq!(entry("Mit Hello \u{f6}ffnen").verb("Hello"), "Bach.Hello.MitHelloffnen");
+        assert_eq!(entry("Open with Hello!").verb("My App"), "Bach.MyApp.OpenwithHello");
+        // Only punctuation is still refused, and said so.
+        assert!(check_context_entry(&entry("!!!")).unwrap_err().to_string().contains("letter or digit"));
     }
 
     #[test]

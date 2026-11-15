@@ -419,6 +419,13 @@ few more.
 
 ## [[context_menu]]
 
+The `name` can be in any script: Chinese, Japanese, Korean, Cyrillic or Arabic
+texts work. Setup names the registry key after the text (`Bach.<id>.<text>`);
+for a text with no Latin letters it adds the first 8 hex digits of the text's
+SHA-256, so two entries that differ only in such characters get two keys. Texts
+in Latin script keep the keys they always had, so an update or removal still
+finds an earlier install's entries.
+
 Entries in Explorer's right-click menu that start your app with the clicked
 file or folder.
 

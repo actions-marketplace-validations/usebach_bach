@@ -111,6 +111,17 @@ try {
     Check ((Run (Join-Path $equals 'uninstall.exe') @('--silent')) -eq 0) 'and uninstalls'
     Remove-Item -Recurse -Force $equals -ErrorAction SilentlyContinue
 
+    Write-Host 'Right-click entry with a Chinese text'
+    $open = -join ([char]0x6253, [char]0x5f00)
+    $menu = Build '0.9.0' @() "[[context_menu]]`nname = '$open'`non = 'files'"
+    $menuDir = Join-Path $work 'Installed\Menu'
+    $menuKeys = { (& reg.exe query 'HKCU\Software\Classes' /s /f 'Bach.BachE2E.' /k 2>$null | Where-Object { $_ -match 'Bach\.BachE2E\.' }) }
+    Check ((Run $menu @('--silent', '--dir', "`"$menuDir`"")) -eq 0) 'installs'
+    Check (@(& $menuKeys).Count -ge 1) 'the entry has a key'
+    Check ((Run (Join-Path $menuDir 'uninstall.exe') @('--silent')) -eq 0) 'uninstalls'
+    Check (@(& $menuKeys).Count -eq 0) 'and leaves no key behind'
+    Remove-Item -Recurse -Force $menuDir -ErrorAction SilentlyContinue
+
     Write-Host 'Install 1.0.0'
     Check ((Run $v1 @('--silent', '--dir', "`"$install`"")) -eq 0) 'exits 0'
     Check ((Installed-Version) -eq '1.0.0') 'listed in Settings > Apps as 1.0.0'
