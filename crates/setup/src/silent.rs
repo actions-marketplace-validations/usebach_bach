@@ -34,7 +34,13 @@ pub fn run(args: &Args, package: Package) -> i32 {
     let result = match launch::mode(args, &package) {
         Mode::Install => {
             let start = start::install(manifest);
-            if let Some(index) = start::missing_requirements(manifest).first() {
+            let missing = start::missing_requirements(manifest);
+            if args.skip_requirements && !missing.is_empty() {
+                let names: Vec<&str> = missing.iter().map(|index| manifest.requirements[*index].name.as_str()).collect();
+                eprintln!("Not detected, but --skip-requirements was given, so setup goes on: {}. {} may not start without it.", names.join(", "), manifest.app.name);
+                crate::log::line(&format!("Requirements skipped on request: {}", names.join(", ")));
+            }
+            if let Some(index) = missing.first().filter(|_| !args.skip_requirements) {
                 let requirement = &manifest.requirements[*index];
                 let values = [("requirement", requirement.name.as_str())];
                 eprintln!("{} {}", texts.with(Key::requirement_subtitle, &values), requirement.url);

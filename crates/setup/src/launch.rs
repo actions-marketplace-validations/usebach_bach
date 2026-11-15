@@ -34,6 +34,7 @@ pub const HELP: &str = "Setup file and uninstall.exe options
                           autostart, path, auto-update, or a component id).
   --without IDS           Turn these options off.
   --allow-downgrade       Let a silent run install an older version over a newer one.
+  --skip-requirements     Let a silent install go on although a requirement (WebView2, .NET, ...) isn't detected.
   --overwrite             Let a silent first install replace files that are already in the folder (refused otherwise, exit code 1).
   --delete-data           Silent removal: also delete the app's data folders.
   --key-file FILE         The access key, for a setup file that asks for one (or set BACH_ACCESS_KEY).
@@ -78,6 +79,8 @@ pub struct Args {
     pub allow_downgrade: bool,
     /// Lets a silent first install replace files that are already in the folder.
     pub overwrite: bool,
+    /// Lets a silent install go on although a requirement isn't detected.
+    pub skip_requirements: bool,
     /// `--log FILE`: where this run's log goes.
     pub log: Option<PathBuf>,
     /// `--key-file FILE`: a file holding the access key.
@@ -183,6 +186,7 @@ impl Args {
             "silent" => self.silent = true,
             "allow-downgrade" => self.allow_downgrade = true,
             "overwrite" => self.overwrite = true,
+            "skip-requirements" => self.skip_requirements = true,
             "delete-data" => self.delete_data = true,
             "update" => self.update = true,
             "check-update" => self.check_update = true,
@@ -233,6 +237,7 @@ const FLAGS: &[Flag] = &[
     flag(&["preview"]),
     flag(&["allow-downgrade"]),
     flag(&["overwrite"]),
+    flag(&["skip-requirements"]),
     flag(&["delete-data"]),
     flag(&["update"]),
     flag(&["check-update"]),
@@ -454,7 +459,7 @@ mod tests {
         }
         assert!(!args("--silent").wants_help());
         // Every flag the help text names is one the parser knows.
-        for flag in ["--silent", "--dir", "--with", "--without", "--allow-downgrade", "--overwrite", "--delete-data", "--key-file", "--log",
+        for flag in ["--silent", "--dir", "--with", "--without", "--allow-downgrade", "--overwrite", "--skip-requirements", "--delete-data", "--key-file", "--log",
             "--lang", "--theme", "--preview", "--check-update", "--download-update", "--apply-update", "--update", "--auto-update"] {
             assert!(HELP.contains(flag), "{flag} is missing from the help text");
         }

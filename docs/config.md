@@ -835,6 +835,7 @@ the exit code. `--help` always works, whatever else is on the line.
 | `--with a,b` / `--without a,b` | Tick or untick options: `desktop-shortcut`, `start-menu`, `autostart`, `path`, `auto-update`, and component ids. Only options the install page would offer. |
 | `--lang CODE` | The language for messages, instead of Windows' own. |
 | `--allow-downgrade` | Install over a newer version (refused otherwise, with exit code 1). |
+| `--skip-requirements` | A silent install goes on although a [`[[requirements]]`](#requirements) entry isn't detected (it stops with exit code 1 otherwise). Setup says which ones, in the terminal and in the log, and that the app may not start without them. Use it when the detection is wrong for a computer, for example a .NET runtime on an unusual drive. |
 | `--overwrite` | A first install into a folder that already holds files of the same names as the setup file's (and no earlier install of this app) is refused with exit code 1, naming up to five of them; this installs over them anyway. |
 | `--key-file FILE` | The access key (first line of the file) for a setup file with [`[access]`](#access). The `BACH_ACCESS_KEY` environment variable does the same. Without a key a silent run exits with code 2. |
 | `--log FILE` | Where the log goes. By default every run writes `%TEMP%\<app id>-setup.log`; a space in the app id is written `%20` in file and folder names (`My App` gives `My%20App-setup.log`), so two ids never share one. |

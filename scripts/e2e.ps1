@@ -111,6 +111,15 @@ try {
     Check ((Run (Join-Path $equals 'uninstall.exe') @('--silent')) -eq 0) 'and uninstalls'
     Remove-Item -Recurse -Force $equals -ErrorAction SilentlyContinue
 
+    Write-Host 'A requirement that is not detected'
+    $needs = Build '0.8.0' @() "[[requirements]]`nkind = 'file'`npath = '%SystemRoot%\bach-no-such-file.dll'`nname = 'Bach QA runtime'`nurl = 'https://example.invalid/runtime'"
+    $needsDir = Join-Path $work 'Installed\Needs'
+    Check ((Run $needs @('--silent', '--dir', "`"$needsDir`"")) -eq 1) 'stops with exit 1'
+    Check (-not (Test-Path $needsDir)) 'and installs nothing'
+    Check ((Run $needs @('--silent', '--skip-requirements', '--dir', "`"$needsDir`"")) -eq 0) '--skip-requirements goes on'
+    Check ((Run (Join-Path $needsDir 'uninstall.exe') @('--silent')) -eq 0) 'and uninstalls'
+    Remove-Item -Recurse -Force $needsDir -ErrorAction SilentlyContinue
+
     Write-Host 'Right-click entry with a Chinese text'
     $open = -join ([char]0x6253, [char]0x5f00)
     $menu = Build '0.9.0' @() "[[context_menu]]`nname = '$open'`non = 'files'"
