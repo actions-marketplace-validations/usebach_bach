@@ -226,21 +226,65 @@ pub fn matches(pattern: &str, path: &str) -> bool {
     }
 }
 
+/// One piece of a pattern.
+enum Piece {
+    Literal(u8),
+    /// `?`: one character that isn't `/`.
+    One,
+    /// `*`: any run of characters that aren't `/`.
+    Star,
+    /// `**` (and the `/` after it): any run at all.
+    Deep,
+}
+
+/// Matches `text` against `pattern` by dynamic programming over (piece, position):
+/// time and memory are the product of their lengths, whatever the pattern, so a
+/// pattern like `*a*a*a*a*b` can't take exponential time on a long name.
 fn glob(pattern: &[u8], text: &[u8]) -> bool {
-    match pattern.split_first() {
-        None => text.is_empty(),
-        Some((b'*', rest)) if rest.first() == Some(&b'*') => {
-            let rest = &rest[1..];
-            let rest = rest.strip_prefix(b"/").unwrap_or(rest);
-            (0..=text.len()).any(|at| glob(rest, &text[at..]))
+    let mut pieces = Vec::new();
+    let mut at = 0;
+    while at < pattern.len() {
+        match pattern[at] {
+            b'*' if pattern.get(at + 1) == Some(&b'*') => {
+                at += 2;
+                if pattern.get(at) == Some(&b'/') {
+                    at += 1;
+                }
+                pieces.push(Piece::Deep);
+            }
+            b'*' => {
+                at += 1;
+                pieces.push(Piece::Star);
+            }
+            b'?' => {
+                at += 1;
+                pieces.push(Piece::One);
+            }
+            c => {
+                at += 1;
+                pieces.push(Piece::Literal(c));
+            }
         }
-        Some((b'*', rest)) => {
-            let span = text.iter().position(|&c| c == b'/').unwrap_or(text.len());
-            (0..=span).any(|at| glob(rest, &text[at..]))
-        }
-        Some((b'?', rest)) => text.first().is_some_and(|&c| c != b'/') && glob(rest, &text[1..]),
-        Some((&c, rest)) => text.first() == Some(&c) && glob(rest, &text[1..]),
     }
+    let (rows, cols) = (pieces.len() + 1, text.len() + 1);
+    // `from[i * cols + j]`: the pieces from `i` on match the text from `j` on.
+    let mut from = vec![false; rows * cols];
+    from[(rows - 1) * cols + (cols - 1)] = true;
+    for i in (0..pieces.len()).rev() {
+        for j in (0..cols).rev() {
+            let next_here = from[(i + 1) * cols + j];
+            let next_after = j + 1 < cols && from[(i + 1) * cols + j + 1];
+            let more = j + 1 < cols && from[i * cols + j + 1];
+            let ch = text.get(j).copied();
+            from[i * cols + j] = match pieces[i] {
+                Piece::Literal(c) => ch == Some(c) && next_after,
+                Piece::One => ch.is_some_and(|c| c != b'/') && next_after,
+                Piece::Star => next_here || (ch.is_some_and(|c| c != b'/') && more),
+                Piece::Deep => next_here || (ch.is_some() && more),
+            };
+        }
+    }
+    from[0]
 }
 
 #[cfg(test)]
@@ -391,6 +435,16 @@ mod tests {
         let path = expand_data_folder(r"%APPDATA%\Hello\Cache", lookup).unwrap();
         assert_eq!(path, Path::new(r"C:\Users\a\AppData\Roaming").join("Hello").join("Cache"));
         assert!(expand_data_folder(r"%LOCALAPPDATA%\Hello", lookup).is_none());
+    }
+
+    #[test]
+    fn a_nasty_pattern_is_quick() {
+        let started = std::time::Instant::now();
+        let name = "a".repeat(400);
+        assert!(!matches("*a*a*a*a*a*a*a*a*a*a*a*a*a*a*b", &name));
+        assert!(!matches("**/*a*a*a*a*a*a*a*a*a*a*a*a*b", &format!("{name}/{name}")));
+        assert!(matches("*a*a*a*a*a*a*a*a*a*a*a*a*a*a", &name));
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "took {:?}", started.elapsed());
     }
 
     #[test]
