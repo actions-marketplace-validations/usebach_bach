@@ -85,7 +85,7 @@ fn electron(dir: &Path) -> Option<Detected> {
         name,
         version: string(&package, "version"),
         publisher: author,
-        exclude: Vec::new(),
+        exclude: clutter(),
         requirements: None,
     })
 }
@@ -121,7 +121,7 @@ fn dotnet(dir: &Path) -> Option<Detected> {
         publisher: tag("Company").or_else(|| tag("Authors")),
         executable: Some(format!("{assembly}.exe")),
         source: Some(format!("bin/Release/{framework}/win-x64/publish")),
-        exclude: vec!["*.pdb".into()],
+        exclude: clutter(),
         requirements,
     })
 }
@@ -157,11 +157,19 @@ fn rust(dir: &Path) -> Option<Detected> {
 }
 
 /// What `cargo build --release` leaves next to the program.
+/// Files every build folder collects and no installer needs.
+fn clutter() -> Vec<String> {
+    ["*.pdb", "*.log", "Thumbs.db", ".DS_Store"].iter().map(|pattern| pattern.to_string()).collect()
+}
+
 fn rust_leftovers() -> Vec<String> {
-    ["*.pdb", "*.d", "*.rlib", "build/**", "deps/**", "incremental/**", ".fingerprint/**", "examples/**", "bundle/**"]
-        .iter()
-        .map(|pattern| pattern.to_string())
-        .collect()
+    let mut patterns = clutter();
+    patterns.extend(
+        ["*.d", "*.rlib", "build/**", "deps/**", "incremental/**", ".fingerprint/**", "examples/**", "bundle/**"]
+            .iter()
+            .map(|pattern| pattern.to_string()),
+    );
+    patterns
 }
 
 /// "my-cool_app" → "My Cool App".

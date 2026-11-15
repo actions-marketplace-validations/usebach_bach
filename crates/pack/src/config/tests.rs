@@ -751,3 +751,26 @@ icon = "x""#, "icon"),
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_secret_in_the_source_folder_stops_the_build_until_allowed() {
+    let dir = project_dir("secrets");
+    std::fs::write(dir.join("build/.env"), b"TOKEN=1").unwrap();
+    std::fs::create_dir_all(dir.join("build/.git")).unwrap();
+    std::fs::write(dir.join("build/.git/config"), b"[core]").unwrap();
+
+    let err = format!("{:#}", parse(MINIMAL, &dir).unwrap_err());
+    assert!(err.contains("files.source") && err.contains(".env") && err.contains("files.allow_secrets"), "{err}");
+
+    let excluded = MINIMAL.replace("exclude = [\"*.pdb\"]", "exclude = [\"*.pdb\", \".env\", \".git/**\"]");
+    parse(&excluded, &dir).unwrap();
+
+    let allowed = MINIMAL.replace("exclude = [\"*.pdb\"]", "allow_secrets = [\".env\", \".git/**\"]");
+    let project = parse(&allowed, &dir).unwrap();
+    assert!(project.manifest.files.iter().any(|file| file.path == ".env"), "allowed on purpose, so it ships");
+    assert!(project.warnings.iter().any(|warning| warning.contains("hello.pdb")), "{:?}", project.warnings);
+
+    let empty = MINIMAL.replace("exclude = [\"*.pdb\"]", "allow_secrets = [\"\"]");
+    assert!(format!("{:#}", parse(&empty, &dir).unwrap_err()).contains("files.allow_secrets"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

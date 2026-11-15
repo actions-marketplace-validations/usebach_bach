@@ -44,6 +44,19 @@ default, so a five-line config already builds a complete installer.
 | --- | --- | --- |
 | `source` | yes | The folder whose contents are installed, subfolders included. |
 | `exclude` | no | Patterns to leave out. `*` matches within a name, `**` across folders, `?` one character. A pattern without `/` matches file names anywhere (`*.pdb`); one with `/` matches from the top of `source` (`docs/**`). Case doesn't matter. |
+| `allow_secrets` | no | Patterns (same rules as `exclude`) for files that look like secrets but are meant to ship. |
+
+`bach check` and `bach build` stop when the source folder holds a file that
+looks like a secret: `.env` and `.env.*`, `*.pfx`, `*.p12`, `*.pem`, `*.key`,
+`*.snk`, `*.jks`, `*.keystore`, `*.kdbx`, `id_rsa*`, `id_dsa*`, `id_ecdsa*`,
+`id_ed25519*`, `.git-credentials`, `.npmrc`, `.pypirc`, `.netrc`,
+`.aws-credentials`, `secrets.json`, a `bach.toml` (or `bach-*.toml`), and
+anything inside a `.git`, `.ssh`, `.aws` or `.gnupg` folder. The message names
+the first file and why. Leave the file out with `exclude`, or name it in
+`allow_secrets` to ship it on purpose. Files that only add weight (`*.pdb`,
+`*.log`, `Thumbs.db`, `.DS_Store`, and anything in `node_modules`, `target` or
+`__pycache__`) give a warning, not an error. `bach init` excludes the first
+four for the stacks it recognises.
 
 The source folder may not contain symbolic links or a file named
 `uninstall.exe` at its top (Bach adds its own).

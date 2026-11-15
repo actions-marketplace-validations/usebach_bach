@@ -9,6 +9,7 @@ mod extras;
 mod gather;
 mod icon;
 mod options;
+mod secrets;
 mod system;
 mod text;
 
@@ -84,6 +85,9 @@ struct FilesSection {
     source: String,
     #[serde(default)]
     exclude: Vec<String>,
+    /// Patterns for files that look like secrets but are meant to ship.
+    #[serde(default)]
+    allow_secrets: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -335,7 +339,13 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
             bail!("files.exclude has an empty pattern");
         }
     }
+    for pattern in &file.files.allow_secrets {
+        if pattern.trim().is_empty() {
+            bail!("files.allow_secrets has an empty pattern");
+        }
+    }
     let sources = gather::gather(&source_dir, &file.files.exclude, &output)?;
+    secrets::check(&sources, &file.files.allow_secrets, &mut warnings)?;
     if sources.is_empty() {
         bail!("{} has no files to install", source_dir.display());
     }

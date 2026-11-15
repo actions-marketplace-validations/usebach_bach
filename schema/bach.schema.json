@@ -71,6 +71,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "allow_secrets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Patterns for files that look like secrets (.env, keys, .git, bach.toml) but are meant to ship."
         }
       }
     },

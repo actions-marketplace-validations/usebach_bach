@@ -84,6 +84,7 @@ executable = "my-app.exe"        # relative to [files] source
 [files]
 source = "build"                 # relative to bach.toml
 exclude = ["*.pdb"]
+# allow_secrets = [".env"]   # only for a file that looks like a secret but must ship
 ```
 
 In a git checkout whose `origin` is on GitHub, `bach init` also wrote
