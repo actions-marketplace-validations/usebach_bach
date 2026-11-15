@@ -43,9 +43,11 @@ pub fn foreign_files(manifest: &Manifest, choices: &Choices, dir: &Path) -> Vec<
 /// Whether the user (or the app) changed `path` since setup wrote it: the file
 /// is there and its SHA-256 no longer matches the manifest. Removing keeps
 /// such a file, so the uninstaller never deletes work it didn't put there. A
-/// file the manifest has no hash for counts as unchanged.
+/// file the manifest has no hash for counts as unchanged, and so does one that
+/// can't be read right now (a locked file isn't an edited one: removing it
+/// then fails loudly instead of quietly keeping it).
 pub fn changed_since_install(path: &Path, file: &FileEntry) -> bool {
-    file.sha256.is_some() && path.is_file() && !matches_on_disk(path, file)
+    file.sha256.is_some() && path.is_file() && std::fs::File::open(path).is_ok() && !matches_on_disk(path, file)
 }
 
 /// A short list for a sentence: the first few names, then how many more.
@@ -81,6 +83,13 @@ mod tests {
         assert!(changed_since_install(&path, &file));
         std::fs::write(&path, b"as Installed").unwrap();
         assert!(changed_since_install(&path, &file), "same size, other content");
+
+        // Held open without sharing, it can't be read: not "changed".
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            let _held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&path).unwrap();
+            assert!(!changed_since_install(&path, &file));
+        }
 
         let mut unrecorded = file.clone();
         unrecorded.sha256 = None;
