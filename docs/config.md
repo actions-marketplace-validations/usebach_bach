@@ -422,6 +422,14 @@ What setup does and doesn't do:
   uninstaller (up to 15 minutes) and then until its entry is gone from Settings
   › Apps (up to 90 seconds), because some uninstallers hand over to a copy of
   themselves and exit at once.
+- The command comes from the registry, so what may run with administrator
+  rights is limited. A per-user old install (listed under `HKCU`, which the
+  user's own programs can write) is never run by an elevated setup, such as a
+  machine-wide install. A machine-wide old install (under `HKLM`) is run only
+  with `elevated = true` (or when setup is elevated already), and only if its
+  uninstaller sits in Program Files or the Windows folder. `%SystemRoot%` and
+  `msiexec` come from Windows, not from environment variables. Anything else
+  is left alone, with a line in the log.
 - It never stops an install. An old install that isn't there, can't be removed
   silently or fails to go is written to the log (`%TEMP%\<app id>-setup.log`)
   and left alone, and the new version installs anyway.

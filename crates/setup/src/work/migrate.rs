@@ -9,8 +9,20 @@
 //! This never stops an install. An old install that can't be found, can't be
 //! removed silently or fails to go is written to the log and left alone, and
 //! the new version is installed anyway. Only the command in that entry is ever
-//! run, never through a shell, and never a machine-wide install's unless the
-//! developer allowed it (`elevated = true`, which makes Windows ask).
+//! run, never through a shell.
+//!
+//! The command comes from the registry, so what may run with administrator
+//! rights is limited:
+//!
+//! - A per-user entry (`HKCU`, which the user's own programs can write) only
+//!   ever runs without administrator rights. An elevated setup (a machine-wide
+//!   install, or one started from an administrator's terminal) ignores it.
+//! - A machine-wide entry (`HKLM`) runs only when the developer allowed it
+//!   (`elevated = true`, which makes Windows ask) or setup is elevated
+//!   already, and only if its program sits in Program Files or the Windows
+//!   folder, where the user's own programs can't have swapped it.
+//! - Windows' own folders in the command (`%SystemRoot%`, `msiexec`) come from
+//!   Windows, never from environment variables.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -19,7 +31,7 @@ use bach_pack::manifest::{Manifest, Migrate};
 use windows_registry::{CURRENT_USER, LOCAL_MACHINE};
 
 use super::steps::{self, Ended};
-use crate::system::elevate;
+use crate::system::{elevate, folders};
 
 const UNINSTALL: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall";
 const UNINSTALL_32BIT: &str = r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall";
@@ -52,22 +64,37 @@ fn remove(entry: &Migrate) {
         crate::log::line(&format!("No older install \"{key}\" to remove."));
         return;
     };
-    let elevated = if found.machine && !elevate::is_elevated() {
-        if !entry.elevated {
-            crate::log::line(&format!("The older install \"{key}\" is machine-wide, so setup leaves it (elevated = true in [[migrate]] removes it)."));
-            return;
-        }
-        true
-    } else {
-        false
+    let already_elevated = elevate::is_elevated();
+    if !found.machine && already_elevated {
+        crate::log::line(&format!("The older install \"{key}\" is a per-user one, and setup has administrator rights, so setup leaves it."));
+        return;
+    }
+    if found.machine && !already_elevated && !entry.elevated {
+        crate::log::line(&format!("The older install \"{key}\" is machine-wide, so setup leaves it (elevated = true in [[migrate]] removes it)."));
+        return;
+    }
+    // Whether the old uninstaller will run with administrator rights.
+    let with_rights = found.machine;
+    let Some(system) = folders::system_dir() else {
+        crate::log::line("Windows didn't say where its folder is, so setup leaves the older install.");
+        return;
     };
-    let command = match plan(&found, entry, key, |name| std::env::var(name).ok()) {
+    // The user's own variables are fine for a program that runs as the user.
+    let env = |name: &str| folders::variable(name).or_else(|| if with_rights { None } else { std::env::var(name).ok() });
+    let command = match plan(&found, entry, key, &system, env) {
         Ok(command) => command,
         Err(why) => {
             crate::log::line(&format!("The older install \"{key}\" stays: {why}."));
             return;
         }
     };
+    if with_rights && !folders::is_admin_only(&command.program) {
+        crate::log::line(&format!(
+            "The uninstaller of \"{key}\" isn't in Program Files or the Windows folder, so setup won't run it with administrator rights."
+        ));
+        return;
+    }
+    let elevated = found.machine && !already_elevated;
     if std::env::current_exe().is_ok_and(|me| super::same_file(&me, &command.program)) {
         crate::log::line(&format!("The uninstall command of \"{key}\" is this setup itself, so setup leaves it."));
         return;
@@ -107,8 +134,9 @@ struct Command {
 }
 
 /// The command that removes the install quietly, or why there is none.
-/// `env` reads environment variables, for `%SystemRoot%` and the like.
-fn plan(found: &Found, entry: &Migrate, key: &str, env: impl Fn(&str) -> Option<String>) -> Result<Command, String> {
+/// `system` is Windows' `System32` folder (for `msiexec`), and `env` says what
+/// `%VARIABLES%` in the command stand for.
+fn plan(found: &Found, entry: &Migrate, key: &str, system: &Path, env: impl Fn(&str) -> Option<String>) -> Result<Command, String> {
     // The developer's own arguments win; they go after the uninstall string.
     let line = match (&entry.arguments, &found.uninstall, &found.quiet) {
         (Some(arguments), Some(uninstall), _) | (Some(arguments), None, Some(uninstall)) => format!("{uninstall} {arguments}"),
@@ -125,11 +153,7 @@ fn plan(found: &Found, entry: &Migrate, key: &str, env: impl Fn(&str) -> Option<
     if file_name == "msiexec.exe" || file_name == "msiexec" {
         // Whatever the entry says (/I opens a window), remove that product quietly.
         let product = guid_in(&line).or_else(|| guid_in(key)).ok_or("it is an MSI, but its product code can't be found")?;
-        let root = env("SystemRoot").ok_or("Windows' folder isn't known")?;
-        return Ok(Command {
-            program: PathBuf::from(root).join(r"System32\msiexec.exe"),
-            arguments: Some(format!("/x {product} /qn /norestart")),
-        });
+        return Ok(Command { program: system.join("msiexec.exe"), arguments: Some(format!("/x {product} /qn /norestart")) });
     }
     let path = PathBuf::from(&program);
     if !path.is_absolute() || !file_name.ends_with(".exe") || !path.is_file() {
@@ -210,11 +234,15 @@ mod tests {
     }
 
     fn windows_env(name: &str) -> Option<String> {
-        std::env::var(name).ok()
+        folders::variable(name).or_else(|| std::env::var(name).ok())
+    }
+
+    fn system() -> PathBuf {
+        folders::system_dir().unwrap()
     }
 
     fn cmd() -> String {
-        format!(r"{}\System32\cmd.exe", std::env::var("SystemRoot").unwrap())
+        system().join("cmd.exe").to_string_lossy().into_owned()
     }
 
     #[test]
@@ -245,41 +273,41 @@ mod tests {
     #[test]
     fn a_quiet_command_is_used_as_it_is() {
         let found = Found { quiet: Some(format!("\"{}\" /c exit 0", cmd())), uninstall: Some(format!("\"{}\"", cmd())), ..Found::default() };
-        let command = plan(&found, &entry(None), "Hello", windows_env).unwrap();
+        let command = plan(&found, &entry(None), "Hello", &system(), windows_env).unwrap();
         assert_eq!(command.program, PathBuf::from(cmd()));
         assert_eq!(command.arguments.as_deref(), Some("/c exit 0"));
         // The developer's arguments replace it and go after the uninstall string.
-        let command = plan(&found, &entry(Some("/c exit 1")), "Hello", windows_env).unwrap();
+        let command = plan(&found, &entry(Some("/c exit 1")), "Hello", &system(), windows_env).unwrap();
         assert_eq!(command.arguments.as_deref(), Some("/c exit 1"));
     }
 
     #[test]
     fn without_a_quiet_way_the_old_install_stays() {
         let found = Found { uninstall: Some(format!("\"{}\"", cmd())), ..Found::default() };
-        let why = plan(&found, &entry(None), "Hello", windows_env).unwrap_err();
+        let why = plan(&found, &entry(None), "Hello", &system(), windows_env).unwrap_err();
         assert!(why.contains("arguments"), "{why}");
-        assert!(plan(&found, &entry(Some("/S")), "Hello", windows_env).is_ok());
-        assert!(plan(&Found::default(), &entry(None), "Hello", windows_env).is_err());
+        assert!(plan(&found, &entry(Some("/S")), "Hello", &system(), windows_env).is_ok());
+        assert!(plan(&Found::default(), &entry(None), "Hello", &system(), windows_env).is_err());
     }
 
     #[test]
     fn only_an_exe_that_exists_runs() {
         let missing = Found { quiet: Some(r#""C:\no\such\uninst.exe" /S"#.into()), ..Found::default() };
-        assert!(plan(&missing, &entry(None), "Hello", windows_env).unwrap_err().contains("isn't an .exe that exists"));
+        assert!(plan(&missing, &entry(None), "Hello", &system(), windows_env).unwrap_err().contains("isn't an .exe that exists"));
         let relative = Found { quiet: Some("uninst.exe /S".into()), ..Found::default() };
-        assert!(plan(&relative, &entry(None), "Hello", windows_env).is_err());
-        let script = Found { quiet: Some(format!(r#""{}\System32\drivers\etc\hosts" /S"#, std::env::var("SystemRoot").unwrap())), ..Found::default() };
-        assert!(plan(&script, &entry(None), "Hello", windows_env).is_err(), "not an .exe");
+        assert!(plan(&relative, &entry(None), "Hello", &system(), windows_env).is_err());
+        let script = Found { quiet: Some(format!(r#""{}\drivers\etc\hosts" /S"#, system().display())), ..Found::default() };
+        assert!(plan(&script, &entry(None), "Hello", &system(), windows_env).is_err(), "not an .exe");
     }
 
     #[test]
     fn an_msi_is_removed_by_its_product_code_and_quietly() {
         let found = Found { uninstall: Some("MsiExec.exe /I{8A69D345-D564-463C-AFF1-A69D9E530F96}".into()), ..Found::default() };
-        let command = plan(&found, &entry(None), "{8A69D345-D564-463C-AFF1-A69D9E530F96}", windows_env).unwrap();
-        assert!(command.program.ends_with(r"System32\msiexec.exe"));
+        let command = plan(&found, &entry(None), "{8A69D345-D564-463C-AFF1-A69D9E530F96}", &system(), windows_env).unwrap();
+        assert_eq!(command.program, system().join("msiexec.exe"), "from Windows, not from the environment");
         assert_eq!(command.arguments.as_deref(), Some("/x {8A69D345-D564-463C-AFF1-A69D9E530F96} /qn /norestart"));
         let no_code = Found { uninstall: Some("MsiExec.exe /I".into()), ..Found::default() };
-        assert!(plan(&no_code, &entry(None), "Hello", windows_env).is_err());
+        assert!(plan(&no_code, &entry(None), "Hello", &system(), windows_env).is_err());
     }
 
     /// A stand-in for an old installer: an entry under Settings › Apps whose
@@ -296,7 +324,13 @@ mod tests {
         assert!(find(&key).is_some_and(|found| !found.machine));
 
         remove(&Migrate { uninstall_key: key.clone(), arguments: None, elevated: false });
-        assert!(find(&key).is_none(), "the old entry is gone");
+        if elevate::is_elevated() {
+            // An elevated setup never runs a command a user-level entry names.
+            assert!(find(&key).is_some(), "left alone");
+            let _ = CURRENT_USER.remove_tree(&path);
+        } else {
+            assert!(find(&key).is_none(), "the old entry is gone");
+        }
 
         // Nothing there: nothing happens, and nothing fails.
         remove(&Migrate { uninstall_key: key, arguments: None, elevated: false });
