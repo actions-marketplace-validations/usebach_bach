@@ -71,6 +71,12 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+CI also runs `cargo test` and clippy for `bach-pack` and `bach-cli` on Linux and
+macOS, and `cargo deny check advisories licenses sources` (the rules are in
+`deny.toml`; `cargo install cargo-deny --locked` to run it yourself). A new
+dependency with a license that isn't on the list, or a known vulnerability,
+fails that job.
+
 Also:
 
 - **Look at UI changes.** Run `--preview` and check the changed page in

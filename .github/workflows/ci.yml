@@ -98,3 +98,50 @@ jobs:
           Check ($feed.notes -eq 'CI check of the action') 'the feed carries the notes'
           Check ($feed.url -eq 'https://github.com/usebach/bach/releases/download/v7.8.9/Hello-Setup-7.8.9.exe') "the feed points at the tag's download ($($feed.url))"
           Check ($feed.sha256 -eq (Get-FileHash -Algorithm SHA256 $env:SETUP).Hash.ToLower()) "the feed has the file's SHA-256"
+
+  # `bach` itself builds and runs on macOS and Linux (only the setup window is
+  # Windows only), so its crates are tested there too.
+  cli:
+    name: bach on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: clippy
+
+      - name: Reuse earlier build output
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Test
+        run: cargo test -p bach-pack -p bach-cli
+
+      - name: Clippy
+        run: cargo clippy -p bach-pack -p bach-cli --all-targets -- -D warnings
+
+  # Known vulnerabilities (RustSec), licenses and where crates come from; the
+  # rules are in deny.toml.
+  supply-chain:
+    name: Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check advisories, licenses and sources
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories licenses sources
