@@ -138,7 +138,7 @@ fn add_workflow(dir: &Path) {
 
 /// The template with what the project says about itself, or placeholders
 /// from the folder's name.
-fn fill(found: Option<&Detected>, folder_name: &str, dir: &Path) -> String {
+pub(crate) fn fill(found: Option<&Detected>, folder_name: &str, dir: &Path) -> String {
     let empty = Detected::default();
     let found = found.unwrap_or(&empty);
     let name = found.name.clone().unwrap_or_else(|| folder_name.to_string());

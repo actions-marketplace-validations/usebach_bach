@@ -23,7 +23,33 @@ pub struct Detected {
 }
 
 pub fn detect(dir: &Path) -> Option<Detected> {
-    tauri(dir).or_else(|| electron(dir)).or_else(|| dotnet(dir)).or_else(|| rust(dir))
+    let mut found = tauri(dir).or_else(|| electron(dir)).or_else(|| dotnet(dir)).or_else(|| rust(dir))?;
+    // A name from a manifest (`@scope/my-app`, `Notes: Pro`) goes into
+    // `app.name`, which becomes a folder and a registry key. Whatever it can't
+    // be, `bach init` drops, so the folder's own name is used and the config it
+    // writes passes `bach check`.
+    found.name = found.name.as_deref().and_then(app_name);
+    Some(found)
+}
+
+/// A manifest's name as an `app.name` that is also a valid id: no npm scope,
+/// letters, digits, spaces, dots, dashes and underscores only, tidied. None
+/// when nothing usable is left.
+fn app_name(raw: &str) -> Option<String> {
+    let unscoped = match raw.trim().strip_prefix('@') {
+        Some(scoped) => scoped.split_once('/').map_or(scoped, |(_, name)| name),
+        None => raw.trim(),
+    };
+    let spaced: String = unscoped
+        .chars()
+        .map(|c| if c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_') { c } else { ' ' })
+        .collect();
+    let words: Vec<&str> = spaced.split_whitespace().collect();
+    let name = words.join(" ");
+    let name = name.trim_matches(|c| c == '.' || c == ' ').to_string();
+    let name: String = name.chars().take(64).collect();
+    let name = name.trim_matches(|c| c == '.' || c == ' ').to_string();
+    bach_pack::paths::is_valid_id(&name).then_some(name)
 }
 
 fn read_json(path: &Path) -> Option<serde_json::Value> {
@@ -64,11 +90,13 @@ fn electron(dir: &Path) -> Option<Detected> {
     if !depends("electron") {
         return None;
     }
-    let name = package
-        .get("build")
-        .and_then(|build| string(build, "productName"))
-        .or_else(|| string(&package, "productName"))
-        .or_else(|| string(&package, "name"));
+    // `@scope/my-app` is a package name, not a product name: the scope goes,
+    // and `my-app` is shown as "My App".
+    let product = package.get("build").and_then(|build| string(build, "productName")).or_else(|| string(&package, "productName"));
+    let unscoped = string(&package, "name").map(|name| name.rsplit('/').next().unwrap_or(&name).to_string());
+    // The program is named like the product, or like the package without its scope.
+    let stem = product.clone().or_else(|| unscoped.clone());
+    let name = product.or_else(|| unscoped.as_deref().map(title_case));
     let author = match package.get("author") {
         Some(serde_json::Value::String(author)) => Some(person(author)),
         Some(author) => string(author, "name"),
@@ -77,9 +105,9 @@ fn electron(dir: &Path) -> Option<Detected> {
     let forge = depends("@electron-forge/cli");
     Some(Detected {
         stack: "Electron",
-        executable: name.as_ref().map(|name| format!("{name}.exe")),
-        source: Some(match (&name, forge) {
-            (Some(name), true) => format!("out/{name}-win32-x64"),
+        executable: stem.as_ref().map(|stem| format!("{stem}.exe")),
+        source: Some(match (&stem, forge) {
+            (Some(stem), true) => format!("out/{stem}-win32-x64"),
             _ => "dist/win-unpacked".into(),
         }),
         name,
@@ -197,6 +225,40 @@ mod tests {
             std::fs::write(path, text).unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn manifest_names_become_valid_app_names() {
+        for (raw, expected) in [
+            ("@scope/my-app", Some("my-app")),
+            ("@scope/Notes", Some("Notes")),
+            ("name.with.dots", Some("name.with.dots")),
+            ("Notes: Pro", Some("Notes Pro")),
+            ("12345", Some("12345")),
+            ("\u{6253}\u{5f00}", Some("\u{6253}\u{5f00}")),
+            ("  Spaces  ", Some("Spaces")),
+            ("nul", None),
+            ("@/", None),
+            ("???", None),
+            ("", None),
+        ] {
+            assert_eq!(app_name(raw).as_deref(), expected, "{raw:?}");
+        }
+        assert!(app_name(&"a".repeat(100)).is_some_and(|name| name.len() <= 64));
+    }
+
+    #[test]
+    fn a_scoped_npm_package_gets_a_valid_config() {
+        let dir = project(
+            "scoped",
+            &[("package.json", r#"{"name":"@scope/my-app","version":"1.2.3","main":"main.js","devDependencies":{"electron":"^30.0.0"}}"#)],
+        );
+        let found = detect(&dir).unwrap();
+        assert_eq!(found.name.as_deref(), Some("My App"));
+        let text = crate::template::fill(Some(&found), "folder", &dir);
+        assert!(text.contains("name = \"My App\""), "{text}");
+        assert!(!text.contains('@'), "{text}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
