@@ -99,12 +99,43 @@ fn arguments(how: Fetch, follow: bool) -> Vec<String> {
     args
 }
 
-/// The config text that hands curl the key without a command line.
-fn key_config(key: &str) -> String {
-    // The key is checked to be plain characters when it is made, but this is
-    // a file format: anything that could end the quoted value is dropped.
-    let safe: String = key.chars().filter(|c| c.is_ascii_graphic() && *c != '"' && *c != '\\').collect();
-    format!("header = \"Authorization: Bearer {safe}\"\n")
+/// The config text that hands curl the key without a command line. A key
+/// with a character that could end the quoted value is refused, not cleaned:
+/// sending a different key than the one given would only come back as "the
+/// server refused the access key".
+fn key_config(key: &str) -> Result<String, String> {
+    if key.is_empty() || !key.chars().all(|c| c.is_ascii_graphic() && c != '"' && c != '\\') {
+        return Err("the access key has a character that can't be sent (a space, a quote or a backslash); check that it was copied whole".into());
+    }
+    Ok(format!("header = \"Authorization: Bearer {key}\"\n"))
+}
+
+/// Hands curl its config on stdin. If that fails the child is stopped, never
+/// left waiting for input it will not get.
+fn send_config(child: &mut std::process::Child, key: &str) -> Result<(), String> {
+    let config = key_config(key);
+    let written = config.and_then(|text| match child.stdin.take() {
+        Some(mut stdin) => stdin.write_all(text.as_bytes()).map_err(|err| err.to_string()),
+        None => Err("curl's input isn't available".into()),
+        // Dropping stdin closes it, which tells curl the config is complete.
+    });
+    if written.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    written
+}
+
+/// What a finished curl run means. The HTTP status comes from curl itself
+/// (`--write-out`), never from looking for digits in its message: a host
+/// called `cdn416.example.com` is not a 416.
+fn verdict(http: Option<u16>, reason: &str, url: &str, resume: bool) -> Result<(), String> {
+    // A partial file that was complete already: the server answers 416
+    // ("range not satisfiable"), which here means nothing is left to fetch.
+    if resume && http == Some(416) {
+        return Ok(());
+    }
+    Err(describe(http, reason, url))
 }
 
 /// Fetches an https `url` into `to`; sends `bearer` (an access key) when there is one, and
@@ -146,18 +177,18 @@ fn run(
         command.args(["--config", "-"]);
     }
     let mut child = command
+        .args(["--write-out", "%{http_code}"])
         .arg("--output")
         .arg(to)
         .arg(url)
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(if key.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|err| err.to_string())?;
-    if let (Some(key), Some(mut stdin)) = (key, child.stdin.take()) {
-        stdin.write_all(key_config(key).as_bytes()).map_err(|err| err.to_string())?;
-        // Dropping stdin closes it, which tells curl the config is complete.
+    if let Some(key) = key {
+        send_config(&mut child, key)?;
     }
     let status = loop {
         match child.try_wait() {
@@ -166,7 +197,11 @@ fn run(
                 progress(std::fs::metadata(to).map_or(0, |meta| meta.len()));
                 std::thread::sleep(std::time::Duration::from_millis(120));
             }
-            Err(err) => return Err(err.to_string()),
+            Err(err) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(err.to_string());
+            }
         }
     };
     progress(std::fs::metadata(to).map_or(0, |meta| meta.len()));
@@ -177,22 +212,22 @@ fn run(
     if let Some(mut pipe) = child.stderr.take() {
         let _ = pipe.read_to_string(&mut stderr);
     }
-    // A partial file that was complete already: curl answers 416 ("range
-    // not satisfiable"), which here means there is nothing left to fetch.
     let reason = stderr.trim().trim_start_matches("curl: ").to_string();
-    if how.resume && reason.contains("416") {
-        return Ok(());
+    let mut said = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        let _ = pipe.read_to_string(&mut said);
     }
-    Err(describe(&reason, url))
+    verdict(said.trim().parse().ok().filter(|code| *code != 0), &reason, url, how.resume)
 }
 
 /// curl's complaint as a sentence a person can act on; a refused key is
-/// said as such, because it means something to the user.
-fn describe(reason: &str, url: &str) -> String {
+/// said as such, because it means something to the user. `http` is the
+/// status the server really sent, when there was one.
+fn describe(http: Option<u16>, reason: &str, url: &str) -> String {
     if reason.is_empty() {
         return format!("{url} couldn't be downloaded");
     }
-    if reason.contains("401") || reason.contains("403") {
+    if matches!(http, Some(401 | 403)) {
         return format!("the server refused the access key ({reason})");
     }
     reason.to_string()
@@ -220,8 +255,8 @@ fn probe(url: &str, key: Option<&str>) -> Result<(u16, String), String> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|err| err.to_string())?;
-    if let (Some(key), Some(mut stdin)) = (key, child.stdin.take()) {
-        stdin.write_all(key_config(key).as_bytes()).map_err(|err| err.to_string())?;
+    if let Some(key) = key {
+        send_config(&mut child, key)?;
     }
     let output = child.wait_with_output().map_err(|err| err.to_string())?;
     let said = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -309,9 +344,12 @@ mod tests {
     fn a_key_never_reaches_a_command_line() {
         let args = arguments(Fetch::SETUP, false).join(" ");
         assert!(!args.contains("Authorization"), "{args}");
-        assert_eq!(key_config("K7QF-3MWD"), "header = \"Authorization: Bearer K7QF-3MWD\"\n");
-        // Whatever could end the quoted value, or add a line, is dropped.
-        assert_eq!(key_config("a\"b\\c\nd e"), "header = \"Authorization: Bearer abcde\"\n");
+        assert_eq!(key_config("K7QF-3MWD").unwrap(), "header = \"Authorization: Bearer K7QF-3MWD\"\n");
+        // Whatever could end the quoted value, or add a line, is refused, not
+        // dropped: a changed key would only come back as "the server refused it".
+        for bad in ["a\"b", "a\\b", "a\nb", "a b", ""] {
+            assert!(key_config(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]
@@ -428,7 +466,23 @@ mod tests {
         }
         let (result, _) = follow("https://a.com/x", &[("https://a.com/x", 500, "")]);
         assert!(result.unwrap_err().contains("HTTP 500"));
-        assert!(describe("The requested URL returned error: 403", "u").contains("refused the access key"));
-        assert!(describe("", "https://a.com/x").contains("couldn't be downloaded"));
+        assert!(describe(Some(403), "The requested URL returned error: 403", "u").contains("refused the access key"));
+        assert!(describe(Some(401), "The requested URL returned error: 401", "u").contains("refused the access key"));
+        assert!(describe(None, "", "https://a.com/x").contains("couldn't be downloaded"));
+    }
+
+    #[test]
+    fn digits_in_a_host_name_are_not_http_statuses() {
+        // curl's own message when a host can't be found; no HTTP status exists.
+        let unresolved = "(6) Could not resolve host: cdn416.example.com";
+        assert!(verdict(None, unresolved, "https://cdn416.example.com/f", true).is_err(), "not an already-complete download");
+        let refused_name = verdict(None, "(6) Could not resolve host: api401.example.com", "u", false).unwrap_err();
+        assert!(!refused_name.contains("refused the access key"), "{refused_name}");
+        let other = verdict(None, "(6) Could not resolve host: a403.example.com", "u", false).unwrap_err();
+        assert!(!other.contains("refused the access key"), "{other}");
+        // The real statuses still mean what they did.
+        assert!(verdict(Some(416), "The requested URL returned error: 416", "u", true).is_ok());
+        assert!(verdict(Some(416), "The requested URL returned error: 416", "u", false).is_err(), "only a resumed download can be complete");
+        assert!(verdict(Some(403), "error: 403", "u", true).unwrap_err().contains("refused the access key"));
     }
 }

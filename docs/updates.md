@@ -183,6 +183,12 @@ yourself, use `--key-file FILE` or the `BACH_ACCESS_KEY` environment variable.
 
 Everything the updater does is logged to `%TEMP%\<app id>-update.log`.
 
+A download failure is reported from the HTTP status the server really sent,
+not from digits in curl's message: "the server refused the access key" appears
+only for a real 401 or 403, and a resumed download counts as complete only on a
+real 416. A key with a space, a quote or a backslash is refused with a sentence
+instead of being cleaned up and sent as a different key.
+
 ## It survives interruptions
 
 - **The setup window is closed:** nothing was changed. The download stays,
