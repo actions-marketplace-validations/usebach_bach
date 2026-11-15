@@ -16,6 +16,7 @@ pub fn doctor(config: &Path) -> Result<()> {
         std::env::consts::ARCH
     );
     let mut problems = 0;
+    let mut signing_program = None;
     match runtime::locate(None) {
         Ok(Found::Here(path)) => match runtime::read(&path) {
             Ok(_) => field("Runtime", path.display()),
@@ -35,6 +36,7 @@ pub fn doctor(config: &Path) -> Result<()> {
         match bach_pack::config::load(config) {
             Ok(project) => {
                 let manifest = &project.manifest;
+                signing_program = project.signing.as_ref().map(|signing| signing.program.clone());
                 let warnings = match project.warnings.len() {
                     0 => String::new(),
                     1 => " (1 warning: run bach check)".into(),
@@ -52,7 +54,13 @@ pub fn doctor(config: &Path) -> Result<()> {
     }
 
     field("Preview", if cfg!(windows) { "available" } else { "needs Windows (bach check works here)" });
-    field("Signing", if has_signtool() { "signtool found" } else { "signtool not found (optional, see docs/signing.md)" });
+    match signing_program {
+        Some(program) => field("Signing", format!("bach build signs the setup files with {program} ([signing]); --no-sign skips it")),
+        None => field(
+            "Signing",
+            if has_signtool() { "off, signtool found (add [signing] to sign)" } else { "off (optional: [signing] in bach.toml, see docs/signing.md)" },
+        ),
+    }
     println!();
     if problems == 0 {
         println!("Ready to build.");

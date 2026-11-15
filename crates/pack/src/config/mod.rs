@@ -60,6 +60,7 @@ struct File {
     context_menu: Vec<system::ContextMenuSection>,
     updates: Option<extras::UpdatesSection>,
     access: Option<extras::AccessSection>,
+    signing: Option<SigningSection>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,6 +82,24 @@ struct FilesSection {
     source: String,
     #[serde(default)]
     exclude: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SigningSection {
+    program: Option<String>,
+    arguments: Option<String>,
+}
+
+/// How to sign the setup files: the program to run and its arguments. Signing
+/// is optional; a project without `[signing]` builds unsigned files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Signing {
+    /// The signing program, `signtool` unless the project names another.
+    pub program: String,
+    /// Its arguments. `{file}` is the setup file (appended when not named) and
+    /// `{env:NAME}` an environment variable, so secrets stay out of the file.
+    pub arguments: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -149,6 +168,8 @@ pub struct Project {
     pub update_download_url: Option<String>,
     /// `updates.github`: the repository whose releases hold the updates.
     pub update_github: Option<String>,
+    /// `[signing]`: how `bach build` signs the setup files, if it should.
+    pub signing: Option<Signing>,
 }
 
 /// Settings that win over `bach.toml`, for builds in CI.
@@ -380,7 +401,29 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         warnings,
         update_download_url,
         update_github,
+        signing: signing(file.signing.as_ref())?,
     })
+}
+
+fn signing(section: Option<&SigningSection>) -> Result<Option<Signing>> {
+    let Some(section) = section else {
+        return Ok(None);
+    };
+    let program = match section.program.as_deref().map(str::trim) {
+        None | Some("") => "signtool".to_string(),
+        Some(program) if program.chars().any(char::is_control) => bail!("signing.program has control characters in it"),
+        Some(program) => program.to_string(),
+    };
+    let arguments = section.arguments.as_deref().map(str::trim).unwrap_or_default();
+    if arguments.is_empty() {
+        bail!(
+            "[signing] needs arguments: how the signing program picks your certificate, like              arguments = '/fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'"
+        );
+    }
+    if arguments.contains('\0') {
+        bail!("signing.arguments has a NUL in it");
+    }
+    Ok(Some(Signing { program, arguments: arguments.to_string() }))
 }
 
 /// A file name as GitHub keeps it for a release download: letters, digits,

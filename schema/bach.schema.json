@@ -4215,6 +4215,24 @@
           "description": "Send the key as Authorization: Bearer <key> with every request to the update feed and the download, so a private server can refuse anyone without one. Default true with [updates]."
         }
       }
+    },
+    "signing": {
+      "type": "object",
+      "description": "Optional. Signs the setup files bach build writes. Without it nothing is signed.",
+      "additionalProperties": false,
+      "required": [
+        "arguments"
+      ],
+      "properties": {
+        "program": {
+          "type": "string",
+          "description": "The signing program. signtool by default."
+        },
+        "arguments": {
+          "type": "string",
+          "description": "Its arguments. The setup file is added last; write {file} to put it elsewhere. {env:NAME} is replaced by an environment variable."
+        }
+      }
     }
   }
 }

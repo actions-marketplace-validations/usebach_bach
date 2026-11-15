@@ -8,6 +8,7 @@
 //! bach inspect FILE      show what a setup file installs
 //! bach doctor            check that everything a build needs is in place
 //! bach feed FILE         write the update feed for a (signed) setup file
+//! bach sign FILE         sign a setup file the way [signing] in bach.toml says
 //! bach key               make random access keys for a protected app
 //! bach winget FILE --url write winget manifests for a setup file
 //! bach version [TARGET]  show or raise the version in every file that has one
@@ -25,6 +26,7 @@ mod output;
 #[cfg(windows)]
 mod resources;
 mod runtime;
+mod sign;
 mod template;
 mod version;
 mod version_files;
@@ -89,6 +91,18 @@ enum Command {
         /// variable [access] names.
         #[arg(long)]
         key_file: Option<PathBuf>,
+        /// Don't sign, even though bach.toml has [signing] (sign later with
+        /// `bach sign`, or not at all).
+        #[arg(long)]
+        no_sign: bool,
+    },
+    /// Sign a setup file with the program [signing] in bach.toml names.
+    Sign {
+        /// The setup file.
+        file: PathBuf,
+        /// The config file.
+        #[arg(long, default_value = "bach.toml")]
+        config: PathBuf,
     },
     /// Make random access keys for an app with [access].
     Key {
@@ -192,7 +206,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
         Command::Check { config, app_version } => builder::check(&config, app_version.as_deref()),
-        Command::Build { config, out, runtime, fast, app_version, online, key_file } => {
+        Command::Build { config, out, runtime, fast, app_version, online, key_file, no_sign } => {
             builder::build(builder::BuildOptions {
                 config: &config,
                 out: out.as_deref(),
@@ -201,10 +215,12 @@ fn main() -> ExitCode {
                 version: app_version.as_deref(),
                 online,
                 key_file: key_file.as_deref(),
+                no_sign,
             })
             .map(|_| ())
         }
         Command::Key { count } => key::command(count),
+        Command::Sign { file, config } => sign::command(sign::Options { file: &file, config: &config }),
         Command::Preview { config, uninstall, theme, lang, runtime } => builder::preview(
             &config,
             builder::PreviewOptions {

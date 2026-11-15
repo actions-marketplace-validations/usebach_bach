@@ -404,3 +404,66 @@ fn a_setup_file_explains_its_options() {
     assert!(!dir.join("installed").exists());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Signing is optional: with `[signing]` the setup files are signed after they
+/// are written (here a stand-in that copies the file), without it nothing is.
+#[cfg(windows)]
+#[test]
+fn signing_is_optional_and_runs_before_the_feed() {
+    need_runtime!();
+    // Not set up: a plain build writes no signature and says nothing about one.
+    let plain = project("sign-off", &config(UPDATES));
+    let out = run(&plain, &["build", "--fast"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(!text(&out.stdout).contains("Signing"), "{}", text(&out.stdout));
+    std::fs::remove_dir_all(&plain).unwrap();
+
+    let signing = r#"[signing]
+program = "cmd"
+arguments = "/c copy /y {file} {file}.signed"
+"#;
+    let dir = project("sign-on", &format!("{}\n{signing}", config(UPDATES)));
+    let out = run(&dir, &["build", "--fast"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(dir.join("dist/Hello-Setup-1.0.0.exe.signed").is_file(), "the setup file was handed to the signer");
+    assert!(dir.join("dist/latest.json").is_file());
+    std::fs::remove_dir_all(dir.join("dist")).unwrap();
+
+    // --no-sign skips it, and says so.
+    let out = run(&dir, &["build", "--fast", "--no-sign"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(!dir.join("dist/Hello-Setup-1.0.0.exe.signed").exists());
+    assert!(text(&out.stdout).contains("Not signed"), "{}", text(&out.stdout));
+
+    // `bach sign` signs a file that was built unsigned.
+    let out = run(&dir, &["sign", "dist/Hello-Setup-1.0.0.exe"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(dir.join("dist/Hello-Setup-1.0.0.exe.signed").is_file());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn a_signer_that_fails_fails_the_build_with_one_sentence() {
+    need_runtime!();
+    let signing = r#"[signing]
+program = "cmd"
+arguments = "/c exit 3"
+"#;
+    let dir = project("sign-fails", &format!("{}\n{signing}", config("")));
+    let out = run(&dir, &["build", "--fast"]);
+    assert!(!out.status.success());
+    let error = text(&out.stderr);
+    assert!(error.contains("failed to sign") && error.contains("exit code 3"), "{error}");
+
+    let missing = project("sign-missing", &format!("{}\n[signing]\nprogram = \"no-such-signer-xyz\"\narguments = \"/a\"\n", config("")));
+    let out = run(&missing, &["build", "--fast"]);
+    assert!(text(&out.stderr).contains("ouldn't start no-such-signer-xyz"), "{}", text(&out.stderr));
+
+    let empty = project("sign-empty", &format!("{}\n[signing]\n", config("")));
+    let out = run(&empty, &["check"]);
+    assert!(text(&out.stderr).contains("[signing] needs arguments"), "{}", text(&out.stderr));
+    for dir in [dir, missing, empty] {
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

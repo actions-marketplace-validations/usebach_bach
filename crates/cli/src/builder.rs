@@ -47,6 +47,8 @@ pub struct BuildOptions<'a> {
     pub online: bool,
     /// A file holding the access key, instead of the environment variable.
     pub key_file: Option<&'a Path>,
+    /// Leave the setup files unsigned even when `[signing]` is set.
+    pub no_sign: bool,
 }
 
 /// The key the files are locked with, and what it unlocks while building.
@@ -88,7 +90,7 @@ fn read_key(env: &str, key_file: Option<&Path>) -> Result<String> {
 }
 
 pub fn build(options: BuildOptions) -> Result<PathBuf> {
-    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file } = options;
+    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file, no_sign } = options;
     let started = Instant::now();
     let mut project = load(config_path, version)?;
     if fast {
@@ -121,11 +123,22 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     let installed = project.manifest.total_size().max(1);
     println!();
     println!("Wrote {} ({})", output.display(), output::size(size));
+    // Signing is optional: only with [signing], and never with --no-sign.
+    let signing = project.signing.as_ref().filter(|_| !no_sign);
+    if let Some(signing) = signing {
+        crate::sign::sign(signing, &output)?;
+    }
     if project.online {
         let online_output = tidy(&project.online_output);
         write_online_setup(&project, &runtime, &online_output, sealing.as_ref())?;
         let size = fs::metadata(&online_output).map(|meta| meta.len()).unwrap_or(0);
         println!("Wrote {} ({}), the online installer", online_output.display(), output::size(size));
+        if let Some(signing) = signing {
+            crate::sign::sign(signing, &online_output)?;
+        }
+    }
+    if project.signing.is_some() && no_sign {
+        println!("Not signed (--no-sign). Sign it with `bach sign` before you publish it.");
     }
     if project.manifest.updates.is_some() {
         crate::feed::after_build(&project, &output)?;

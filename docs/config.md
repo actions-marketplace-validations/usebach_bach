@@ -19,6 +19,7 @@ default, so a five-line config already builds a complete installer.
 - [`[updates]`](#updates): updates the installed app fetches itself
 - [`[text]`](#text): any text in the window, in any language
 - [`[uninstall]`](#uninstall): the user's data
+- [`[signing]`](#signing): sign the setup files while building (optional)
 - [A complete example](#a-complete-example)
 - [Silent installs](#silent-installs) and [updating from the app](#updating-from-the-app)
 - [Editor support](#editor-support) and [listing your app in winget](#listing-your-app-in-winget)
@@ -513,6 +514,27 @@ files there every translation.
 
 Write Windows paths in TOML with single quotes so backslashes stay as they
 are: `data = ['%APPDATA%\My App']`.
+
+## [signing]
+
+Optional. Signs the setup files `bach build` writes, so you don't have to run
+a signing tool yourself. Without this section nothing is signed.
+
+```toml
+[signing]
+program = "signtool"      # default
+arguments = '/fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `program` | `signtool` | The signing program, started without a shell. Give its full path if it isn't on `PATH`. |
+| `arguments` | required | Its arguments, split like a command line. The setup file is added last; write `{file}` to put it elsewhere. `{env:NAME}` is replaced by an environment variable, so secrets stay out of `bach.toml` (the build fails when it isn't set). |
+
+`bach build --no-sign` skips it once, and `bach sign FILE` signs a file the
+same way later. Signing happens before the update feed is written. Details,
+and why the installed `uninstall.exe` stays unsigned, are in
+[signing](signing.md).
 
 ## A complete example
 
