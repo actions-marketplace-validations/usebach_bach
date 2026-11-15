@@ -81,7 +81,9 @@ pub fn weakness(folder: &Path) -> Result<Option<String>, String> {
 }
 
 fn inspect(owner: PSID, dacl: *const ACL) -> Option<String> {
-    let owner_text = sid_text(owner)?;
+    let Some(owner_text) = sid_text(owner) else {
+        return Some("its owner can't be read".into());
+    };
     if !TRUSTED_OWNERS.contains(&owner_text.as_str()) {
         return Some(format!("it belongs to {owner_text}, not to Administrators"));
     }
@@ -110,7 +112,9 @@ fn inspect(owner: PSID, dacl: *const ACL) -> Option<String> {
         // SAFETY: AceType 0 is an ACCESS_ALLOWED_ACE, whose SID starts at SidStart.
         let allowed = unsafe { &*(ace as *const ACCESS_ALLOWED_ACE) };
         let sid = PSID(std::ptr::addr_of!(allowed.SidStart) as *mut _);
-        let Some(who) = sid_text(sid) else { continue };
+        let Some(who) = sid_text(sid) else {
+            return Some("it has an access entry setup can't read".into());
+        };
         if allowed.Mask & CHANGE_RIGHTS != 0 && !TRUSTED_WRITERS.contains(&who.as_str()) {
             return Some(format!("{} may change it", account_name(&who)));
         }
@@ -136,6 +140,18 @@ const LIMIT: usize = 100_000;
 /// subfolder (someone who can write there can add a file), every file, and any
 /// link that could lead somewhere else. Anything it can't read fails the check.
 pub fn tree_weakness(folder: &Path) -> Result<Option<String>, String> {
+    use std::os::windows::fs::MetadataExt;
+    // The folder itself must be a real folder, not a link to somewhere else.
+    if std::fs::symlink_metadata(folder).is_ok_and(|meta| meta.file_attributes() & 0x400 != 0) {
+        return Ok(Some(format!("{} is a link", folder.display())));
+    }
+    // Whoever can rename or replace a folder above it controls it too, so the
+    // folders between it and Program Files (which is safe by default) count.
+    for above in folder.ancestors().skip(1).take_while(|above| super::folders::is_admin_only(above)) {
+        if let Some(why) = weakness(above)? {
+            return Ok(Some(format!("{}: {why}", above.display())));
+        }
+    }
     let mut seen = 0usize;
     walk(folder, &mut seen)
 }
