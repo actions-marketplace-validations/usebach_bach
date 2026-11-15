@@ -125,7 +125,8 @@ pub fn register_file_type(manifest: &Manifest, file_type: &FileType, exe: &Path)
 
 pub fn unregister_file_type(manifest: &Manifest, file_type: &FileType) -> Result<()> {
     let prog_id = file_type.prog_id(&manifest.app.id);
-    if let Ok(extension) = hive(manifest).options().read().write().open(format!(r"{CLASSES}\{}", file_type.extension)) {
+    let extension_path = format!(r"{CLASSES}\{}", file_type.extension);
+    if let Ok(extension) = hive(manifest).options().read().write().open(&extension_path) {
         if extension.get_string("").is_ok_and(|default| default == prog_id) {
             let _ = extension.remove_value("");
         }
@@ -136,7 +137,21 @@ pub fn unregister_file_type(manifest: &Manifest, file_type: &FileType) -> Result
     if matches!(owner(manifest, &prog_id), Owner::Us) {
         hive(manifest).remove_tree(format!(r"{CLASSES}\{prog_id}"))?;
     }
+    // What setup made is gone; the keys that held it go too, but only while
+    // empty: another program may list its own entry under the same extension.
+    remove_if_empty(manifest, &format!(r"{extension_path}\OpenWithProgids"));
+    remove_if_empty(manifest, &extension_path);
     Ok(())
+}
+
+/// Removes the key at `path` when it holds no values and no subkeys.
+fn remove_if_empty(manifest: &Manifest, path: &str) {
+    let empty = hive(manifest).open(path).is_ok_and(|key| {
+        key.keys().is_ok_and(|mut keys| keys.next().is_none()) && key.values().is_ok_and(|mut values| values.next().is_none())
+    });
+    if empty {
+        let _ = hive(manifest).remove_tree(path);
+    }
 }
 
 #[cfg(test)]
@@ -182,7 +197,18 @@ mod tests {
         assert_eq!(key(&file_type.extension).unwrap().get_string("").unwrap(), prog_id);
         unregister_file_type(&ours, &file_type).unwrap();
         assert!(key(&prog_id).is_err());
-        assert!(key(&file_type.extension).unwrap().get_string("").is_err());
+        assert!(key(&file_type.extension).is_err(), "the extension key setup made goes with it");
+
+        // Another program's entry under the same extension keeps the key.
+        register_file_type(&ours, &file_type, exe).unwrap();
+        let other = CURRENT_USER.create(format!(r"{CLASSES}\{}\OpenWithProgids", file_type.extension)).unwrap();
+        other.set_string("Other.Program", "").unwrap();
+        drop(other);
+        unregister_file_type(&ours, &file_type).unwrap();
+        let open_with = key(&format!(r"{}\OpenWithProgids", file_type.extension)).unwrap();
+        assert!(open_with.get_string("Other.Program").is_ok(), "someone else's entry stays");
+        assert!(open_with.get_string(&prog_id).is_err(), "ours is gone");
+        drop(open_with);
         let _ = CURRENT_USER.remove_tree(format!(r"{CLASSES}\{}", file_type.extension));
     }
 

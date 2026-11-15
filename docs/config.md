@@ -256,6 +256,12 @@ description = "My App document"     # optional
 
 Types that run code (`.exe`, `.bat`, `.ps1`, `.lnk`, …) are refused.
 
+Removing the app, or an update whose new version drops the type, takes back
+what setup wrote: the default value, the entry under `OpenWithProgids` and the
+program's own key. The `OpenWithProgids` key and the extension's key go too,
+but only when nothing else is left in them, so a program that registered itself
+for the same extension keeps its entry.
+
 ## [[requirements]]
 
 Something your app needs on the computer before it runs. Setup only looks
