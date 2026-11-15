@@ -151,14 +151,31 @@ started it can wait for its exit code.
 - Registry keys Bach creates for link schemes and file types carry a
   `BachApp` mark; keys without it belong to another program and are never
   changed or deleted.
+- Registry values, environment variables and right-click entries from
+  `bach.toml` stay below `Software\<your key>` (never `Classes`, `Policies`,
+  Windows' own keys or Bach's) and are removed only while they still hold what
+  setup wrote. Right-click entries carry the `BachApp` mark like link schemes.
+- Administrator rights are asked for once and only when the app says so
+  (`installer.scope = "machine"`, or `elevated = true` on one run step).
+  A machine-wide uninstaller removes itself in place instead of from a temp
+  copy, and setup files link with `/DEPENDENTLOADFLAG` so only System32's DLLs
+  load, never one planted next to a setup file.
+- `[[migrate]]` runs only the uninstall command of a named Settings › Apps
+  entry, never through a shell. An elevated setup ignores per-user entries,
+  and a machine-wide old uninstaller runs elevated only from Program Files or
+  the Windows folder.
+- Signing runs a program from `bach.toml` only when you ask for it with
+  `bach build --sign`.
 - The C runtime is linked in, so setup files start on a fresh Windows
   without the Visual C++ redistributable.
 
 ## Run steps
 
 `[[run]]` programs start only from the app's own packaged files, found through
-`paths.rs`, with no shell and no elevation, and are waited for (15 minutes at
-most). Steps that run before removal can fail without stopping the removal.
+`paths.rs`, with no shell, and are waited for (15 minutes at most). They run as
+the user unless a step says `elevated = true`, which makes Windows ask for
+administrator rights for that program alone. Steps that run before removal can
+fail without stopping the removal.
 
 ## Windows on ARM
 
