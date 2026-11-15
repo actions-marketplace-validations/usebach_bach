@@ -64,13 +64,16 @@ next to it (DLLs, resources). Find or produce that folder first, for example:
 | Electron (electron-builder / forge) | `dist/win-unpacked` or `out/<name>-win32-x64` |
 | Tauri | copy `src-tauri/target/release/<app>.exe` (and any resources) into a folder |
 | .NET | `dotnet publish -c Release -r win-x64 --self-contained` output (`bin/Release/<tfm>/win-x64/publish`) |
-| Go | a folder with the built `.exe` |
+| Go with Wails | `build/bin` |
+| Go (other) | a folder with the built `.exe` |
+| Flutter | `build/windows/x64/runner/Release` |
 | PyInstaller | `dist/<name>` (one-folder mode) |
+| Qt | the folder `windeployqt` filled, often `build/Release` |
 
 ## 3. Write bach.toml
 
 Run `bach init` (it won't overwrite an existing file). In a Rust, Tauri,
-Electron or .NET project it fills in name, version, publisher, the program,
+Wails, Electron, .NET, Flutter, PyInstaller or Qt project it fills in name, version, publisher, the program,
 the build folder, leftovers to exclude and needed runtimes (WebView2, .NET)
 from the project's own files; check them, then edit. Minimal by hand:
 

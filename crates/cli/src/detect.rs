@@ -1,16 +1,17 @@
 //! What kind of project `bach init` runs in, so the starter config already
 //! names the app, its version and where its build ends up.
 //!
-//! Reads Cargo.toml (Rust), src-tauri/tauri.conf.json (Tauri), package.json
-//! (Electron) and *.csproj (.NET). Anything it can't read is simply left
-//! for the developer to fill in.
+//! Reads Cargo.toml (Rust), src-tauri/tauri.conf.json (Tauri), wails.json
+//! (Go with Wails), package.json (Electron), *.csproj (.NET), pubspec.yaml
+//! (Flutter), a PyInstaller *.spec and CMakeLists.txt or a *.pro file (Qt).
+//! Anything it can't read is simply left for the developer to fill in.
 
 use std::path::Path;
 
 /// What the project says about itself; None where it doesn't say.
 #[derive(Debug, Default, PartialEq)]
 pub struct Detected {
-    /// "Rust", "Tauri", "Electron" or ".NET", for the message.
+    /// "Rust", "Tauri", "Wails", "Electron", ".NET", "Flutter", "PyInstaller" or "Qt", for the message.
     pub stack: &'static str,
     pub name: Option<String>,
     pub version: Option<String>,
@@ -23,7 +24,14 @@ pub struct Detected {
 }
 
 pub fn detect(dir: &Path) -> Option<Detected> {
-    let mut found = tauri(dir).or_else(|| electron(dir)).or_else(|| dotnet(dir)).or_else(|| rust(dir))?;
+    let mut found = tauri(dir)
+        .or_else(|| wails(dir))
+        .or_else(|| electron(dir))
+        .or_else(|| dotnet(dir))
+        .or_else(|| flutter(dir))
+        .or_else(|| pyinstaller(dir))
+        .or_else(|| qt(dir))
+        .or_else(|| rust(dir))?;
     // A name from a manifest (`@scope/my-app`, `Notes: Pro`) goes into
     // `app.name`, which becomes a folder and a registry key. Whatever it can't
     // be, `bach init` drops, so the folder's own name is used and the config it
@@ -113,6 +121,124 @@ fn electron(dir: &Path) -> Option<Detected> {
         publisher: author,
         exclude: clutter(),
         requirements: None,
+    })
+}
+
+const VCREDIST: &str = "[[requirements]]\nkind = \"vcredist\"   # the Visual C++ runtime this app is built with\n";
+
+/// The value of a top-level `key: value` line of a YAML file, unquoted.
+fn yaml_value(text: &str, key: &str) -> Option<String> {
+    text.lines()
+        .find_map(|line| line.strip_prefix(key)?.strip_prefix(':'))
+        .map(|value| value.split('#').next().unwrap_or(value).trim().trim_matches(['"', '\'']).to_string())
+        .filter(|value| !value.is_empty())
+}
+
+/// A Flutter app: pubspec.yaml with a `flutter:` section. `flutter build windows`
+/// leaves the program and its DLLs in build/windows/x64/runner/Release.
+fn flutter(dir: &Path) -> Option<Detected> {
+    let text = std::fs::read_to_string(dir.join("pubspec.yaml")).ok()?;
+    if !text.lines().any(|line| line.trim_end() == "flutter:") {
+        return None;
+    }
+    let name = yaml_value(&text, "name");
+    // 1.2.3+4 is version 1.2.3, build 4.
+    let version = yaml_value(&text, "version").map(|version| version.split('+').next().unwrap_or(&version).to_string());
+    Some(Detected {
+        stack: "Flutter",
+        executable: name.as_ref().map(|name| format!("{name}.exe")),
+        name: name.as_deref().map(title_case),
+        version,
+        source: Some("build/windows/x64/runner/Release".into()),
+        exclude: clutter(),
+        requirements: Some(VCREDIST.into()),
+        ..Detected::default()
+    })
+}
+
+/// A Go app with Wails: wails.json. `wails build` writes build/bin.
+fn wails(dir: &Path) -> Option<Detected> {
+    let config = read_json(&dir.join("wails.json"))?;
+    let name = string(&config, "name");
+    let binary = string(&config, "outputfilename").or_else(|| name.clone());
+    let info = config.get("info");
+    Some(Detected {
+        stack: "Wails",
+        executable: binary.map(|binary| format!("{binary}.exe")),
+        name: info.and_then(|info| string(info, "productName")).or(name),
+        version: info.and_then(|info| string(info, "productVersion")),
+        publisher: info
+            .and_then(|info| string(info, "companyName"))
+            .or_else(|| config.get("author").and_then(|author| string(author, "name"))),
+        source: Some("build/bin".into()),
+        exclude: clutter(),
+        requirements: Some("[[requirements]]\nkind = \"webview2\"   # Wails apps run on WebView2\n".into()),
+    })
+}
+
+/// A Python app packaged with PyInstaller: a `*.spec` file with an `EXE(` in it.
+/// An `--onedir` build is dist/<name>/<name>.exe.
+fn pyinstaller(dir: &Path) -> Option<Detected> {
+    let spec = std::fs::read_dir(dir).ok()?.flatten().map(|entry| entry.path()).find(|path| {
+        path.extension().is_some_and(|ext| ext == "spec") && std::fs::read_to_string(path).is_ok_and(|text| text.contains("EXE("))
+    })?;
+    let text = std::fs::read_to_string(&spec).ok()?;
+    // name='MyApp' or name="MyApp", in EXE( or COLLECT(.
+    let name = text
+        .match_indices("name=")
+        // Not `filename=` or `pathex_name=`: the word has to start there.
+        .filter(|(at, _)| !text[..*at].ends_with(|c: char| c.is_alphanumeric() || c == '_'))
+        .find_map(|(at, word)| {
+            let rest = &text[at + word.len()..];
+            let quote = rest.chars().next().filter(|c| *c == '\'' || *c == '"')?;
+            Some(rest[1..].split(quote).next()?.to_string()).filter(|name| !name.is_empty())
+        })
+        .or_else(|| spec.file_stem().map(|stem| stem.to_string_lossy().to_string()))?;
+    let pyproject = std::fs::read_to_string(dir.join("pyproject.toml")).unwrap_or_default();
+    let version = pyproject
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("version")?.trim().strip_prefix('='))
+        .map(|value| value.trim().trim_matches(['"', '\'']).to_string());
+    Some(Detected {
+        stack: "PyInstaller",
+        executable: Some(format!("{name}.exe")),
+        source: Some(format!("dist/{name}")),
+        name: Some(name),
+        version,
+        exclude: vec!["*.pdb".into(), "*.log".into(), "__pycache__/**".into(), "Thumbs.db".into(), ".DS_Store".into()],
+        requirements: None,
+        ..Detected::default()
+    })
+}
+
+/// A Qt app: CMakeLists.txt that finds Qt, or a qmake *.pro file. The program
+/// and the DLLs `windeployqt` copied beside it are expected in build/Release.
+fn qt(dir: &Path) -> Option<Detected> {
+    let cmake = std::fs::read_to_string(dir.join("CMakeLists.txt"))
+        .ok()
+        .filter(|text| text.contains("find_package(Qt") || text.contains("find_package(QT"));
+    let pro =
+        std::fs::read_dir(dir).ok()?.flatten().map(|entry| entry.path()).find(|path| path.extension().is_some_and(|ext| ext == "pro"));
+    let (name, version) = match (&cmake, &pro) {
+        (Some(text), _) => {
+            let call = text.lines().find_map(|line| line.trim().strip_prefix("project("))?;
+            let mut words = call.trim_end_matches(')').split_whitespace();
+            let name = words.next()?.to_string();
+            let version = words.by_ref().skip_while(|word| !word.eq_ignore_ascii_case("VERSION")).nth(1).map(String::from);
+            (name, version)
+        }
+        (None, Some(path)) => (path.file_stem()?.to_string_lossy().to_string(), None),
+        _ => return None,
+    };
+    Some(Detected {
+        stack: "Qt",
+        executable: Some(format!("{name}.exe")),
+        name: Some(title_case(&name)),
+        version,
+        source: Some("build/Release".into()),
+        exclude: clutter(),
+        requirements: Some(VCREDIST.into()),
+        ..Detected::default()
     })
 }
 
@@ -223,6 +349,51 @@ mod tests {
             std::fs::write(path, text).unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn flutter_wails_pyinstaller_and_qt_projects_are_recognised() {
+        let flutter = project("flutter", &[("pubspec.yaml", "name: my_notes\nversion: 1.4.2+7\nflutter:\n  uses-material-design: true\n")]);
+        let found = detect(&flutter).unwrap();
+        assert_eq!((found.stack, found.name.as_deref(), found.version.as_deref()), ("Flutter", Some("My Notes"), Some("1.4.2")));
+        assert_eq!(found.executable.as_deref(), Some("my_notes.exe"));
+        assert_eq!(found.source.as_deref(), Some("build/windows/x64/runner/Release"));
+        assert!(found.requirements.as_deref().unwrap().contains("vcredist"));
+        // A Dart package that isn't a Flutter app is not one.
+        assert!(detect(&project("dart", &[("pubspec.yaml", "name: lib\nversion: 1.0.0\n")])).is_none());
+
+        let wails = project(
+            "wails",
+            &[(
+                "wails.json",
+                r#"{"name":"clip","outputfilename":"clipper","author":{"name":"Jane"},"info":{"companyName":"Acme","productVersion":"2.0.1","productName":"Clipper"}}"#,
+            )],
+        );
+        let found = detect(&wails).unwrap();
+        assert_eq!(
+            (found.stack, found.name.as_deref(), found.version.as_deref(), found.publisher.as_deref()),
+            ("Wails", Some("Clipper"), Some("2.0.1"), Some("Acme"))
+        );
+        assert_eq!((found.executable.as_deref(), found.source.as_deref()), (Some("clipper.exe"), Some("build/bin")));
+        assert!(found.requirements.as_deref().unwrap().contains("webview2"));
+
+        let python = project(
+            "pyinstaller",
+            &[
+                ("tool.spec", "a = Analysis(['main.py'])\nexe = EXE(pyz, a.scripts, name='PyTool')\n"),
+                ("pyproject.toml", "[project]\nname = \"pytool\"\nversion = \"0.9.0\"\n"),
+            ],
+        );
+        let found = detect(&python).unwrap();
+        assert_eq!((found.stack, found.name.as_deref(), found.version.as_deref()), ("PyInstaller", Some("PyTool"), Some("0.9.0")));
+        assert_eq!((found.executable.as_deref(), found.source.as_deref()), (Some("PyTool.exe"), Some("dist/PyTool")));
+        assert!(detect(&project("spec-without-exe", &[("x.spec", "nothing here")])).is_none());
+
+        let qt = project("qt", &[("CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\nproject(Notepad VERSION 3.1.0 LANGUAGES CXX)\nfind_package(Qt6 REQUIRED COMPONENTS Widgets)\n")]);
+        let found = detect(&qt).unwrap();
+        assert_eq!((found.stack, found.name.as_deref(), found.version.as_deref()), ("Qt", Some("Notepad"), Some("3.1.0")));
+        assert_eq!(found.executable.as_deref(), Some("Notepad.exe"));
+        assert!(detect(&project("cmake", &[("CMakeLists.txt", "project(Plain)\n")])).is_none(), "CMake without Qt isn't Qt");
     }
 
     #[test]
