@@ -161,6 +161,40 @@ mod tests {
         assert!(parse(&with("1.0", "https://x/y.exe", "abc")).is_err(), "short hash");
     }
 
+    /// Feed text comes from a host the app doesn't control: damaged, it must be refused or
+    /// read, never a panic.
+    #[test]
+    fn a_damaged_feed_is_refused_never_a_panic() {
+        let good = br#"{"version":"2.0.0","url":"https://example.com/a.exe","sha256":"abababababababababababababababababababababababababababababababab","size":10,"rollout":20,"delta":{"from":"1.0.0","url":"https://example.com/p.exe","sha256":"cd"}}"#;
+        assert!(parse(std::str::from_utf8(good).unwrap()).is_ok());
+        let mut state = 0x1234_5678_9ABC_DEF1u64;
+        let mut next = move || {
+            state ^= state >> 12;
+            state ^= state << 25;
+            state ^= state >> 27;
+            state.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        };
+        for _ in 0..3000 {
+            let mut bytes = good.to_vec();
+            for _ in 0..1 + next() % 5 {
+                let at = (next() % bytes.len() as u64) as usize;
+                match next() % 4 {
+                    0 => bytes[at] = next() as u8,
+                    1 => bytes.truncate(at),
+                    2 => bytes.insert(at, next() as u8),
+                    _ => {
+                        bytes.remove(at);
+                    }
+                }
+                if bytes.is_empty() {
+                    break;
+                }
+            }
+            let text = String::from_utf8_lossy(&bytes).into_owned();
+            let _ = std::panic::catch_unwind(|| parse(&text)).unwrap_or_else(|_| panic!("parse panicked on {text:?}"));
+        }
+    }
+
     #[test]
     fn a_publisher_key_makes_the_signature_the_only_way_in() {
         let (private, public) = bach_pack::feedsig::generate().unwrap();

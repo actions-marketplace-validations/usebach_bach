@@ -397,6 +397,50 @@ mod tests {
         Args::parse_from(line.split_whitespace().map(String::from).collect()).unwrap_err()
     }
 
+    /// Whatever is on the command line, reading it ends in a value or a sentence.
+    #[test]
+    fn odd_command_lines_never_panic() {
+        let pieces = [
+            "--silent",
+            "/S",
+            "--dir",
+            "--dir=",
+            "=",
+            "/",
+            "--",
+            "-",
+            "",
+            " ",
+            "--with",
+            "a,b,,",
+            "--wait-for",
+            "99999999999999999999",
+            "--theme",
+            "--lang",
+            "\u{202e}",
+            "C:\\x y",
+            "--update=1",
+            "/=",
+            "--=--",
+            "é",
+        ];
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        for _ in 0..5000 {
+            let mut line = Vec::new();
+            for _ in 0..(state % 6) {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                line.push(pieces[(state % pieces.len() as u64) as usize].to_string());
+            }
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let shown = line.join(" ");
+            std::panic::catch_unwind(|| Args::parse_from(line.clone())).unwrap_or_else(|_| panic!("panicked on {shown:?}")).ok();
+        }
+    }
+
     #[test]
     fn the_documented_exit_codes_do_not_change() {
         assert_eq!((exit::OK, exit::FAILED, exit::USAGE, exit::UPDATE_AVAILABLE), (0, 1, 2, 10));

@@ -1,0 +1,40 @@
+[package]
+name = "bach-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Not part of the main workspace: it needs nightly and cargo-fuzz.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+bach-pack = { path = "../crates/pack" }
+serde_json = "1"
+
+[[bin]]
+name = "archive"
+path = "fuzz_targets/archive.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "manifest"
+path = "fuzz_targets/manifest.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "feed"
+path = "fuzz_targets/feed.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "config"
+path = "fuzz_targets/config.rs"
+test = false
+doc = false
