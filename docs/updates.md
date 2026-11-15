@@ -326,6 +326,10 @@ Things to know:
   `bach feed dist/Hello-Setup-1.4.0.exe --patch dist/Hello-Setup-1.4.0-patch-from-1.3.0.exe`
   (the patch's link comes from `bach.toml`, or `--patch-url`). With `--sign`,
   `bach build` signs the patch too.
+- With the GitHub Action, pass `args: --patch-from OLD.exe`. The action signs
+  the patch with `sign-command` like the setup file, writes the feed again with
+  `--patch` (so a signed or annotated feed keeps offering it), uploads it to the
+  release next to the setup file and gives its path as the `patch` output.
 - An app with `[access]` gets a patch that is encrypted with the same key.
 - The online installer and a first install always use the full file.
 

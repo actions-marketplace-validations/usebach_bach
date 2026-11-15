@@ -129,6 +129,9 @@ outputs:
   web-setup:
     description: The path of the online installer, when bach.toml asks for one (installer.online).
     value: ${{ steps.build.outputs.web-setup }}
+  patch:
+    description: The path of the update patch, when `args` has --patch-from.
+    value: ${{ steps.build.outputs.patch }}
   version:
     description: The version the setup file carries.
     value: ${{ steps.build.outputs.version }}
@@ -238,6 +241,9 @@ runs:
         # The online installer, when the config asks for one.
         web=$(sed -n 's/^Wrote \(.*\.exe\) (.*), the online installer$/\1/p' "$RUNNER_TEMP/bach-build.log" | head -n 1)
         echo "web-setup=$web" >> "$GITHUB_OUTPUT"
+        # The update patch, when `args` has --patch-from.
+        patch=$(sed -n 's/^Wrote \(.*\.exe\) (.*), the update patch from .*$/\1/p' "$RUNNER_TEMP/bach-build.log" | head -n 1)
+        echo "patch=$patch" >> "$GITHUB_OUTPUT"
         echo "version=$(bach inspect "$setup" | sed -n 's/^Installer for .* \([^ ]*\)$/\1/p' | head -n 1)" >> "$GITHUB_OUTPUT"
 
     - name: Sign the setup file
@@ -246,10 +252,17 @@ runs:
       env:
         BACH_SETUP_FILE: ${{ steps.build.outputs.setup }}
         WEB_SETUP: ${{ steps.build.outputs.web-setup }}
+        PATCH_FILE: ${{ steps.build.outputs.patch }}
         SIGN_COMMAND: ${{ inputs.sign-command }}
       run: |
         Invoke-Expression $env:SIGN_COMMAND
         if ($LASTEXITCODE -ne 0) { throw "The sign command failed (exit code $LASTEXITCODE)." }
+        # The update patch is a setup file too, and is signed like one.
+        if ($env:PATCH_FILE) {
+          $env:BACH_SETUP_FILE = $env:PATCH_FILE
+          Invoke-Expression $env:SIGN_COMMAND
+          if ($LASTEXITCODE -ne 0) { throw "The sign command failed for the update patch (exit code $LASTEXITCODE)." }
+        }
         # The online installer is signed with the same command.
         if ($env:WEB_SETUP) {
           $env:BACH_SETUP_FILE = $env:WEB_SETUP
@@ -264,12 +277,14 @@ runs:
       env:
         CONFIG: ${{ inputs.config }}
         SETUP: ${{ steps.build.outputs.setup }}
+        PATCH: ${{ steps.build.outputs.patch }}
         NOTES: ${{ inputs.notes }}
         NOTES_FILE: ${{ inputs.notes-file }}
         SIGNED: ${{ inputs.sign-command != '' }}
       run: |
         # bach build already wrote latest.json; it is written again when the
-        # file was signed (its SHA-256 changed) or there are notes to add.
+        # files were signed (their SHA-256 changed), there are notes to add, or
+        # there is an update patch (the rewrite must keep offering it).
         if ! bach inspect "$SETUP" | grep -Eq '^ +Updates '; then
           echo "bach.toml has no [updates], so there is no update feed."
           exit 0
@@ -277,14 +292,15 @@ runs:
         # Windows' bash wants /c/... paths for its own tools.
         if command -v cygpath >/dev/null 2>&1; then setup_unix=$(cygpath -u "$SETUP"); else setup_unix="$SETUP"; fi
         folder=$(dirname "$setup_unix")
-        if [ "$SIGNED" = "true" ] || [ -n "$NOTES" ] || [ -n "$NOTES_FILE" ]; then
+        if [ "$SIGNED" = "true" ] || [ -n "$NOTES" ] || [ -n "$NOTES_FILE" ] || [ -n "$PATCH" ]; then
+          feed_args=("$SETUP" --config "$CONFIG")
           if [ -n "$NOTES" ]; then
-            bach feed "$SETUP" --config "$CONFIG" --notes "$NOTES"
+            feed_args+=(--notes "$NOTES")
           elif [ -n "$NOTES_FILE" ]; then
-            bach feed "$SETUP" --config "$CONFIG" --notes-file "$NOTES_FILE"
-          else
-            bach feed "$SETUP" --config "$CONFIG"
+            feed_args+=(--notes-file "$NOTES_FILE")
           fi
+          [ -n "$PATCH" ] && feed_args+=(--patch "$PATCH")
+          bach feed "${feed_args[@]}"
         fi
         echo "feed=$folder/latest.json" >> "$GITHUB_OUTPUT"
 
@@ -297,6 +313,7 @@ runs:
         GH_REPO: ${{ github.repository }}
         SETUP: ${{ steps.build.outputs.setup }}
         WEB_SETUP: ${{ steps.build.outputs.web-setup }}
+        PATCH_FILE: ${{ steps.build.outputs.patch }}
         FEED: ${{ steps.feed.outputs.feed }}
         VERSION: ${{ steps.build.outputs.version }}
         TAG: ${{ inputs.tag }}
@@ -313,11 +330,14 @@ runs:
           setup=$(cygpath -u "$SETUP")
           [ -n "$FEED" ] && feed=$(cygpath -u "$FEED") || feed=""
           [ -n "$WEB_SETUP" ] && web=$(cygpath -u "$WEB_SETUP") || web=""
+          [ -n "$PATCH_FILE" ] && patch=$(cygpath -u "$PATCH_FILE") || patch=""
         else
-          setup="$SETUP"; feed="$FEED"; web="$WEB_SETUP"
+          setup="$SETUP"; feed="$FEED"; web="$WEB_SETUP"; patch="$PATCH_FILE"
         fi
         files=("$setup")
         [ -n "$web" ] && [ -f "$web" ] && files+=("$web")
+        # The feed points at the patch, so the patch has to be in the release.
+        [ -n "$patch" ] && [ -f "$patch" ] && files+=("$patch")
         [ -n "$feed" ] && [ -f "$feed" ] && files+=("$feed")
 
         flags=()
