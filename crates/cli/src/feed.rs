@@ -86,7 +86,7 @@ pub fn command(options: Options) -> Result<()> {
     let notes = match (options.notes, options.notes_file) {
         (Some(notes), _) => Some(notes.to_string()),
         (None, Some(file)) => {
-            Some(std::fs::read_to_string(file).with_context(|| format!("couldn't read {}", file.display()))?)
+            Some(bach_pack::textfile::read(file).with_context(|| format!("couldn't read {}", file.display()))?)
         }
         (None, None) => None,
     };

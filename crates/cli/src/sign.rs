@@ -12,7 +12,7 @@
 //! arguments, without a shell. Secrets stay out of `bach.toml`: write
 //! `{env:NAME}` in the arguments and the build reads it from the environment.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
@@ -41,12 +41,16 @@ pub fn sign(signing: &Signing, file: &Path) -> Result<()> {
     // The command as it will run, with secrets shown as the variable's name,
     // so a log never holds them and nobody is surprised by what bach.toml runs.
     let shown = self::arguments(signing, file, |name| Some(format!("{{env:{name}}}")))?;
-    println!("Signing: {} {}", signing.program, shown.join(" "));
-    let status = Command::new(&signing.program).args(&arguments).status().with_context(|| {
-        format!(
-            "couldn't start {}. Install it or give its full path in [signing] program (Windows' signtool comes with the Windows SDK)",
-            signing.program
-        )
+    let program = find_program(&signing.program);
+    println!("Signing: {} {}", program.display(), shown.join(" "));
+    let status = Command::new(&program).args(&arguments).status().with_context(|| {
+        if is_signtool(&signing.program) {
+            "couldn't start signtool. It is part of the Windows SDK (install its \"Windows SDK Signing Tools for Desktop Apps\"), \
+             or give its full path in [signing] program"
+                .to_string()
+        } else {
+            format!("couldn't start {}. Install it or give its full path in [signing] program", signing.program)
+        }
     })?;
     if !status.success() {
         bail!(
@@ -57,6 +61,50 @@ pub fn sign(signing: &Signing, file: &Path) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Whether `program` names Windows' signing tool without a folder.
+fn is_signtool(program: &str) -> bool {
+    program.eq_ignore_ascii_case("signtool") || program.eq_ignore_ascii_case("signtool.exe")
+}
+
+/// The program to start. `signtool` is rarely on `PATH`: the Windows SDK puts
+/// it in a versioned folder only its own command prompts know about. When it
+/// isn't on `PATH`, the newest one in the SDK's folder is used instead.
+fn find_program(program: &str) -> PathBuf {
+    if is_signtool(program) && !on_path(program) {
+        let kits = std::env::var_os("ProgramFiles(x86)").map(|files| PathBuf::from(files).join("Windows Kits").join("10").join("bin"));
+        if let Some(found) = kits.as_deref().and_then(newest_signtool) {
+            println!("signtool isn't on PATH; using {}", found.display());
+            return found;
+        }
+    }
+    PathBuf::from(program)
+}
+
+/// Whether a program of this name is in a folder on `PATH`.
+fn on_path(program: &str) -> bool {
+    let names = [program.to_string(), format!("{program}.exe")];
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| names.iter().any(|name| dir.join(name).is_file())))
+}
+
+/// The newest `signtool.exe` below `bin`, the SDK's folder of versioned
+/// folders (`10.0.26100.0\x64\signtool.exe`), preferring 64-bit.
+fn newest_signtool(bin: &Path) -> Option<PathBuf> {
+    let mut versions: Vec<(Vec<u32>, PathBuf)> = std::fs::read_dir(bin)
+        .ok()?
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| {
+            let number = entry.file_name().to_string_lossy().split('.').map(|part| part.parse().unwrap_or(0)).collect();
+            (number, entry.path())
+        })
+        .collect();
+    versions.sort_by(|a, b| b.0.cmp(&a.0));
+    versions.into_iter().find_map(|(_, folder)| {
+        ["x64", "arm64", "x86"].iter().map(|arch| folder.join(arch).join("signtool.exe")).find(|path| path.is_file())
+    })
 }
 
 /// The program's arguments: the text split like a command line, `{file}`
@@ -155,6 +203,22 @@ mod tests {
             ["-in", native.as_str(), "-h", "sha256"],
             "named once: not appended again"
         );
+    }
+
+    #[test]
+    fn the_newest_signtool_in_the_sdk_is_found() {
+        let bin = std::env::temp_dir().join(format!("bach-kits-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&bin);
+        for (version, arch) in [("10.0.19041.0", "x64"), ("10.0.26100.0", "x86"), ("10.0.26100.0", "x64"), ("10.0.9.0", "x64"), ("notes", "x64")] {
+            let folder = bin.join(version).join(arch);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join("signtool.exe"), b"").unwrap();
+        }
+        let found = newest_signtool(&bin).unwrap();
+        assert!(found.ends_with(Path::new("10.0.26100.0").join("x64").join("signtool.exe")), "{}", found.display());
+        assert!(newest_signtool(&bin.join("missing")).is_none());
+        std::fs::remove_dir_all(&bin).unwrap();
+        assert!(is_signtool("SignTool.exe") && !is_signtool(r"C:\tools\signtool.exe") && !is_signtool("osslsigncode"));
     }
 
     #[test]

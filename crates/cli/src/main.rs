@@ -115,6 +115,10 @@ enum Command {
         /// How many keys to make (one per customer, say).
         #[arg(long, short, default_value_t = 1)]
         count: u32,
+        /// Write the keys to this new file (UTF-8, one per line) instead of
+        /// printing them; `bach build --key-file FILE` reads it.
+        #[arg(long, short)]
+        out: Option<PathBuf>,
     },
     /// Open the installer window as it will look, without installing anything.
     Preview {
@@ -234,7 +238,7 @@ fn main() -> ExitCode {
             })
             .map(|_| ())
         }
-        Command::Key { count } => key::command(count),
+        Command::Key { count, out } => key::command(count, out.as_deref()),
         Command::Sign { file, config } => sign::command(sign::Options { file: &file, config: &config }),
         Command::Preview { config, uninstall, theme, lang, runtime } => builder::preview(
             &config,

@@ -592,6 +592,24 @@ fn a_machine_wide_install_is_chosen_with_scope() {
 }
 
 #[test]
+fn signtool_arguments_start_with_sign() {
+    let dir = project_dir("signtool");
+    let signing = |program: &str, arguments: &str| format!("{MINIMAL}\n[signing]\nprogram = \"{program}\"\narguments = '{arguments}'\n");
+    let project = parse(&signing("signtool", "sign /fd SHA256 /a"), &dir).unwrap();
+    assert_eq!(project.signing.unwrap().arguments, "sign /fd SHA256 /a");
+    assert!(parse(&format!("{MINIMAL}\n[signing]\narguments = 'SIGN /a'\n"), &dir).is_ok(), "signtool is the default program");
+    for program in ["signtool", "SignTool.exe"] {
+        let err = format!("{:#}", parse(&signing(program, "/fd SHA256 /a"), &dir).unwrap_err());
+        assert!(err.contains("must start with the word sign"), "{program}: {err}");
+    }
+    let err = format!("{:#}", parse(&format!("{MINIMAL}\n[signing]\narguments = '/fd SHA256 /a'\n"), &dir).unwrap_err());
+    assert!(err.contains("must start with the word sign"), "{err}");
+    // Other signers have their own syntax.
+    assert!(parse(&signing("osslsigncode", "-certs c.pem -in {file}"), &dir).is_ok());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn older_installs_are_named_by_their_uninstall_entry() {
     let dir = project_dir("migrate");
     let ok = format!(

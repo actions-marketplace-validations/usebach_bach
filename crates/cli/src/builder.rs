@@ -81,7 +81,7 @@ fn seal(project: &mut Project, key_file: Option<&Path>, key: Option<&str>) -> Re
 
 fn read_key(env: &str, key_file: Option<&Path>) -> Result<String> {
     let key = match key_file {
-        Some(file) => std::fs::read_to_string(file)
+        Some(file) => bach_pack::textfile::read(file)
             .with_context(|| format!("couldn't read the key file {}", file.display()))?,
         None => std::env::var(env).map_err(|_| {
             anyhow::anyhow!(
@@ -90,7 +90,8 @@ fn read_key(env: &str, key_file: Option<&Path>) -> Result<String> {
             )
         })?,
     };
-    Ok(key.trim().to_string())
+    // The first line: a file from `bach key --count 50` holds many keys.
+    Ok(bach_pack::textfile::first_line(&key).unwrap_or_default())
 }
 
 pub fn build(options: BuildOptions) -> Result<PathBuf> {

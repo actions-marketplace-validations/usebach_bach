@@ -190,7 +190,7 @@ pub fn load(path: &Path) -> Result<Project> {
 
 /// [`load`] with some settings replaced (see [`Overrides`]).
 pub fn load_with(path: &Path, overrides: &Overrides) -> Result<Project> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("couldn't read {}", path.display()))?;
+    let text = crate::textfile::read(path).with_context(|| format!("couldn't read {}", path.display()))?;
     let root = path
         .parent()
         .map(|parent| if parent.as_os_str().is_empty() { Path::new(".") } else { parent })
@@ -426,6 +426,15 @@ fn signing(section: Option<&SigningSection>) -> Result<Option<Signing>> {
     }
     if arguments.contains('\0') {
         bail!("signing.arguments has a NUL in it");
+    }
+    // signtool's first word is the command to run; without `sign` it answers
+    // "Invalid command", which says nothing about where the mistake is.
+    let is_signtool = program.eq_ignore_ascii_case("signtool") || program.eq_ignore_ascii_case("signtool.exe");
+    if is_signtool && !arguments.split_whitespace().next().is_some_and(|first| first.eq_ignore_ascii_case("sign")) {
+        bail!(
+            "signing.arguments for signtool must start with the word sign, like \
+             arguments = 'sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'"
+        );
     }
     Ok(Some(Signing { program, arguments: arguments.to_string() }))
 }

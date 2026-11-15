@@ -122,7 +122,7 @@ impl Args {
     /// sentence when the file can't be read.
     pub fn access_key(&self) -> Result<Option<String>, String> {
         if let Some(file) = &self.key_file {
-            let text = std::fs::read_to_string(file)
+            let text = bach_pack::textfile::read(file)
                 .map_err(|err| format!("couldn't read the key file {}: {err}", file.display()))?;
             return Ok(first_line(&text));
         }

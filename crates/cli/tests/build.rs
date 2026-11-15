@@ -534,3 +534,32 @@ fn patch_archive_size(setup: &Path) -> u64 {
     let end = bytes.len();
     u64::from_le_bytes(bytes[end - 24..end - 16].try_into().unwrap())
 }
+
+/// What a shell's `>` writes (UTF-16 in Windows PowerShell, UTF-8 with a mark in
+/// newer ones) is read as the key it holds, and `bach key --out` writes plain text.
+#[test]
+fn key_files_from_any_shell_work() {
+    need_runtime!();
+    let dir = project("keyfiles", &config(ACCESS));
+    let out = run(&dir, &["key", "--count", "3", "--out", "keys.txt"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(text(&out.stdout).contains("Wrote 3 keys to keys.txt"), "{}", text(&out.stdout));
+    let keys = std::fs::read_to_string(dir.join("keys.txt")).unwrap();
+    assert_eq!(keys.lines().count(), 3);
+    assert!(!keys.starts_with('\u{feff}'));
+    assert!(!run(&dir, &["key", "--out", "keys.txt"]).status.success(), "never overwrites a file of keys");
+    let first = keys.lines().next().unwrap().to_string();
+
+    // A list of keys: the first one is the key.
+    let out = run(&dir, &["build", "--fast", "--key-file", "keys.txt"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+
+    let utf16: Vec<u8> = [0xFF, 0xFE].into_iter().chain(format!("{first}\r\n").encode_utf16().flat_map(u16::to_le_bytes)).collect();
+    std::fs::write(dir.join("utf16.txt"), utf16).unwrap();
+    std::fs::write(dir.join("bom.txt"), format!("\u{feff}{first}\r\n")).unwrap();
+    for file in ["utf16.txt", "bom.txt"] {
+        let out = run(&dir, &["build", "--fast", "--key-file", file]);
+        assert!(out.status.success(), "{file}: {}", text(&out.stderr));
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
