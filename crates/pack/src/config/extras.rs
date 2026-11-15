@@ -69,6 +69,9 @@ pub struct UpdatesSection {
     /// More feeds to ask when the main one can't be reached.
     #[serde(default)]
     mirrors: Vec<String>,
+    /// The publisher's Ed25519 public key (`bach feed-key` makes one): the
+    /// installed app then accepts only feed entries signed with its private half.
+    public_key: Option<String>,
 }
 
 /// The environment variable the access key is read from unless `key_env`
@@ -323,7 +326,14 @@ pub fn updates(section: Option<&UpdatesSection>, machine: bool) -> Result<Option
         }
         mirrors.push(mirror.to_string());
     }
-    Ok(Some(UpdateSettings { updates: Updates { feed, auto, mirrors }, download_url: download, github }))
+    let public_key = match section.public_key.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(key) => {
+            crate::feedsig::check_public(key).map_err(|err| anyhow::anyhow!("updates.public_key: {err:#}"))?;
+            Some(key.to_ascii_lowercase())
+        }
+    };
+    Ok(Some(UpdateSettings { updates: Updates { feed, auto, mirrors, public_key }, download_url: download, github }))
 }
 
 /// `[access]`: an access key the installer asks for.

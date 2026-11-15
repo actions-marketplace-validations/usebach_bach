@@ -74,6 +74,9 @@ fn extras(manifest: &Manifest) -> Result<()> {
         if !is_https(&updates.feed) {
             bail!("the update feed \"{}\" isn't an https link", updates.feed);
         }
+        if let Some(key) = &updates.public_key {
+            crate::feedsig::check_public(key).map_err(|err| anyhow::anyhow!("the update public key: {err:#}"))?;
+        }
         if let Some(mirror) = updates.mirrors.iter().find(|mirror| !is_https(mirror)) {
             bail!("the update mirror \"{mirror}\" isn't an https link");
         }

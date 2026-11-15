@@ -118,7 +118,7 @@ pub fn generate_key() -> Result<String> {
     Ok(key)
 }
 
-fn fill_random(bytes: &mut [u8]) -> Result<()> {
+pub(crate) fn fill_random(bytes: &mut [u8]) -> Result<()> {
     getrandom::fill(bytes).map_err(|err| anyhow::anyhow!("couldn't get random bytes from the system: {err}"))
 }
 

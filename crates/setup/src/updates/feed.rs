@@ -8,6 +8,19 @@ use bach_pack::manifest::FeedEntry;
 
 use super::curl::{self, Bearer, Fetch};
 
+/// The publisher's key that feed entries must be signed with.
+#[derive(Clone, Copy)]
+pub struct Signer<'a> {
+    pub public_key: &'a str,
+    pub app_id: &'a str,
+}
+
+/// The signer an installed app asks for: its manifest's key, when it has one.
+pub fn signer_of(manifest: &bach_pack::manifest::Manifest) -> Option<Signer<'_>> {
+    let public_key = manifest.updates.as_ref()?.public_key.as_deref()?;
+    Some(Signer { public_key, app_id: &manifest.app.id })
+}
+
 /// Fetches and checks the feed at `url`. `work` is a folder to keep the
 /// download in while it is read.
 pub fn fetch(url: &str, work: &Path, bearer: Option<&Bearer>) -> Result<FeedEntry, String> {
@@ -31,11 +44,12 @@ pub fn fetch(url: &str, work: &Path, bearer: Option<&Bearer>) -> Result<FeedEntr
 /// bytes from if the first one is down. One feed that can't be reached is no
 /// problem while another answers; when none does, the first one's complaint is
 /// the answer.
-pub fn fetch_offers(urls: &[String], work: &Path, bearer: Option<&Bearer>) -> Result<Vec<FeedEntry>, String> {
+pub fn fetch_offers(urls: &[String], work: &Path, bearer: Option<&Bearer>, signer: Option<Signer>) -> Result<Vec<FeedEntry>, String> {
     let mut entries = Vec::new();
     let mut first_error = None;
     for url in urls {
-        match fetch(url, work, bearer) {
+        let answer = fetch(url, work, bearer).and_then(|entry| accepted(entry, signer));
+        match answer {
             Ok(entry) => entries.push(entry),
             Err(error) => {
                 crate::log::line(&format!("The feed {url} didn't answer: {error}"));
@@ -47,6 +61,16 @@ pub fn fetch_offers(urls: &[String], work: &Path, bearer: Option<&Bearer>) -> Re
         return Err(first_error.unwrap_or_else(|| "there is no update feed to ask".to_string()));
     }
     Ok(agreeing(entries))
+}
+
+/// `entry`, if the publisher's signature allows it. The signature decides, not
+/// the host that served it: a mirror or a changed host can't offer anything the
+/// key didn't sign. An app without a key takes every entry, as before.
+pub fn accepted(entry: FeedEntry, signer: Option<Signer>) -> Result<FeedEntry, String> {
+    match signer {
+        Some(signer) => bach_pack::feedsig::verify(signer.public_key, signer.app_id, &entry).map(|()| entry),
+        None => Ok(entry),
+    }
 }
 
 /// The first entry, then the others that offer the same version with the
@@ -137,8 +161,54 @@ mod tests {
         assert!(parse(&with("1.0", "https://x/y.exe", "abc")).is_err(), "short hash");
     }
 
+    #[test]
+    fn a_publisher_key_makes_the_signature_the_only_way_in() {
+        let (private, public) = bach_pack::feedsig::generate().unwrap();
+        let signer = Some(Signer { public_key: &public, app_id: "Hello" });
+        let mut good = entry("2.0.0", "https://example.com/Hello-2.0.0.exe", &"ab".repeat(32));
+        good.signature = Some(bach_pack::feedsig::sign(&private, "Hello", &good).unwrap());
+        assert!(accepted(good.clone(), signer).is_ok());
+
+        // The same file offered by a mirror that changed the link or the hash.
+        let moved = FeedEntry { url: "https://mirror.example/evil.exe".into(), ..good.clone() };
+        assert!(accepted(moved, signer).unwrap_err().contains("doesn't match"));
+        let swapped = FeedEntry { sha256: "cd".repeat(32), ..good.clone() };
+        assert!(accepted(swapped, signer).is_err());
+        // Unsigned, and signed by somebody else.
+        let unsigned = FeedEntry { signature: None, ..good.clone() };
+        assert!(accepted(unsigned.clone(), signer).unwrap_err().contains("isn't signed"));
+        let (other, _) = bach_pack::feedsig::generate().unwrap();
+        let forged = FeedEntry { signature: Some(bach_pack::feedsig::sign(&other, "Hello", &unsigned).unwrap()), ..unsigned.clone() };
+        assert!(accepted(forged, signer).is_err());
+        // Without a key in the setup file, nothing changes.
+        assert!(accepted(unsigned, None).is_ok());
+    }
+
+    #[test]
+    fn the_manifests_key_names_the_signer() {
+        let mut manifest = crate::package::Package::sample().manifest;
+        assert!(signer_of(&manifest).is_none());
+        manifest.updates = Some(bach_pack::manifest::Updates {
+            feed: "https://x.example/latest.json".into(),
+            auto: bach_pack::manifest::Choice::Never,
+            mirrors: Vec::new(),
+            public_key: Some("ab".repeat(32)),
+        });
+        let signer = signer_of(&manifest).unwrap();
+        assert_eq!((signer.public_key, signer.app_id), ("ab".repeat(32).as_str(), manifest.app.id.as_str()));
+    }
+
     fn entry(version: &str, url: &str, sha: &str) -> FeedEntry {
-        FeedEntry { version: version.into(), url: url.into(), sha256: sha.into(), notes: None, size: None, rollout: None, delta: None }
+        FeedEntry {
+            version: version.into(),
+            url: url.into(),
+            sha256: sha.into(),
+            notes: None,
+            size: None,
+            rollout: None,
+            delta: None,
+            signature: None,
+        }
     }
 
     #[test]

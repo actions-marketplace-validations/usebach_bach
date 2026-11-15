@@ -143,6 +143,12 @@ enum Command {
         /// A setup file (or an installed uninstall.exe).
         file: PathBuf,
     },
+    /// Make the key pair that signs your update feeds (see [updates] public_key).
+    FeedKey {
+        /// Where to write the private key (default: feed-key.private; it must not exist).
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
     /// Write the update feed (latest.json) for a setup file, after signing it.
     Feed {
         /// The setup file.
@@ -239,6 +245,7 @@ fn main() -> ExitCode {
             .map(|_| ())
         }
         Command::Key { count, out } => key::command(count, out.as_deref()),
+        Command::FeedKey { out } => feed::key_command(out.as_deref()),
         Command::Sign { file, config } => sign::command(sign::Options { file: &file, config: &config }),
         Command::Preview { config, uninstall, theme, lang, runtime } => builder::preview(
             &config,

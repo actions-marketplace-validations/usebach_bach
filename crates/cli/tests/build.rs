@@ -561,3 +561,57 @@ fn key_files_from_any_shell_work() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_feed_with_a_publisher_key_is_signed_and_refuses_the_wrong_key() {
+    need_runtime!();
+    let dir = project("feedkey", &config(UPDATES));
+    let key_file = dir.join("feed-key.private");
+    let made = run(&dir, &["feed-key", "--out", key_file.to_str().unwrap()]);
+    assert!(made.status.success(), "{}", text(&made.stderr));
+    let shown = text(&made.stdout);
+    let public =
+        shown.lines().find_map(|line| line.strip_prefix("public_key = \"")).and_then(|rest| rest.strip_suffix('"')).unwrap().to_string();
+    let private = std::fs::read_to_string(&key_file).unwrap().trim().to_string();
+    assert!(!run(&dir, &["feed-key", "--out", key_file.to_str().unwrap()]).status.success(), "an existing key file is never overwritten");
+
+    let with_key = format!("{UPDATES}public_key = \"{public}\"\n");
+    let signed_dir = project("feedkey-signed", &config(&with_key));
+    let setup = signed_dir.join("dist/Hello-Setup-1.0.0.exe");
+    // A build without the key still builds, and says that latest.json is unsigned.
+    let mut build = bach();
+    build.current_dir(&signed_dir).args(["build", "--fast"]).env_remove("BACH_FEED_KEY").env_remove("BACH_FEED_KEY_FILE");
+    let built = build.output().unwrap();
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    assert!(text(&built.stderr).contains("is not signed"), "{}", text(&built.stderr));
+    let feed = signed_dir.join("signed.json");
+    let write = |key: Option<&str>| {
+        let mut command = bach();
+        command.current_dir(&signed_dir).args(["feed", setup.to_str().unwrap(), "--out", feed.to_str().unwrap()]);
+        command.env_remove("BACH_FEED_KEY").env_remove("BACH_FEED_KEY_FILE");
+        if let Some(key) = key {
+            command.env("BACH_FEED_KEY", key);
+        }
+        command.output().unwrap()
+    };
+
+    let unsigned = write(None);
+    assert!(!unsigned.status.success());
+    assert!(text(&unsigned.stderr).contains("must be signed"), "{}", text(&unsigned.stderr));
+
+    let (other_private, _) = bach_pack::feedsig::generate().unwrap();
+    let wrong = write(Some(&other_private));
+    assert!(!wrong.status.success());
+    assert!(text(&wrong.stderr).contains("doesn't belong"), "{}", text(&wrong.stderr));
+
+    let good = write(Some(&private));
+    assert!(good.status.success(), "{}", text(&good.stderr));
+    let entry: bach_pack::manifest::FeedEntry = serde_json::from_str(&std::fs::read_to_string(&feed).unwrap()).unwrap();
+    assert!(bach_pack::feedsig::verify(&public, "BachIntegrationTest-Hello", &entry).is_ok());
+    let mut tampered = entry.clone();
+    tampered.sha256 = "00".repeat(32);
+    assert!(bach_pack::feedsig::verify(&public, "BachIntegrationTest-Hello", &tampered).is_err());
+    // The latest.json that `bach build` wrote beside the setup file was signed with the same key.
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&signed_dir).unwrap();
+}

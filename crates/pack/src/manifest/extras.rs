@@ -156,6 +156,11 @@ pub struct Updates {
     /// file (same version and SHA-256) from.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mirrors: Vec<String>,
+    /// The publisher's Ed25519 public key (hex). With it, the installed app
+    /// accepts only feed entries signed by the matching private key, whichever
+    /// host or mirror they came from. Without it, feeds are trusted as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
 }
 
 impl Updates {
@@ -188,6 +193,10 @@ pub struct FeedEntry {
     /// full setup file above, as does a patch that can't be applied.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delta: Option<DeltaEntry>,
+    /// The publisher's signature over this entry (hex), see `feedsig`. Feeds
+    /// of apps without `[updates] public_key` don't need one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 /// The patch a [`FeedEntry`] offers to computers that have one version.

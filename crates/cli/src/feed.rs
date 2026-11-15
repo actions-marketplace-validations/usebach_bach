@@ -35,7 +35,9 @@ pub fn after_build(project: &Project, setup: &Path, patch: Option<(&Path, &str)>
                 }
                 None => None,
             };
-            let written = write(setup, &download_url(template, setup), None, None, delta, None)?;
+            // A build without the private key (a developer's own machine) still writes the
+            // feed, unsigned, with a warning; `bach feed` is where signing is required.
+            let written = write(setup, &download_url(template, setup), None, None, delta, None, false)?;
             field("Update feed", written.display());
         }
         None => crate::output::warnings(&["[updates] has no download_url, so no latest.json was written; \
@@ -87,7 +89,7 @@ pub fn command(options: Options) -> Result<()> {
         (None, Some(file)) => Some(bach_pack::textfile::read(file).with_context(|| format!("couldn't read {}", file.display()))?),
         (None, None) => None,
     };
-    let written = write(options.setup, &url, notes.as_deref(), options.rollout, delta.clone(), options.out)?;
+    let written = write(options.setup, &url, notes.as_deref(), options.rollout, delta.clone(), options.out, true)?;
     println!("Wrote {}", written.display());
     field("Download", &url);
     if let Some(delta) = &delta {
@@ -96,6 +98,43 @@ pub fn command(options: Options) -> Result<()> {
     if let Some(percent) = options.rollout {
         field("Rollout", format!("{percent}% of computers take it by themselves"));
     }
+    Ok(())
+}
+
+/// The publisher's private feed key: `BACH_FEED_KEY`, or the first line of the
+/// file `BACH_FEED_KEY_FILE` names.
+fn private_key() -> Result<String> {
+    use bach_pack::feedsig::{KEY_ENV, KEY_FILE_ENV};
+    if let Ok(key) = std::env::var(KEY_ENV) {
+        return Ok(key.trim().to_string());
+    }
+    if let Some(file) = std::env::var_os(KEY_FILE_ENV) {
+        let text =
+            std::fs::read_to_string(&file).with_context(|| format!("couldn't read the feed key file {}", Path::new(&file).display()))?;
+        return Ok(text.lines().next().unwrap_or_default().trim().to_string());
+    }
+    bail!(
+        "[updates] has a public_key, so the feed must be signed: set {KEY_ENV} (or {KEY_FILE_ENV}) to the private key `bach feed-key` made"
+    )
+}
+
+/// `bach feed-key`: a new publisher key pair for signed update feeds.
+pub fn key_command(out: Option<&Path>) -> Result<()> {
+    let (private, public) = bach_pack::feedsig::generate()?;
+    let file = out.map_or_else(|| PathBuf::from("feed-key.private"), Path::to_path_buf);
+    let mut handle = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&file)
+        .with_context(|| format!("couldn't create {} (it must not exist yet)", file.display()))?;
+    std::io::Write::write_all(&mut handle, format!("{private}\n").as_bytes())?;
+    println!("Wrote the private key to {}. Keep it secret and out of Git; it signs your update feeds.", file.display());
+    println!("Put this in bach.toml:\n\n[updates]\npublic_key = \"{public}\"\n");
+    println!(
+        "Sign with it by setting {} to the file's content (or {} to its path) when you run `bach build` or `bach feed`.",
+        bach_pack::feedsig::KEY_ENV,
+        bach_pack::feedsig::KEY_FILE_ENV
+    );
     Ok(())
 }
 
@@ -196,6 +235,7 @@ fn write(
     rollout: Option<u8>,
     delta: Option<DeltaEntry>,
     out: Option<&Path>,
+    key_required: bool,
 ) -> Result<PathBuf> {
     if rollout.is_some_and(|percent| percent > 100) {
         bail!("--rollout is a percentage, from 0 to 100");
@@ -217,7 +257,32 @@ fn write(
     }
     let (sha256, size) = digest_of(setup)?;
     let notes = notes.map(str::trim).filter(|notes| !notes.is_empty()).map(|notes| notes.chars().take(MAX_NOTES).collect());
-    let entry = FeedEntry { version: manifest.app.version.clone(), url: url.to_string(), sha256, notes, size: Some(size), rollout, delta };
+    let mut entry = FeedEntry {
+        version: manifest.app.version.clone(),
+        url: url.to_string(),
+        sha256,
+        notes,
+        size: Some(size),
+        rollout,
+        delta,
+        signature: None,
+    };
+    // An app that has a publisher key accepts only signed feeds, so an unsigned
+    // one would silently stop every installed copy from updating.
+    if let Some(public) = manifest.updates.as_ref().and_then(|updates| updates.public_key.as_deref()) {
+        match private_key() {
+            Ok(private) => {
+                if bach_pack::feedsig::public_of(&private)? != public.to_ascii_lowercase() {
+                    bail!("the feed signing key doesn't belong to [updates] public_key in this setup file; use the private key that `bach feed-key` made with it");
+                }
+                entry.signature = Some(bach_pack::feedsig::sign(&private, &manifest.app.id, &entry)?);
+            }
+            Err(err) if key_required => return Err(err),
+            Err(err) => crate::output::warnings(&[format!(
+                "{FILE_NAME} is not signed: {err:#}. Run `bach feed` with the key before you publish it"
+            )]),
+        }
+    }
     let target = match out {
         Some(out) => out.to_path_buf(),
         None => setup.parent().unwrap_or(Path::new(".")).join(FILE_NAME),

@@ -245,6 +245,40 @@ trust. When the main feed is down, the first mirror that answers is trusted
 like the main feed would be, so list only mirrors you run as carefully as the
 main one, and sign your setup files.
 
+## Signed feeds
+
+A feed names a download and its SHA-256, and both come from the same host, so
+whoever controls that host controls the update. A publisher key takes that
+away:
+
+```bash
+bach feed-key
+```
+
+writes the private key to `feed-key.private` (it must not exist yet; keep it
+secret and out of Git) and prints the line for `bach.toml`:
+
+```toml bach.toml
+[updates]
+public_key = "3f9a…64 hex digits…"
+```
+
+The public key goes into every setup file built from then on. `bach feed` signs
+each entry with the private key, which it reads from the `BACH_FEED_KEY`
+environment variable (the key itself) or `BACH_FEED_KEY_FILE` (a file whose
+first line is the key). Without the key `bach feed` refuses, and `bach build`
+still builds but warns that `latest.json` is unsigned. A key that doesn't belong
+to the public key is refused too.
+
+An installed app whose setup file has a public key accepts only feed entries
+with a valid signature, whichever feed or mirror served them: a changed link,
+SHA-256, size, rollout or patch, an unsigned entry or one signed by another key
+is ignored with a line in the log. Release notes are not signed. Old feeds without
+a signature keep working for apps without a `public_key`. An app that has one
+and receives an unsigned feed stops updating, so run `bach feed` with the key
+before you publish. The key can't be rotated yet: an app only trusts the key it
+was built with, so keep the private key safe.
+
 ## Staged rollouts
 
 To ship a risky release to few people first, write the feed with a rollout:

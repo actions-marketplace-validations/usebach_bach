@@ -190,6 +190,7 @@ pub fn ensure_delta(entry: &FeedEntry, bearer: Option<&Bearer>, app_id: &str, pr
         size: delta.size,
         rollout: None,
         delta: None,
+        signature: None,
     };
     let mut staged = ensure_with(&patch, app_id, bearer, progress)?;
     let full = FeedEntry { delta: None, ..entry.clone() };
@@ -295,6 +296,7 @@ mod tests {
             size: Some(900),
             rollout: None,
             delta: None,
+            signature: None,
         };
         let patch = Staged {
             version: "2.0".into(),

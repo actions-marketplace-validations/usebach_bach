@@ -990,3 +990,21 @@ fn the_docs_and_the_schema_name_the_same_settings() {
     });
     assert!(unknown.is_empty(), "named in docs/config.md tables but not in the schema: {unknown:?}");
 }
+
+#[test]
+fn a_publisher_key_for_updates_is_checked_and_kept() {
+    let dir = project_dir("publickey");
+    let (_, public) = crate::feedsig::generate().unwrap();
+    let updates = |key: &str| format!("{MINIMAL}\n[updates]\nfeed = \"https://x.example/latest.json\"\npublic_key = \"{key}\"\n");
+    let project = parse(&updates(&public.to_uppercase()), &dir).unwrap();
+    assert_eq!(project.manifest.updates.as_ref().unwrap().public_key.as_deref(), Some(public.as_str()), "kept in lower case");
+    project.manifest.validate().unwrap();
+    for bad in ["short", &"zz".repeat(32), &"ab".repeat(31)] {
+        let err = format!("{:#}", parse(&updates(bad), &dir).unwrap_err());
+        assert!(err.contains("updates.public_key"), "{bad}: {err}");
+    }
+    let mut manifest = project.manifest.clone();
+    manifest.updates.as_mut().unwrap().public_key = Some("nope".into());
+    assert!(manifest.validate().is_err(), "a setup file with a damaged key is refused");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
