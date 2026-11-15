@@ -345,7 +345,7 @@ fn install_dir_of_this_uninstaller(package: &Package) -> Option<PathBuf> {
 fn hand_over_to_temp_copy(dir: &Path, package: &Package, args: &Args) -> bool {
     let copy = std::env::temp_dir().join(format!(
         "{}-uninstall-{}.exe",
-        package.manifest.app.id.replace(' ', "-"),
+        bach_pack::paths::safe_dir_name(&package.manifest.app.id),
         std::process::id()
     ));
     if std::fs::copy(&package.exe, &copy).is_err() {

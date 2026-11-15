@@ -95,7 +95,7 @@ impl Context<'_> {
 
     /// What the feeds offer, in a sentence if none can be asked.
     fn latest(&self) -> Result<Offer, String> {
-        let work = std::env::temp_dir().join(format!("{}-update", self.manifest().app.id.replace(' ', "-")));
+        let work = std::env::temp_dir().join(format!("{}-update", bach_pack::paths::safe_dir_name(&self.manifest().app.id)));
         let mut entries = feed::fetch_offers(&self.feeds, &work, self.bearer().as_ref())
             .map_err(|error| self.texts.with(Key::error_download, &[("error", &error)]))?;
         let entry = entries.remove(0);

@@ -54,7 +54,7 @@ impl Staged {
 /// Where an app's staged update lives.
 pub fn folder(app_id: &str) -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    base.join("Bach").join("updates").join(app_id.replace(' ', "-"))
+    base.join("Bach").join("updates").join(bach_pack::paths::safe_dir_name(app_id))
 }
 
 /// The marker's staged update, if one is recorded and its file is there.

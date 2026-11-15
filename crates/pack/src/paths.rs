@@ -73,6 +73,15 @@ pub fn is_valid_id(id: &str) -> bool {
         && !id.ends_with([' ', '.'])
 }
 
+/// An app id as one file or folder name, for the places setup keeps scratch
+/// files by id (logs, staged updates, the online installer's download). Ids
+/// without a space come out unchanged. A space becomes `%20`: `%` can't be in
+/// an id, so two different ids never share a name, which `My App` and
+/// `My-App` did when both became `My-App`.
+pub fn safe_dir_name(id: &str) -> String {
+    id.replace(' ', "%20")
+}
+
 /// The folders a data folder may start with, and the environment variable
 /// each one reads.
 pub const DATA_ROOTS: &[&str] = &["APPDATA", "LOCALAPPDATA", "USERPROFILE"];
@@ -232,6 +241,18 @@ mod tests {
     fn rejects_paths_that_escape_or_break_windows() {
         for bad in ["", "/etc/passwd", r"\x", "a/../b", "./a", "a//b", "C:/x", "a/con.txt", "a/b.", "q?"] {
             assert!(normalize(bad).is_err(), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn ids_that_differ_never_share_a_folder_name() {
+        assert_eq!(safe_dir_name("Hello"), "Hello");
+        assert_eq!(safe_dir_name("My App"), "My%20App");
+        assert_ne!(safe_dir_name("My App"), safe_dir_name("My-App"));
+        assert_ne!(safe_dir_name("My App"), safe_dir_name("My_App"));
+        assert!(!is_valid_id("My%20App"), "so no id can spell the encoded name");
+        for id in ["My App", "A  B", "x y z"] {
+            assert!(normalize(&safe_dir_name(id)).is_ok(), "{id} stays a valid name");
         }
     }
 

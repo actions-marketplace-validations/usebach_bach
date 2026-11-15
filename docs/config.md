@@ -815,7 +815,7 @@ the exit code. `--help` always works, whatever else is on the line.
 | `--allow-downgrade` | Install over a newer version (refused otherwise, with exit code 1). |
 | `--overwrite` | A first install into a folder that already holds files of the same names as the setup file's (and no earlier install of this app) is refused with exit code 1, naming up to five of them; this installs over them anyway. |
 | `--key-file FILE` | The access key (first line of the file) for a setup file with [`[access]`](#access). The `BACH_ACCESS_KEY` environment variable does the same. Without a key a silent run exits with code 2. |
-| `--log FILE` | Where the log goes. By default every run writes `%TEMP%\<app id>-setup.log`. |
+| `--log FILE` | Where the log goes. By default every run writes `%TEMP%\<app id>-setup.log`; a space in the app id is written `%20` in file and folder names (`My App` gives `My%20App-setup.log`), so two ids never share one. |
 | `--help` (also `-h`, `/?`) | Prints every option. |
 
 A silent run accepts the license on the user's behalf and stops when a

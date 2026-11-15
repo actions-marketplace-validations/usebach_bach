@@ -284,7 +284,7 @@ pub fn preview(config_path: &Path, options: PreviewOptions) -> Result<()> {
     }
     let output = dir.join(format!(
         "{}-Setup-preview-{}.exe",
-        project.manifest.app.id.replace(' ', "-"),
+        bach_pack::paths::safe_dir_name(&project.manifest.app.id),
         std::process::id()
     ));
     write_setup(&project, &runtime, &output, sealing.as_ref())?;

@@ -13,14 +13,14 @@ static LOG: Mutex<Option<File>> = Mutex::new(None);
 
 /// Where a run's log goes when `--log` doesn't say.
 pub fn default_path(app_id: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("{}-setup.log", app_id.replace(' ', "-")))
+    std::env::temp_dir().join(format!("{}-setup.log", bach_pack::paths::safe_dir_name(app_id)))
 }
 
 /// Where an update run's log goes (`--check-update`, `--update`, ...): not
 /// the install log's file, because the setup file an update starts writes
 /// that one while this log is still open.
 pub fn update_path(app_id: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("{}-update.log", app_id.replace(' ', "-")))
+    std::env::temp_dir().join(format!("{}-update.log", bach_pack::paths::safe_dir_name(app_id)))
 }
 
 /// Starts the log at `path`, with a first line naming the run.

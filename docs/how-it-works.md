@@ -106,7 +106,7 @@ old copies go. A journal can only act on paths inside the install folder.
 
 ## Logs
 
-Every run writes `%TEMP%\<app id>-setup.log` (or `--log FILE`): the steps
+Every run writes `%TEMP%\<app id>-setup.log` (a space in the id is written `%20` there and in the staging and download folders, so `My App` and `My-App` never share one; or `--log FILE`): the steps
 and, when something fails, why. Logging never holds setup up.
 
 ## Languages

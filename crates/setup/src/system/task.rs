@@ -93,7 +93,7 @@ fn definition(manifest: &Manifest, uninstaller: &Path) -> String {
 
 /// Creates (or replaces) the app's update task, running `uninstaller`.
 pub fn register(manifest: &Manifest, uninstaller: &Path) -> Result<()> {
-    let file = std::env::temp_dir().join(format!("bach-task-{}-{}.xml", manifest.app.id.replace(' ', "-"), std::process::id()));
+    let file = std::env::temp_dir().join(format!("bach-task-{}-{}.xml", bach_pack::paths::safe_dir_name(&manifest.app.id), std::process::id()));
     // Task Scheduler reads its XML as UTF-16 with a byte order mark.
     let mut bytes = vec![0xFF, 0xFE];
     for unit in definition(manifest, uninstaller).encode_utf16() {

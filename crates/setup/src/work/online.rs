@@ -43,7 +43,7 @@ pub fn fetch(plan: &InstallPlan, report: Report) -> Result<Package, String> {
     };
 
     report(0.02, &texts.get(Key::step_finding));
-    let scratch = std::env::temp_dir().join(format!("{}-online", app_id.replace(' ', "-")));
+    let scratch = std::env::temp_dir().join(format!("{}-online", bach_pack::paths::safe_dir_name(app_id)));
     let mut offers = feed::fetch_offers(&updates.feeds(), &scratch, bearer.as_ref()).map_err(refused)?;
     crate::log::line(&format!("The feed offers {} {}", manifest.app.name, offers[0].version));
 
