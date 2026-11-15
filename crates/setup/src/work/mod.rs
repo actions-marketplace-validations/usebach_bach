@@ -38,10 +38,23 @@ pub enum Event {
 /// How a job reports progress.
 pub type Report<'a> = &'a dyn Fn(f32, &str);
 
-/// Sharing violation or access denied: on a program file, that's a running
-/// copy holding it.
+/// Sharing violation or lock violation: another process has the file open.
 fn is_in_use(err: &io::Error) -> bool {
-    matches!(err.raw_os_error(), Some(32) | Some(5) | Some(33))
+    matches!(err.raw_os_error(), Some(32) | Some(33))
+}
+
+/// Whether `err`, from changing `path`, means a running program holds it.
+/// "Access is denied" (5) is ambiguous: Windows says it for a running copy
+/// and also for a read-only file, a permission, ransomware protection or a
+/// security product. Only when opening the file for writing then fails with a
+/// sharing violation is a program really holding it; otherwise telling the
+/// person to close the app would send them in circles.
+fn is_in_use_at(err: &io::Error, path: &Path) -> bool {
+    match err.raw_os_error() {
+        Some(32) | Some(33) => true,
+        Some(5) => matches!(fs::OpenOptions::new().write(true).open(path), Err(open) if is_in_use(&open)),
+        _ => false,
+    }
 }
 
 /// ERROR_DISK_FULL or ERROR_HANDLE_DISK_FULL.
@@ -71,7 +84,7 @@ fn remove_waiting(path: &Path, texts: &Texts, still_open: Key) -> Result<(), Str
     for _ in 0..20 {
         match remove_file_if_present(path) {
             Ok(()) => return Ok(()),
-            Err(err) if is_in_use(&err) => last = Some(err),
+            Err(err) if is_in_use_at(&err, path) => last = Some(err),
             Err(err) => return Err(failed(texts, Key::error_delete, path, &err)),
         }
         std::thread::sleep(Duration::from_millis(150));
@@ -132,6 +145,8 @@ fn failed(texts: &Texts, key: Key, path: &Path, err: &io::Error) -> String {
     // A full disk reads "There is not enough space on the disk." here, from
     // Windows; the free-space check before unpacking says it with numbers.
     let path = path.display().to_string();
+    // The raw code is for whoever reads the log; the window gets the sentence.
+    crate::log::line(&format!("{path}: {err} (code {})", err.raw_os_error().map_or("none".to_string(), |code| code.to_string())));
     format!("{} {}", texts.with(key, &[("path", &path)]), describe(err))
 }
 
@@ -172,7 +187,38 @@ mod tests {
     #[test]
     fn in_use_and_full_disks_are_recognised() {
         assert!(is_in_use(&io::Error::from_raw_os_error(32)));
+        assert!(is_in_use(&io::Error::from_raw_os_error(33)));
         assert!(!is_in_use(&io::Error::from_raw_os_error(2)));
+        assert!(!is_in_use(&io::Error::from_raw_os_error(5)), "access denied alone isn't proof of a running program");
+    }
+
+    #[test]
+    #[allow(clippy::permissions_set_readonly_false)] // Windows: only the read-only attribute
+    fn access_denied_is_in_use_only_while_a_program_holds_the_file() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = std::env::temp_dir().join(format!("bach-denied-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let denied = io::Error::from_raw_os_error(5);
+
+        // Read-only: Windows says "access denied", and nobody has the file open.
+        let readonly = dir.join("readonly.txt");
+        fs::write(&readonly, b"x").unwrap();
+        let mut permissions = fs::metadata(&readonly).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&readonly, permissions.clone()).unwrap();
+        assert!(!is_in_use_at(&denied, &readonly));
+        permissions.set_readonly(false);
+        fs::set_permissions(&readonly, permissions).unwrap();
+
+        // Held open without sharing, like a running program: in use.
+        let held = dir.join("held.exe");
+        fs::write(&held, b"MZ").unwrap();
+        let _handle = fs::OpenOptions::new().read(true).share_mode(1).open(&held).unwrap();
+        assert!(is_in_use_at(&denied, &held));
+        assert!(is_in_use_at(&io::Error::from_raw_os_error(32), &dir.join("missing")), "32 needs no second look");
+        assert!(!is_in_use_at(&io::Error::from_raw_os_error(2), &held));
+        drop(_handle);
+        fs::remove_dir_all(&dir).unwrap();
         assert!(is_disk_full(&io::Error::from_raw_os_error(112)));
         assert!(!is_disk_full(&io::Error::from_raw_os_error(5)));
     }

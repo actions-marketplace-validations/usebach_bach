@@ -27,7 +27,7 @@ use bach_pack::protect::{KeyError, Unlocked};
 
 use super::patch::patch_base;
 use super::place::{self, Transaction};
-use super::{describe, failed, is_disk_full, is_in_use, plain, remove_empty_parents, remove_file_if_present, Report};
+use super::{describe, failed, is_disk_full, is_in_use, is_in_use_at, plain, remove_empty_parents, remove_file_if_present, Report};
 use crate::package::Package;
 use crate::system::{self, changes, env_path, host, integration, task};
 use crate::texts::{self, Texts};
@@ -306,7 +306,7 @@ fn unpack(
         }
     }
     transaction.commit(&place::journal_path(dir)).map_err(|failure| {
-        if is_in_use(&failure.error) {
+        if is_in_use_at(&failure.error, &failure.target) {
             texts.with(Key::error_in_use, &[("path", &failure.target.display().to_string())])
         } else {
             failed(texts, Key::error_write, &failure.target, &failure.error)
@@ -366,7 +366,7 @@ fn write_uninstaller(package: &Package, installed: &Manifest, dir: &Path, texts:
     // lets be renamed, not overwritten.
     place::replace_file(&partial, &target).map_err(|err| {
         let _ = fs::remove_file(&partial);
-        if is_in_use(&err) {
+        if is_in_use_at(&err, &target) {
             texts.with(Key::error_in_use, &[("path", &target.display().to_string())])
         } else {
             fail(describe(&err))
