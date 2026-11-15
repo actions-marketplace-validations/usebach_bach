@@ -567,3 +567,94 @@ fn a_windows_requirement_needs_a_build_number() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn system_changes_are_checked() {
+    let dir = project_dir("system");
+    let ok = format!(
+        r#"{MINIMAL}
+[[registry]]
+key = 'Software\Hello'
+name = "Dir"
+type = "expand"
+value = '{{app}}'
+
+[[registry]]
+key = 'Software\Hello'
+name = "Level"
+type = "dword"
+value = 3
+
+[[env]]
+name = "HELLO_HOME"
+value = '{{app}}'
+
+[[context_menu]]
+name = "Open with Hello"
+on = ["files", ".md"]
+
+[[context_menu]]
+name = "Hello here"
+on = "background"
+arguments = '--here "%V"'
+"#
+    );
+    let project = parse(&ok, &dir).unwrap();
+    let system = &project.manifest.system;
+    assert_eq!(system.registry.len(), 2);
+    assert_eq!(system.registry[1].data, crate::manifest::RegistryData::Dword(3));
+    assert_eq!(system.environment[0].name, "HELLO_HOME");
+    assert_eq!(system.context_menu[0].on.len(), 2);
+    assert_eq!(system.context_menu[1].arguments.as_deref(), Some("--here \"%V\""));
+    project.manifest.validate().unwrap();
+    assert!(parse(MINIMAL, &dir).unwrap().manifest.system.is_empty());
+
+    let cases = [
+        (r#"[[registry]]
+key = 'Software\Classes\.txt'
+value = "x""#, "registry[0]"),
+        (r#"[[registry]]
+key = 'HKCU\Software\X'
+value = "x""#, "below Software"),
+        (r#"[[registry]]
+key = 'Software\X'
+type = "dword"
+value = -1"#, "dword"),
+        (r#"[[registry]]
+key = 'Software\X'
+type = "binary"
+value = "x""#, "registry[0].type"),
+        (r#"[[registry]]
+key = 'Software\X'
+value = 4"#, "must be text"),
+        (r#"[[registry]]
+key = 'Software\X'
+value = "a"
+[[registry]]
+key = 'software\x'
+value = "b""#, "second time"),
+        (r#"[[env]]
+name = "PATH"
+value = "x""#, "belongs to Windows"),
+        (r#"[[env]]
+name = "A"
+value = "1"
+[[env]]
+name = "a"
+value = "2""#, "set twice"),
+        (r#"[[context_menu]]
+name = "Open""#, "context_menu[0].on"),
+        (r#"[[context_menu]]
+name = "Open"
+on = ".exe""#, "context_menu[0].on"),
+        (r#"[[context_menu]]
+name = "Open"
+on = "files"
+icon = "x""#, "icon"),
+    ];
+    for (body, expected) in cases {
+        let err = format!("{:#}", parse(&format!("{MINIMAL}\n{body}"), &dir).unwrap_err());
+        assert!(err.contains(expected), "{body}: {err}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -126,7 +126,7 @@ fn without_entry(path: &[u16], entry: &[u16]) -> Option<Vec<u16>> {
 
 /// Tells running programs (Explorer, so new terminals) that the
 /// environment changed. Never waits long on a program that hangs.
-fn broadcast() {
+pub(super) fn broadcast() {
     // Safety: a broadcast with a static string and a 2-second cap.
     unsafe {
         SendMessageTimeoutW(

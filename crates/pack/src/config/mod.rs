@@ -9,6 +9,7 @@ mod extras;
 mod gather;
 mod icon;
 mod options;
+mod system;
 mod text;
 
 use std::collections::BTreeMap;
@@ -51,6 +52,12 @@ struct File {
     shortcuts: Vec<extras::ShortcutSection>,
     #[serde(default)]
     run: Vec<extras::RunSection>,
+    #[serde(default)]
+    registry: Vec<system::RegistrySection>,
+    #[serde(default)]
+    env: Vec<system::EnvSection>,
+    #[serde(default)]
+    context_menu: Vec<system::ContextMenuSection>,
     updates: Option<extras::UpdatesSection>,
     access: Option<extras::AccessSection>,
 }
@@ -340,6 +347,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         requirements: extras::requirements(&file.requirements)?,
         shortcuts: Vec::new(),
         run: Vec::new(),
+        system: system::changes(&file.registry, &file.env, &file.context_menu)?,
         updates,
         access: access.as_ref().map(|access| access.manifest.clone()),
         online: false,

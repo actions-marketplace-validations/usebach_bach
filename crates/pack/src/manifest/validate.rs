@@ -51,6 +51,7 @@ pub fn manifest(manifest: &Manifest) -> Result<()> {
         paths::check_data_folder(folder)?;
     }
     extras(manifest)?;
+    super::system::check(&manifest.system)?;
     locale(manifest)
 }
 

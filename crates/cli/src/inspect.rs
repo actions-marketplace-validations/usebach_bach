@@ -124,6 +124,17 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
     for shortcut in &manifest.shortcuts {
         field("Shortcut", format!("{} → {}", shortcut.name, shortcut.target));
     }
+    for value in &manifest.system.registry {
+        let name = if value.name.is_empty() { "(default)" } else { value.name.as_str() };
+        field("Registry", format!("HKCU\\{}\\{name}", value.key));
+    }
+    for var in &manifest.system.environment {
+        field("Variable", &var.name);
+    }
+    for entry in &manifest.system.context_menu {
+        let places: Vec<String> = entry.on.iter().cloned().map(String::from).collect();
+        field("Right-click", format!("{} ({})", entry.name, places.join(", ")));
+    }
     if let Some(updates) = &manifest.updates {
         field("Updates", &updates.feed);
     }

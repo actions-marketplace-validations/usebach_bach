@@ -19,12 +19,14 @@ mod access;
 mod choices;
 pub mod extras;
 pub(crate) mod features;
+pub mod system;
 mod validate;
 
 pub use access::{Access, Encryption};
 pub use choices::{auto_update_setting as choices_auto_update, Choice, Choices, OPTION_AUTO_UPDATE, OPTION_AUTOSTART, OPTION_DESKTOP, OPTION_PATH, OPTION_START_MENU};
 pub use extras::{Check, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
 pub use features::{Component, FileType, Protocol};
+pub use system::{ContextMenuEntry, ContextTarget, EnvVar, RegistryData, RegistryValue, SystemChanges};
 pub use validate::MAX_LICENSE;
 
 /// The uninstaller's file name in every install folder.
@@ -69,6 +71,10 @@ pub struct Manifest {
     /// Programs setup runs while installing or removing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub run: Vec<RunStep>,
+    /// What the install changes in Windows besides files: registry values,
+    /// environment variables and right-click menu entries.
+    #[serde(default, skip_serializing_if = "SystemChanges::is_empty")]
+    pub system: SystemChanges,
     /// Where the installed app checks for updates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updates: Option<Updates>,
@@ -350,6 +356,7 @@ pub(crate) fn sample() -> Manifest {
         requirements: Vec::new(),
         shortcuts: vec![Shortcut { name: "Hello Docs".into(), target: "hello.exe".into(), arguments: Some("--docs".into()), description: None }],
         run: Vec::new(),
+        system: SystemChanges::default(),
         updates: None,
         access: None,
         online: false,

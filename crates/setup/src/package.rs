@@ -89,6 +89,7 @@ impl Package {
             requirements: Vec::new(),
             shortcuts: Vec::new(),
             run: Vec::new(),
+            system: manifest::SystemChanges::default(),
             updates: None,
             access: None,
             online: false,

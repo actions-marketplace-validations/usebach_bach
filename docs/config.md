@@ -15,6 +15,7 @@ default, so a five-line config already builds a complete installer.
 - [`[[file_types]]`](#file_types): files your app opens
 - [`[[requirements]]`](#requirements): what the app needs on the computer first
 - [`[[shortcuts]]`](#shortcuts): more Start menu shortcuts
+- [`[[registry]]`](#registry), [`[[env]]`](#env) and [`[[context_menu]]`](#context_menu): registry values, environment variables and right-click entries
 - [`[updates]`](#updates): updates the installed app fetches itself
 - [`[text]`](#text): any text in the window, in any language
 - [`[uninstall]`](#uninstall): the user's data
@@ -251,6 +252,78 @@ Steps run as the user, in the program's own folder, in the order listed.
 A program that asks for administrator rights fails to start, which is
 reported like any other failure. A step that runs longer than 15 minutes is
 ended. Each run is in the log. `bach inspect` lists them as `Runs`.
+
+## [[registry]]
+
+Registry values setup writes for the user, for apps that read their install
+folder or a setting from the registry.
+
+```toml
+[[registry]]
+key = 'Software\Hello'          # below HKCU, starting with Software\
+name = "InstallPath"            # leave out for the key's default value
+type = "string"                 # "string" (default), "expand" or "dword"
+value = '{app}'                 # {app} is the install folder
+
+[[registry]]
+key = 'Software\Hello'
+name = "FirstRun"
+type = "dword"
+value = 1
+```
+
+Use single quotes for the key, so the backslashes stay as they are. An
+update writes the values again and removes the ones the new version no longer
+lists. Removing the app deletes a value only while it still holds what setup
+wrote, so a setting the user or the app changed since stays, and keys that end
+up empty go too. Keys that belong to Windows, other programs or Bach
+(`Software\Classes`, `Software\Policies`, `Software\Microsoft\Windows…`,
+`Software\Bach`) are refused; use `[[protocols]]`, `[[file_types]]` and
+`[[context_menu]]` for what those are for.
+
+## [[env]]
+
+Environment variables of the user (`HKCU\Environment`). Programs started after
+the install see them; ones already running don't.
+
+```toml
+[[env]]
+name = "HELLO_HOME"
+value = '{app}'                 # {app} is the install folder
+```
+
+A value with a `%VARIABLE%` in it is stored so Windows fills it in when it's
+read. Removing the app removes a variable only while it still holds the value
+setup set. Names Windows uses (`PATH`, `TEMP`, `USERPROFILE`, …) are refused;
+`PATH` has its own setting, `add_to_path`.
+
+## [[context_menu]]
+
+Entries in Explorer's right-click menu that start your app with the clicked
+file or folder.
+
+```toml
+[[context_menu]]
+name = "Open with Hello"
+on = ["files", ".md"]           # files, folders, background, ".ext", or a list
+arguments = '"%1"'              # optional; "%1" is the clicked item
+
+[[context_menu]]
+name = "Open Hello here"
+on = "background"               # the empty space inside an open folder
+```
+
+| `on` | Shows on |
+| --- | --- |
+| `"files"` | every file |
+| `"folders"` | every folder |
+| `"background"` | the empty space inside a folder (`%V` is that folder) |
+| `".md"` | files with that extension (types that run code, like `.exe`, are refused) |
+
+Windows 11 shows these under "Show more options"; the short menu is reserved
+for apps with a packaged shell extension. Selecting several files starts one
+copy of your app per file. Setup only changes entries with its own mark, and
+leaves an entry of the same name that another program made.
 
 ## [[shortcuts]]
 

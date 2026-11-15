@@ -496,6 +496,102 @@
         }
       }
     },
+    "registry": {
+      "type": "array",
+      "description": "Registry values setup writes for the user (HKCU\\Software\\...). Removed again when the app is uninstalled, and only while they still hold what setup wrote.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "value"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The key below the hive, starting with Software\\, like Software\\Vendor\\App."
+          },
+          "name": {
+            "type": "string",
+            "description": "The value name. The key's default value when left out."
+          },
+          "type": {
+            "enum": [
+              "string",
+              "expand",
+              "dword"
+            ],
+            "description": "string (default), expand (text with %VARIABLES%) or dword (a number)."
+          },
+          "value": {
+            "type": [
+              "string",
+              "integer"
+            ],
+            "description": "The data. {app} stands for the install folder."
+          }
+        }
+      }
+    },
+    "env": {
+      "type": "array",
+      "description": "Environment variables of the user. Removed when the app is uninstalled, if they still hold the value setup set.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Letters, digits and _. Names Windows uses (PATH, TEMP, ...) are refused."
+          },
+          "value": {
+            "type": "string",
+            "description": "The value. {app} stands for the install folder."
+          }
+        }
+      }
+    },
+    "context_menu": {
+      "type": "array",
+      "description": "Entries in Explorer's right-click menu that start the app. On Windows 11 they sit under \"Show more options\".",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "on"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The menu text."
+          },
+          "on": {
+            "description": "Where it shows up: files, folders, background (the empty space in a folder), a file extension like \".md\", or a list of them.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ]
+          },
+          "arguments": {
+            "type": "string",
+            "description": "The command line after the program. \"%1\" (the clicked item) by default, \"%V\" for the background."
+          }
+        }
+      }
+    },
     "updates": {
       "type": "object",
       "additionalProperties": false,

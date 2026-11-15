@@ -28,7 +28,7 @@ use bach_pack::protect::{KeyError, Unlocked};
 use super::place::{self, Transaction};
 use super::{describe, failed, is_disk_full, is_in_use, plain, remove_empty_parents, remove_file_if_present, Report};
 use crate::package::Package;
-use crate::system::{self, env_path, host, integration, task};
+use crate::system::{self, changes, env_path, host, integration, task};
 use crate::texts::{self, Texts};
 
 /// Unpacking is most of the work; the steps after it share the rest.
@@ -460,5 +460,6 @@ fn integrate(
     for file_type in &manifest.file_types {
         integration::register_file_type(manifest, file_type, program).map_err(fail)?;
     }
+    changes::apply(&changes::USER, manifest, previous, dir, program).map_err(fail)?;
     Ok(())
 }

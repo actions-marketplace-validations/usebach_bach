@@ -9,9 +9,11 @@
 //! - [`host`]: the user's languages, free space, the one-setup-at-a-time lock.
 //! - [`env_path`]: adding the app to the user's `PATH`, and taking it off.
 //! - [`integration`]: starting with Windows, link schemes and file types.
+//! - [`changes`]: registry values, environment variables and right-click entries.
 //! - [`secret`]: an app's access key, sealed for this Windows user.
 
 pub mod apps;
+pub mod changes;
 pub mod env_path;
 pub mod host;
 pub mod integration;

@@ -21,7 +21,7 @@ use super::{
     Report,
 };
 use crate::package::Package;
-use crate::system::{self, env_path, host, integration, task};
+use crate::system::{self, changes, env_path, host, integration, task};
 use crate::texts::Texts;
 
 pub struct RemovePlan {
@@ -130,6 +130,7 @@ fn undo_integration(manifest: &Manifest, dir: &Path, program: &Path, texts: &Tex
     for file_type in &manifest.file_types {
         integration::unregister_file_type(manifest, file_type).map_err(fail)?;
     }
+    changes::undo(&changes::USER, manifest, dir);
     Ok(())
 }
 
