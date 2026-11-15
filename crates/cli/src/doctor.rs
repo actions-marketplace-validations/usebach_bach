@@ -19,13 +19,20 @@ pub fn doctor(config: &Path) -> Result<()> {
     let mut signing_program = None;
     match runtime::locate(None) {
         Ok(Found::Here(path)) => match runtime::read(&path) {
-            Ok(_) => field("Runtime", path.display()),
+            Ok(_) => {
+                let hash = runtime::hash_of(&path).unwrap_or_default();
+                field("Runtime", format!("{} (SHA-256 {hash})", path.display()));
+                field("Runtime trust", runtime::trust_note());
+            }
             Err(err) => {
                 problems += 1;
                 field("Runtime", format!("{} is unusable: {err:#}", path.display()));
             }
         },
-        Ok(Found::Downloadable(url)) => field("Runtime", format!("not here yet; the first build downloads it from {url}")),
+        Ok(Found::Downloadable(url)) => {
+            field("Runtime", format!("not here yet; the first build downloads it from {url}"));
+            field("Runtime trust", runtime::trust_note());
+        }
         Err(err) => {
             problems += 1;
             field("Runtime", format!("{err:#}"));

@@ -184,6 +184,26 @@ the user unless a step says `elevated = true`, which makes Windows ask for
 administrator rights for that program alone. Steps that run before removal can
 fail without stopping the removal.
 
+## Where the runtime comes from
+
+Every setup file contains the runtime, so `bach` is strict about it:
+
+- A released `bach` has the SHA-256 of its version's `bach-setup.exe` built in
+  (the release workflow sets `BACH_RUNTIME_SHA256` while building it). A
+  download, and a copy in the cache, must match it. A `bach` built from source
+  has none and checks a download against the `.sha256` published next to it,
+  which only guards against a damaged transfer. `bach doctor` shows the
+  runtime's SHA-256 and which of the two applies.
+- Downloads use https only, redirects included. `BACH_RELEASES`, which points
+  at a mirror of the release downloads, must start with `https://`.
+- The cache is `%LOCALAPPDATA%\bach\runtime\<version>` on Windows and
+  `$XDG_CACHE_HOME/bach/runtime/<version>` (or `~/.cache/bach/...`) elsewhere.
+  It is created for its owner only, and a cached runtime is hashed again
+  before every use. Without `LOCALAPPDATA`, or `HOME` and `XDG_CACHE_HOME`,
+  there is no cache and no fallback to the shared temp folder: `bach build`
+  says so and asks for `--runtime` or `BACH_RUNTIME`.
+- `BACH_NO_DOWNLOAD` forbids the download altogether.
+
 ## Windows on ARM
 
 A setup file is the setup runtime with the app's files appended, and the

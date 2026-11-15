@@ -6,7 +6,23 @@
 //! checked against its SHA-256 before it's used. So `bach build` works from
 //! a release zip, from source, and on macOS or Linux CI with nothing but
 //! the `bach` binary.
+//!
+//! The runtime ends up inside every setup file, so it is the one download
+//! Bach must not take on trust:
+//!
+//! - A release build of `bach` has the runtime's SHA-256 built in
+//!   (`BACH_RUNTIME_SHA256`, set by the release workflow). A download, and a
+//!   copy found in the cache, must match it, so a changed release host or
+//!   `BACH_RELEASES` mirror can't swap the file.
+//! - A build without it (from source) falls back to the `.sha256` published
+//!   next to the file, which only guards against a damaged transfer, and
+//!   `bach doctor` says so.
+//! - Downloads use https only, redirects included, and never go through a
+//!   shell string, so a mirror address can't run commands.
+//! - The cache lives in the user's own folder, never in the shared temp
+//!   folder, and a cached copy is checked again before every use.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -19,6 +35,10 @@ pub const FILE_NAME: &str = "bach-setup.exe";
 
 /// Where releases live. A fork can point `BACH_RELEASES` elsewhere.
 const RELEASES: &str = "https://github.com/usebach/bach/releases/download";
+
+/// The SHA-256 of this version's `bach-setup.exe`, when the release build
+/// that made this `bach` knew it.
+const PINNED_SHA256: Option<&str> = option_env!("BACH_RUNTIME_SHA256");
 
 /// Where the runtime was found, for `bach doctor`.
 pub enum Found {
@@ -45,13 +65,18 @@ pub fn locate(given: Option<&Path>) -> Result<Found> {
     }
     let here = std::env::current_exe().context("couldn't find where bach is")?;
     let beside = here.parent().map(|dir| dir.join(FILE_NAME));
-    let candidates = beside.into_iter().chain(checkout_builds(&here)).chain(std::iter::once(cached()?));
-    for candidate in candidates {
+    for candidate in beside.into_iter().chain(checkout_builds(&here)) {
         if candidate.is_file() {
             return Ok(Found::Here(candidate));
         }
     }
-    Ok(Found::Downloadable(url()))
+    // A cached copy counts only while it still matches what was verified.
+    if let Ok(cache) = cached() {
+        if cache.is_file() && cache_is_trusted(&cache, PINNED_SHA256) {
+            return Ok(Found::Here(cache));
+        }
+    }
+    Ok(Found::Downloadable(url()?))
 }
 
 /// In a checkout, `bach` may run from `target\debug` while the runtime was
@@ -68,6 +93,10 @@ fn checkout_builds(bach: &Path) -> Vec<PathBuf> {
 
 /// The download cache: `%LOCALAPPDATA%\bach\runtime\<version>` on Windows,
 /// `$XDG_CACHE_HOME/bach/runtime/<version>` (or `~/.cache/…`) elsewhere.
+///
+/// There is no fallback to the shared temp folder: on a build server another
+/// user could have planted a file at that predictable path. Without a home
+/// to cache in, pass `--runtime` or set `BACH_RUNTIME`.
 fn cached() -> Result<PathBuf> {
     let base = if cfg!(windows) {
         std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
@@ -75,39 +104,93 @@ fn cached() -> Result<PathBuf> {
         std::env::var_os("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+    }
+    .filter(|base| !base.as_os_str().is_empty());
+    let Some(base) = base else {
+        bail!(
+            "there's no folder of yours to cache the setup runtime in ({} isn't set); \
+             pass --runtime or set BACH_RUNTIME to a bach-setup.exe",
+            if cfg!(windows) { "LOCALAPPDATA" } else { "XDG_CACHE_HOME or HOME" }
+        );
     };
-    let base = base.unwrap_or_else(std::env::temp_dir);
     Ok(base.join("bach").join("runtime").join(env!("CARGO_PKG_VERSION")).join(FILE_NAME))
 }
 
-fn url() -> String {
-    let releases = std::env::var("BACH_RELEASES").unwrap_or_else(|_| RELEASES.to_string());
-    format!("{}/v{}/{FILE_NAME}", releases.trim_end_matches('/'), env!("CARGO_PKG_VERSION"))
+/// The file with the checked hash kept beside a cached runtime.
+fn sidecar(runtime: &Path) -> PathBuf {
+    let mut name = runtime.as_os_str().to_owned();
+    name.push(".sha256");
+    PathBuf::from(name)
 }
 
-/// Downloads the runtime and its checksum, checks both, and keeps it in the
-/// cache for next time.
+/// Whether a cached runtime is still the file that was verified: its hash
+/// equals the pinned one, or, in a build without one, the hash kept beside it.
+fn cache_is_trusted(runtime: &Path, pinned: Option<&str>) -> bool {
+    let Ok(bytes) = std::fs::read(runtime) else {
+        return false;
+    };
+    let actual = sha256_of(&bytes);
+    match pinned.map(|pin| pin.trim().to_ascii_lowercase()) {
+        Some(pin) => actual == pin,
+        None => std::fs::read_to_string(sidecar(runtime))
+            .is_ok_and(|kept| kept.split_whitespace().next().unwrap_or_default().eq_ignore_ascii_case(&actual)),
+    }
+}
+
+fn sha256_of(bytes: &[u8]) -> String {
+    bach_pack::protect::hex(&Sha256::digest(bytes))
+}
+
+fn url() -> Result<String> {
+    releases_url(std::env::var("BACH_RELEASES").ok().as_deref())
+}
+
+/// The runtime's address under `releases` (or the default). https only: the
+/// runtime ends up in every installer.
+fn releases_url(releases: Option<&str>) -> Result<String> {
+    let releases = releases.unwrap_or(RELEASES).trim();
+    if !releases.to_ascii_lowercase().starts_with("https://") {
+        bail!("BACH_RELEASES is \"{releases}\", but it must start with https://, because the runtime is run inside every installer");
+    }
+    Ok(format!("{}/v{}/{FILE_NAME}", releases.trim_end_matches('/'), env!("CARGO_PKG_VERSION")))
+}
+
+/// What a download must hash to: the hash built into this `bach`, or else the
+/// one published next to the file.
+fn expected_hash(pinned: Option<&str>, published: &str) -> String {
+    match pinned {
+        Some(pin) => pin.trim().to_ascii_lowercase(),
+        None => published.split_whitespace().next().unwrap_or_default().to_ascii_lowercase(),
+    }
+}
+
+/// Downloads the runtime, checks it, and keeps it in the cache for next time.
 fn download(url: &str) -> Result<PathBuf> {
     if std::env::var_os("BACH_NO_DOWNLOAD").is_some() {
         bail!("{FILE_NAME} isn't next to bach and BACH_NO_DOWNLOAD is set; pass --runtime or set BACH_RUNTIME");
     }
     let target = cached()?;
     let dir = target.parent().context("the cache has no folder")?;
-    std::fs::create_dir_all(dir).with_context(|| format!("couldn't create {}", dir.display()))?;
+    private_dir(dir).with_context(|| format!("couldn't prepare the cache folder {}", dir.display()))?;
     eprintln!("  Downloading the setup runtime for Bach {} (once)…", env!("CARGO_PKG_VERSION"));
     let partial = dir.join(format!("{FILE_NAME}.partial"));
-    let checksum = dir.join(format!("{FILE_NAME}.sha256"));
+    let checksum = dir.join(format!("{FILE_NAME}.download.sha256"));
     let result = (|| -> Result<()> {
         fetch(url, &partial)?;
-        fetch(&format!("{url}.sha256"), &checksum)?;
-        let expected = std::fs::read_to_string(&checksum)?;
-        let expected = expected.split_whitespace().next().unwrap_or_default().to_ascii_lowercase();
+        let published = if PINNED_SHA256.is_some() {
+            String::new()
+        } else {
+            fetch(&format!("{url}.sha256"), &checksum)?;
+            std::fs::read_to_string(&checksum)?
+        };
+        let expected = expected_hash(PINNED_SHA256, &published);
         let bytes = std::fs::read(&partial)?;
-        let actual = bach_pack::protect::hex(&Sha256::digest(&bytes));
+        let actual = sha256_of(&bytes);
         if expected.len() != 64 || expected != actual {
-            bail!("the downloaded runtime doesn't match its published SHA-256, so it wasn't used");
+            bail!("the downloaded runtime doesn't match {}, so it wasn't used", if PINNED_SHA256.is_some() { "the SHA-256 built into this bach" } else { "its published SHA-256" });
         }
         check_bare(&bytes, &partial)?;
+        std::fs::write(sidecar(&target), format!("{actual}\n"))?;
         std::fs::rename(&partial, &target)?;
         Ok(())
     })();
@@ -124,29 +207,84 @@ fn download(url: &str) -> Result<PathBuf> {
     Ok(target)
 }
 
+/// Creates the cache folder for its owner only and refuses one that someone
+/// else owns or that others can write to.
+#[cfg(unix)]
+fn private_dir(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    let meta = std::fs::metadata(dir)?;
+    if meta.mode() & 0o022 != 0 {
+        bail!("{} can be written by other users", dir.display());
+    }
+    let home = std::env::var_os("HOME").and_then(|home| std::fs::metadata(home).ok());
+    if home.is_some_and(|home| home.uid() != meta.uid()) {
+        bail!("{} belongs to someone else", dir.display());
+    }
+    Ok(())
+}
+
+/// On Windows the cache sits in `%LOCALAPPDATA%`, which only its user (and
+/// administrators) can write to.
+#[cfg(not(unix))]
+fn private_dir(dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(dir)?;
+    Ok(())
+}
+
+/// The arguments curl gets: https only, redirects included.
+fn curl_args(url: &str, to: &Path) -> Vec<OsString> {
+    let mut args: Vec<OsString> = ["--fail", "--location", "--proto", "=https", "--proto-redir", "=https"]
+        .iter()
+        .chain(&["--silent", "--show-error", "--retry", "2", "--output"])
+        .map(OsString::from)
+        .collect();
+    args.push(to.into());
+    args.push(url.into());
+    args
+}
+
+/// The PowerShell fallback. The address and the file arrive in environment
+/// variables, so nothing a mirror's address contains is ever parsed as code.
+const POWERSHELL_FETCH: &str = "$ProgressPreference='SilentlyContinue'; \
+     $r = Invoke-WebRequest -UseBasicParsing -PassThru -Uri $env:BACH_FETCH_URL -OutFile $env:BACH_FETCH_TO; \
+     $final = if ($r.BaseResponse.ResponseUri) { $r.BaseResponse.ResponseUri } else { $r.BaseResponse.RequestMessage.RequestUri }; \
+     if ($final.Scheme -ne 'https') { Remove-Item -Force $env:BACH_FETCH_TO; exit 3 }";
+
 /// Fetches `url` into `to` with curl (built into Windows 10+, macOS and
 /// most Linux), or PowerShell on a Windows without it.
 fn fetch(url: &str, to: &Path) -> Result<()> {
-    let curl = Command::new("curl")
-        .args(["--fail", "--location", "--silent", "--show-error", "--retry", "2", "--output"])
-        .arg(to)
-        .arg(url)
-        .status();
-    match curl {
+    if !url.to_ascii_lowercase().starts_with("https://") {
+        bail!("{url} isn't an https address");
+    }
+    match Command::new("curl").args(curl_args(url, to)).status() {
         Ok(status) if status.success() => return Ok(()),
         Ok(status) => bail!("curl couldn't download {url} ({status})"),
         Err(_) if cfg!(windows) => {}
         Err(_) => bail!("downloading needs curl, which isn't installed"),
     }
-    let script = format!(
-        "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri '{url}' -OutFile '{}'",
-        to.display().to_string().replace('\'', "''")
-    );
-    let status = Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]).status()?;
+    let status = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", POWERSHELL_FETCH])
+        .env("BACH_FETCH_URL", url)
+        .env("BACH_FETCH_TO", to)
+        .status()?;
     if !status.success() {
-        bail!("PowerShell couldn't download {url}");
+        bail!("PowerShell couldn't download {url} over https");
     }
     Ok(())
+}
+
+/// What `bach doctor` says about how this build trusts the runtime.
+pub fn trust_note() -> String {
+    match PINNED_SHA256 {
+        Some(pin) => format!("this bach expects SHA-256 {pin}"),
+        None => "this bach has no SHA-256 built in (a build from source); downloads are checked against the .sha256 next to them".into(),
+    }
+}
+
+/// The SHA-256 of the runtime at `path`, for `bach doctor`.
+pub fn hash_of(path: &Path) -> Result<String> {
+    Ok(sha256_of(&std::fs::read(path).with_context(|| format!("couldn't read {}", path.display()))?))
 }
 
 /// The runtime's bytes, checked to be a bare runtime and not a setup file
@@ -182,6 +320,61 @@ mod tests {
 
     #[test]
     fn downloads_name_this_version() {
-        assert!(url().ends_with(&format!("/v{}/bach-setup.exe", env!("CARGO_PKG_VERSION"))));
+        let url = releases_url(None).unwrap();
+        assert!(url.ends_with(&format!("/v{}/bach-setup.exe", env!("CARGO_PKG_VERSION"))));
+        let mirror = releases_url(Some("https://mirror.example/bach/")).unwrap();
+        assert!(mirror.starts_with("https://mirror.example/bach/v"));
+    }
+
+    #[test]
+    fn a_mirror_must_use_https() {
+        for bad in ["http://mirror.example", "ftp://mirror.example", "file:///c:/x", "mirror.example", "  HTTP://x"] {
+            assert!(releases_url(Some(bad)).is_err(), "{bad:?} should be refused");
+        }
+        assert!(releases_url(Some("HTTPS://mirror.example")).is_ok());
+    }
+
+    #[test]
+    fn curl_follows_only_https() {
+        let args: Vec<String> = curl_args("https://x.example/a", Path::new("out")).iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        let joined = args.join(" ");
+        assert!(joined.contains("--proto =https") && joined.contains("--proto-redir =https"), "{joined}");
+        assert_eq!(args.last().map(String::as_str), Some("https://x.example/a"));
+    }
+
+    #[test]
+    fn an_address_with_a_quote_never_reaches_the_script() {
+        // The fallback script is a constant: the address travels in an
+        // environment variable, so nothing in it can close a string.
+        assert!(!POWERSHELL_FETCH.contains("{url}") && !POWERSHELL_FETCH.contains("http://"));
+        assert!(POWERSHELL_FETCH.contains("$env:BACH_FETCH_URL"));
+        assert!(fetch("http://x.example/a", Path::new("out")).is_err(), "plain http is refused before anything runs");
+    }
+
+    #[test]
+    fn a_built_in_hash_beats_the_published_one() {
+        let pin = "a".repeat(64);
+        assert_eq!(expected_hash(Some(&pin), &"b".repeat(64)), pin);
+        assert_eq!(expected_hash(None, &format!("{}  bach-setup.exe\n", "B".repeat(64))), "b".repeat(64));
+    }
+
+    #[test]
+    fn a_cached_runtime_is_checked_before_use() {
+        let dir = std::env::temp_dir().join(format!("bach-runtime-cache-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(FILE_NAME);
+        std::fs::write(&file, b"MZ original").unwrap();
+        let good = sha256_of(b"MZ original");
+
+        assert!(!cache_is_trusted(&file, None), "no hash kept beside it: not verified");
+        std::fs::write(sidecar(&file), format!("{good}\n")).unwrap();
+        assert!(cache_is_trusted(&file, None));
+        assert!(cache_is_trusted(&file, Some(&good)));
+        assert!(!cache_is_trusted(&file, Some(&"0".repeat(64))), "a different pinned hash");
+
+        std::fs::write(&file, b"MZ planted").unwrap();
+        assert!(!cache_is_trusted(&file, None), "the file no longer matches the hash kept beside it");
+        assert!(!cache_is_trusted(&file, Some(&good)));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
