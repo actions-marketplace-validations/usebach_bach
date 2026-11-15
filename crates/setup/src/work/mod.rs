@@ -6,6 +6,7 @@
 mod install;
 mod migrate;
 mod online;
+mod patch;
 mod place;
 mod preview;
 mod remove;

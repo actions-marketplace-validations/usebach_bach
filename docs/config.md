@@ -143,6 +143,13 @@ Things to know:
   setup elevated or as SYSTEM see no prompt.
 - "Also delete my data" deletes the data folders of the account that runs the
   uninstaller, because `%APPDATA%` and `%LOCALAPPDATA%` belong to one user.
+- The install folder has to be inside Program Files (the default). A machine-wide
+  app runs, updates and uninstalls with administrator rights, so setup refuses a
+  folder the user's own programs could write to, with the usual "choose another
+  folder" message.
+- A protected setup file (`[access]`) run silently should get its key with
+  `--key-file`: the elevated copy is sure to get the arguments, and the
+  `BACH_ACCESS_KEY` variable may not reach it.
 - Don't change `scope` after your first release: an app installed per user and
   one installed machine-wide are two installs to Windows, so an update with
   the other scope installs next to the old one instead of replacing it.
@@ -786,3 +793,7 @@ bach winget dist/Hello-Setup-1.4.0.exe --url https://example.com/Hello-Setup-1.4
 
 writes the three manifests the Windows Package Manager needs; check them
 with `winget validate` and open a pull request to microsoft/winget-pkgs.
+The manifests say `Scope: machine` for a setup file with
+`installer.scope = "machine"` (otherwise `user`), and list it under the
+architecture of its runtime: `x64`, or `arm64` for a setup file built with the
+ARM64 runtime.

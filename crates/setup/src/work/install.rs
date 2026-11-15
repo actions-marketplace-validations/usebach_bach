@@ -21,10 +21,11 @@ use std::sync::Arc;
 use bach_pack::archive;
 use bach_pack::container;
 use bach_pack::i18n::Key;
-use bach_pack::manifest::{Choices, FileEntry, Manifest, UNINSTALLER};
+use bach_pack::manifest::{Choices, Manifest, UNINSTALLER};
 use bach_pack::paths;
 use bach_pack::protect::{KeyError, Unlocked};
 
+use super::patch::patch_base;
 use super::place::{self, Transaction};
 use super::{describe, failed, is_disk_full, is_in_use, plain, remove_empty_parents, remove_file_if_present, Report};
 use crate::package::Package;
@@ -75,6 +76,12 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     let _lock = host::SetupLock::acquire(&manifest.app.id).ok_or_else(|| texts.get(Key::error_busy))?;
 
     report(0.02, &texts.get(Key::step_preparing));
+    // A machine-wide app runs, updates and uninstalls with administrator rights,
+    // so it may only live where the user's own programs can't write: Program Files.
+    if manifest.install.scope.is_machine() && !crate::system::folders::is_admin_only(dir) {
+        crate::log::line(&format!("{} is outside Program Files, so a machine-wide install refuses it.", dir.display()));
+        return Err(texts.with(Key::error_no_access, &[("path", &dir.display().to_string())]));
+    }
     create_install_dir(dir, texts)?;
     // An update that was cut short earlier is undone first.
     place::recover(dir);
@@ -201,39 +208,6 @@ fn check_free_space(dir: &Path, needed: u64, texts: &Texts) -> Result<(), String
         )),
         _ => Ok(()),
     }
-}
-
-/// For an update patch: the chosen files already in the install folder with
-/// exactly the content the patch expects, which the patch leaves out. Empty
-/// for a full setup file.
-fn patch_base(manifest: &Manifest, choices: &Choices, dir: &Path) -> HashSet<String> {
-    if manifest.patch_from.is_none() {
-        return HashSet::new();
-    }
-    manifest
-        .files
-        .iter()
-        .filter(|file| choices.installs(file))
-        .filter(|file| matches_on_disk(&paths::under(dir, &file.path), file))
-        .map(|file| file.path.clone())
-        .collect()
-}
-
-/// Whether the file at `path` is exactly what `file` records: same size and
-/// SHA-256. A file that is missing, unreadable or unrecorded doesn't match.
-fn matches_on_disk(path: &Path, file: &FileEntry) -> bool {
-    use sha2::{Digest, Sha256};
-    let Some(expected) = &file.sha256 else {
-        return false;
-    };
-    let Ok(mut open) = File::open(path) else {
-        return false;
-    };
-    if open.metadata().map_or(true, |meta| meta.len() != file.size) {
-        return false;
-    }
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut open, &mut hasher).is_ok() && format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected)
 }
 
 /// Unpacks the chosen files and moves them into place, all or nothing.
