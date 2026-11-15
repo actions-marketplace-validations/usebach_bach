@@ -100,7 +100,7 @@ fn remove(entry: &Migrate) {
         return;
     }
     crate::log::line(&format!("Removing the older install \"{key}\"."));
-    match steps::execute(&command.program, command.arguments.as_deref(), elevated) {
+    match steps::execute(&command.program, command.arguments.as_deref(), elevated, steps::LIMIT) {
         Ended::Code(code) if GONE.contains(&code) => {}
         other => crate::log::line(&format!("Removing \"{key}\" didn't finish cleanly ({other:?}); going on.")),
     }

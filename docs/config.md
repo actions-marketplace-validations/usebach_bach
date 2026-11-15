@@ -328,6 +328,7 @@ success_codes = [0, 3010]              # exit codes that mean it worked; 0 alway
 | `ignore_errors` | `false` | Go on when it fails. Not allowed with `when = "uninstall"`, because removing never stops for a failed step. |
 | `component` | the file's component | Only run when this optional component is installed. |
 
+| `timeout_minutes` | `15` | Minutes before setup ends the step and the programs it started. 1 to 120. |
 | `elevated` | `false` | Run this step with administrator rights: Windows asks once when it starts (not at all when setup is elevated already, as with `scope = "machine"`). Setup itself stays unelevated. Declining fails the step like any other failure. |
 
 Steps run as the user, in the program's own folder, in the order listed.
@@ -349,7 +350,10 @@ elevated = true
 An elevated step starts the program from the install folder. In a per-user
 install that folder is writable by the user's own programs, so use `elevated`
 for well-known installers (and sign them), not for anything else. A step that
-runs longer than 15 minutes is ended. Each run is in the log. `bach inspect`
+runs longer than `timeout_minutes` (15 by default, 1 to 120) is ended together with
+everything it started, so no installer it launched keeps files open. What the
+program prints is kept in the log, its last 8 KB, so a failure like exit code
+1603 comes with its reason. Each run is in the log. `bach inspect`
 lists them as `Runs`.
 
 ## [[registry]]

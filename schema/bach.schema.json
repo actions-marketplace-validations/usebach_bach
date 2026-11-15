@@ -510,6 +510,13 @@
           "elevated": {
             "type": "boolean",
             "description": "Run this step with administrator rights: Windows asks once when it starts."
+          },
+          "timeout_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120,
+            "default": 15,
+            "description": "Minutes before setup ends the step and everything it started. 15 by default, 120 at most."
           }
         }
       }

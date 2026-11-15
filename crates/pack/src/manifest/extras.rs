@@ -77,7 +77,16 @@ pub struct RunStep {
     /// at all when setup is elevated already).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub elevated: bool,
+    /// How many minutes the step may run before setup ends it and everything it
+    /// started. None means [`DEFAULT_TIMEOUT_MINUTES`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_minutes: Option<u32>,
 }
+
+/// How long a run step may take unless it says otherwise.
+pub const DEFAULT_TIMEOUT_MINUTES: u32 = 15;
+/// The longest a run step may be given.
+pub const MAX_TIMEOUT_MINUTES: u32 = 120;
 
 fn zero() -> Vec<i32> {
     vec![0]
@@ -110,6 +119,11 @@ impl RunStep {
     /// Whether the exit code `code` means success.
     pub fn succeeded(&self, code: i32) -> bool {
         self.success_codes.contains(&code)
+    }
+
+    /// How long setup lets this step run.
+    pub fn timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(u64::from(self.timeout_minutes.unwrap_or(DEFAULT_TIMEOUT_MINUTES)) * 60)
     }
 }
 

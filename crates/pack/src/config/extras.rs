@@ -40,6 +40,8 @@ pub struct RunSection {
     /// Run with administrator rights (Windows asks once).
     #[serde(default)]
     elevated: bool,
+    /// Minutes before setup ends the step; 15 by default, 120 at most.
+    timeout_minutes: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -203,6 +205,11 @@ pub fn run_steps(sections: &[RunSection], files: &[FileEntry], components: &[Com
             let Some(entry) = files.iter().find(|entry| entry.path.eq_ignore_ascii_case(&file)) else {
                 bail!("{at}.file is \"{file}\", but no installed file has that path (is it excluded?)");
             };
+            if let Some(minutes) = section.timeout_minutes {
+                if !(1..=crate::manifest::extras::MAX_TIMEOUT_MINUTES).contains(&minutes) {
+                    bail!("{at}.timeout_minutes is {minutes}; use 1 to {} minutes", crate::manifest::extras::MAX_TIMEOUT_MINUTES);
+                }
+            }
             let name = match section.name.as_deref().map(str::trim) {
                 Some(name) if !name.is_empty() => name.to_string(),
                 _ => file.rsplit('/').next().unwrap_or(&file).trim_end_matches(".exe").trim_end_matches(".EXE").to_string(),
@@ -241,7 +248,7 @@ pub fn run_steps(sections: &[RunSection], files: &[FileEntry], components: &[Com
                 Some(id) if components.iter().any(|known| known.id == id) => Some(id.to_string()),
                 Some(id) => bail!("{at}.component is \"{id}\", but no [[components]] has that id"),
             };
-            Ok(RunStep { name, file, arguments, when, success_codes, ignore_errors: section.ignore_errors, component, elevated: section.elevated })
+            Ok(RunStep { name, file, arguments, when, success_codes, ignore_errors: section.ignore_errors, component, elevated: section.elevated, timeout_minutes: section.timeout_minutes })
         })
         .collect()
 }
