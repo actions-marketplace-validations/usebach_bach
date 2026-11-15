@@ -129,15 +129,12 @@ fn account_name(sid: &str) -> &'static str {
     }
 }
 
-/// Files that can run, so one swapped by a user would start elevated.
-const RUNNABLE: &[&str] = &["exe", "dll", "msi", "msp", "bat", "cmd", "com", "scr", "sys", "ps1", "vbs", "js", "lnk"];
-
 /// The most items looked at, so a huge install doesn't make setup crawl.
 const LIMIT: usize = 100_000;
 
 /// [`weakness`] for a folder and everything in it that matters: every
-/// subfolder (someone who can write there can add a file), every file that can
-/// run, and any link that could lead somewhere else.
+/// subfolder (someone who can write there can add a file), every file, and any
+/// link that could lead somewhere else. Anything it can't read fails the check.
 pub fn tree_weakness(folder: &Path) -> Result<Option<String>, String> {
     let mut seen = 0usize;
     walk(folder, &mut seen)
@@ -148,16 +145,17 @@ fn walk(folder: &Path, seen: &mut usize) -> Result<Option<String>, String> {
         return Ok(Some(if *seen == 0 { why } else { format!("{}: {why}", folder.display()) }));
     }
     *seen += 1;
-    let Ok(entries) = std::fs::read_dir(folder) else {
-        return Ok(None);
-    };
-    for entry in entries.flatten() {
+    // Anything setup can't list or look at counts against the folder: a
+    // check that skips what it can't read would pass exactly the odd cases.
+    let entries = std::fs::read_dir(folder).map_err(|err| format!("{} can't be listed ({err})", folder.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|err| format!("{} can't be listed ({err})", folder.display()))?;
         *seen += 1;
         if *seen > LIMIT {
             return Ok(Some("it holds more files than setup can check".into()));
         }
         let path = entry.path();
-        let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+        let meta = std::fs::symlink_metadata(&path).map_err(|err| format!("{} can't be inspected ({err})", path.display()))?;
         use std::os::windows::fs::MetadataExt;
         // A symbolic link or junction (a reparse point) can lead out of the folder.
         if meta.file_attributes() & 0x400 != 0 {
@@ -167,10 +165,10 @@ fn walk(folder: &Path, seen: &mut usize) -> Result<Option<String>, String> {
             if let Some(why) = walk(&path, seen)? {
                 return Ok(Some(why));
             }
-        } else if path.extension().is_some_and(|ext| RUNNABLE.iter().any(|known| ext.eq_ignore_ascii_case(known))) {
-            if let Some(why) = weakness(&path)? {
-                return Ok(Some(format!("{}: {why}", path.display())));
-            }
+        } else if let Some(why) = weakness(&path)? {
+            // Every file, not only the ones that look runnable: a data file the
+            // app loads, or one with an odd extension, is just as good a way in.
+            return Ok(Some(format!("{}: {why}", path.display())));
         }
     }
     Ok(None)
