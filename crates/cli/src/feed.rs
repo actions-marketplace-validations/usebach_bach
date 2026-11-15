@@ -11,7 +11,6 @@ use anyhow::{bail, Context, Result};
 use bach_pack::config::{self, Overrides, Project};
 use bach_pack::container;
 use bach_pack::manifest::{DeltaEntry, FeedEntry};
-use sha2::{Digest, Sha256};
 
 use crate::output::field;
 
@@ -179,8 +178,18 @@ fn delta_entry(patch: &Path, url: &str) -> Result<DeltaEntry> {
     let Some(from) = manifest.patch_from else {
         bail!("{} isn't an update patch; make one with bach build --patch-from OLD-SETUP.exe", patch.display());
     };
-    let bytes = std::fs::read(patch).with_context(|| format!("couldn't read {}", patch.display()))?;
-    Ok(DeltaEntry { from, url: url.to_string(), sha256: bach_pack::protect::hex(&Sha256::digest(&bytes)), size: Some(bytes.len() as u64) })
+    let (sha256, size) = digest_of(patch)?;
+    Ok(DeltaEntry { from, url: url.to_string(), sha256, size: Some(size) })
+}
+
+/// A file's SHA-256 and size, read in pieces: a setup file can be gigabytes,
+/// and must not be held in memory to be hashed.
+pub fn digest_of(path: &Path) -> Result<(String, u64)> {
+    let file = std::fs::File::open(path).with_context(|| format!("couldn't read {}", path.display()))?;
+    let size = file.metadata().with_context(|| format!("couldn't read {}", path.display()))?.len();
+    let sha256 = bach_pack::protect::sha256_hex(std::io::BufReader::with_capacity(1 << 20, file))
+        .with_context(|| format!("couldn't read {}", path.display()))?;
+    Ok((sha256, size))
 }
 
 fn write(setup: &Path, url: &str, notes: Option<&str>, rollout: Option<u8>, delta: Option<DeltaEntry>, out: Option<&Path>) -> Result<PathBuf> {
@@ -202,14 +211,14 @@ fn write(setup: &Path, url: &str, notes: Option<&str>, rollout: Option<u8>, delt
         let what = if manifest.online { "an online installer, which carries no files" } else { "an uninstaller" };
         bail!("{} is {what}; point bach feed at the full setup file", setup.display());
     }
-    let bytes = std::fs::read(setup).with_context(|| format!("couldn't read {}", setup.display()))?;
+    let (sha256, size) = digest_of(setup)?;
     let notes = notes.map(str::trim).filter(|notes| !notes.is_empty()).map(|notes| notes.chars().take(MAX_NOTES).collect());
     let entry = FeedEntry {
         version: manifest.app.version.clone(),
         url: url.to_string(),
-        sha256: bach_pack::protect::hex(&Sha256::digest(&bytes)),
+        sha256,
         notes,
-        size: Some(bytes.len() as u64),
+        size: Some(size),
         rollout,
         delta,
     };
@@ -224,6 +233,21 @@ fn write(setup: &Path, url: &str, notes: Option<&str>, rollout: Option<u8>, delt
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_file_is_hashed_in_pieces_with_its_size() {
+        let path = std::env::temp_dir().join(format!("bach-digest-{}", std::process::id()));
+        std::fs::write(&path, b"abc").unwrap();
+        let (sha256, size) = super::digest_of(&path).unwrap();
+        assert_eq!(sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(size, 3);
+        // Bigger than the 1 MiB read buffer, to cross a piece boundary.
+        std::fs::write(&path, vec![7u8; 3 << 20]).unwrap();
+        let (_, size) = super::digest_of(&path).unwrap();
+        assert_eq!(size, 3 << 20);
+        std::fs::remove_file(&path).unwrap();
+        assert!(super::digest_of(&path).is_err());
+    }
+
     use super::*;
 
     #[test]

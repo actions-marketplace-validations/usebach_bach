@@ -10,7 +10,6 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use bach_pack::container;
 use bach_pack::manifest::Manifest;
-use sha2::{Digest, Sha256};
 
 const MANIFEST_VERSION: &str = "1.6.0";
 
@@ -34,8 +33,11 @@ pub fn command(options: Options) -> Result<()> {
         let what = if manifest.online { "an online installer" } else { "an uninstaller" };
         bail!("{} is {what}; point bach winget at the full setup file", options.setup.display());
     }
-    let bytes = std::fs::read(options.setup)?;
-    let sha256 = bach_pack::protect::hex(&Sha256::digest(&bytes)).to_ascii_uppercase();
+    // Hashed in pieces; only the start of the file is needed for the architecture.
+    let (sha256, _) = crate::feed::digest_of(options.setup)?;
+    let sha256 = sha256.to_ascii_uppercase();
+    let mut head = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(std::fs::File::open(options.setup)?, 64 * 1024), &mut head)?;
     let id = package_id(&manifest);
     let version = &manifest.app.version;
     let dir = match options.out {
@@ -43,7 +45,7 @@ pub fn command(options: Options) -> Result<()> {
         None => options.setup.parent().unwrap_or(Path::new(".")).join("winget").join(&id).join(version),
     };
     std::fs::create_dir_all(&dir).with_context(|| format!("couldn't create {}", dir.display()))?;
-    let files = manifests(&manifest, &id, options.url, &sha256, options.license, architecture(&bytes));
+    let files = manifests(&manifest, &id, options.url, &sha256, options.license, architecture(&head));
     for (name, text) in &files {
         std::fs::write(dir.join(name), text).with_context(|| format!("couldn't write {name}"))?;
     }
