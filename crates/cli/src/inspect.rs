@@ -134,7 +134,8 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
     }
     for value in &manifest.system.registry {
         let name = if value.name.is_empty() { "(default)" } else { value.name.as_str() };
-        field("Registry", format!("HKCU\\{}\\{name}", value.key));
+        let hive = if manifest.install.scope.is_machine() { "HKLM" } else { "HKCU" };
+        field("Registry", format!("{hive}\\{}\\{name}", value.key));
     }
     if let Some(from) = &manifest.patch_from {
         field("Update patch", format!("for computers on {from}: carries only the files that changed since"));

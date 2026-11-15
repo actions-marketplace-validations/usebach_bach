@@ -43,7 +43,7 @@ pub fn command(options: Options) -> Result<()> {
         None => options.setup.parent().unwrap_or(Path::new(".")).join("winget").join(&id).join(version),
     };
     std::fs::create_dir_all(&dir).with_context(|| format!("couldn't create {}", dir.display()))?;
-    let files = manifests(&manifest, &id, options.url, &sha256, options.license);
+    let files = manifests(&manifest, &id, options.url, &sha256, options.license, architecture(&bytes));
     for (name, text) in &files {
         std::fs::write(dir.join(name), text).with_context(|| format!("couldn't write {name}"))?;
     }
@@ -63,11 +63,27 @@ fn package_id(manifest: &Manifest) -> String {
     format!("{}.{}", if publisher.is_empty() { "Publisher".into() } else { publisher }, app)
 }
 
+/// The architecture winget should list a setup file under, read from the
+/// machine field of its PE header: the x64 runtime unless it was built with the
+/// ARM64 (or an x86) one.
+fn architecture(bytes: &[u8]) -> &'static str {
+    let machine = bytes
+        .get(0x3c..0x40)
+        .and_then(|at| at.try_into().ok())
+        .map(u32::from_le_bytes)
+        .and_then(|pe| bytes.get(usize::try_from(pe).ok()?.checked_add(4)?..)?.get(..2).map(|machine| u16::from_le_bytes([machine[0], machine[1]])));
+    match machine {
+        Some(0xAA64) => "arm64",
+        Some(0x014C) => "x86",
+        _ => "x64",
+    }
+}
+
 fn yaml(text: &str) -> String {
     format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-fn manifests(manifest: &Manifest, id: &str, url: &str, sha256: &str, license: Option<&str>) -> Vec<(String, String)> {
+fn manifests(manifest: &Manifest, id: &str, url: &str, sha256: &str, license: Option<&str>, architecture: &str) -> Vec<(String, String)> {
     let app = &manifest.app;
     let version = &app.version;
     let header = |kind: &str| {
@@ -77,8 +93,10 @@ fn manifests(manifest: &Manifest, id: &str, url: &str, sha256: &str, license: Op
         )
     };
     let version_file = format!("{}DefaultLocale: en-US\nManifestType: version\nManifestVersion: {MANIFEST_VERSION}\n", header("version"));
+    // A machine-wide setup file installs for every user (winget calls it "machine").
+    let scope = if manifest.install.scope.is_machine() { "machine" } else { "user" };
     let installer = format!(
-        "{}InstallerType: exe\nScope: user\nInstallModes:\n  - interactive\n  - silent\n  - silentWithProgress\nInstallerSwitches:\n  Silent: --silent\n  SilentWithProgress: --silent\n  InstallLocation: --dir \"<INSTALLPATH>\"\n  Log: --log \"<LOGPATH>\"\nUpgradeBehavior: install\nProductCode: {}\nInstallers:\n  - Architecture: x64\n    InstallerUrl: {url}\n    InstallerSha256: {sha256}\nManifestType: installer\nManifestVersion: {MANIFEST_VERSION}\n",
+        "{}InstallerType: exe\nScope: {scope}\nInstallModes:\n  - interactive\n  - silent\n  - silentWithProgress\nInstallerSwitches:\n  Silent: --silent\n  SilentWithProgress: --silent\n  InstallLocation: --dir \"<INSTALLPATH>\"\n  Log: --log \"<LOGPATH>\"\nUpgradeBehavior: install\nProductCode: {}\nInstallers:\n  - Architecture: {architecture}\n    InstallerUrl: {url}\n    InstallerSha256: {sha256}\nManifestType: installer\nManifestVersion: {MANIFEST_VERSION}\n",
         header("installer"),
         yaml(&app.id)
     );
@@ -118,10 +136,19 @@ mod tests {
         let manifest = manifest();
         let id = package_id(&manifest);
         assert_eq!(id, "HelloInc.HelloApp");
-        let files = manifests(&manifest, &id, "https://hello.example/Setup.exe", "AB", Some("MIT"));
+        let files = manifests(&manifest, &id, "https://hello.example/Setup.exe", "AB", Some("MIT"), "x64");
         assert_eq!(files.len(), 3);
         let installer = &files[1].1;
         assert!(installer.contains("Silent: --silent") && installer.contains("Scope: user"));
+        let mut machine = manifest.clone();
+        machine.install.scope = bach_pack::manifest::Scope::Machine;
+        let files = manifests(&machine, &id, "https://hello.example/Setup.exe", "AB", None, "arm64");
+        assert!(files[1].1.contains("Scope: machine"), "a machine-wide setup file says so");
+        assert!(files[1].1.contains("Architecture: arm64"));
+        // The machine field of a real PE header: this very test program.
+        let exe = std::fs::read(std::env::current_exe().unwrap()).unwrap();
+        assert_eq!(architecture(&exe), if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" });
+        assert_eq!(architecture(b"not a program"), "x64");
         assert!(installer.contains("ProductCode: \"Hello App\""));
         assert!(files[2].1.contains("ShortDescription: \"Says \\\"hi\\\".\""));
     }
