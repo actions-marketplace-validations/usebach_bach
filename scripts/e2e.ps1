@@ -131,6 +131,32 @@ try {
     Check (@(& $menuKeys).Count -eq 0) 'and leaves no key behind'
     Remove-Item -Recurse -Force $menuDir -ErrorAction SilentlyContinue
 
+    Write-Host 'Registry, variable, file type, PATH and data folder, in a folder with Unicode characters'
+    $unicode = -join ([char]0xDC, 'n', [char]0xEF, ' ', [char]0x65E5, [char]0x672C)
+    $extras = "add_to_path = 'always'`n[[registry]]`nkey = 'Software\BachE2E'`nname = 'InstallPath'`nvalue = '{app}'`n[[env]]`nname = 'BACHE2E_HOME'`nvalue = '{app}'`n[[file_types]]`nextension = '.bachqa'`ndescription = 'Bach QA file'`n[uninstall]`ndata = ['%LOCALAPPDATA%\BachE2E']"
+    $wide = Build '0.7.0' @() $extras
+    $wideDir = Join-Path $work "Installed\$unicode"
+    $dataDir = Join-Path $env:LOCALAPPDATA 'BachE2E'
+    $userPath = { (Get-ItemProperty 'HKCU:\Environment' -Name Path -ErrorAction SilentlyContinue).Path }
+    Check ((Run $wide @('--silent', '--dir', "`"$wideDir`"")) -eq 0) 'installs into the Unicode folder'
+    Check (Test-Path (Join-Path $wideDir 'hello.exe')) 'with its files'
+    Check ((Get-ItemProperty 'HKCU:\Software\BachE2E' -ErrorAction SilentlyContinue).InstallPath -eq $wideDir) '[[registry]] wrote the install folder'
+    Check ((Get-ItemProperty 'HKCU:\Environment' -Name BACHE2E_HOME -ErrorAction SilentlyContinue).BACHE2E_HOME -eq $wideDir) '[[env]] set the variable'
+    Check (Test-Path 'HKCU:\Software\Classes\.bachqa') '[[file_types]] registered the extension'
+    Check (((& $userPath) -split ';') -contains $wideDir) 'the install folder is on PATH'
+    New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+    Set-Content -Path (Join-Path $dataDir 'settings.txt') -Value 'user data'
+    Check ((Run (Join-Path $wideDir 'uninstall.exe') @('--silent')) -eq 0) 'removes without --delete-data'
+    Check (Test-Path (Join-Path $dataDir 'settings.txt')) 'and keeps the user data'
+    Check (-not (Test-Path 'HKCU:\Software\BachE2E')) 'the registry value and its key are gone'
+    Check (-not (Get-ItemProperty 'HKCU:\Environment' -Name BACHE2E_HOME -ErrorAction SilentlyContinue)) 'the variable is gone'
+    Check (-not (Test-Path 'HKCU:\Software\Classes\.bachqa')) 'the file type is gone, extension key included'
+    Check (-not (((& $userPath) -split ';') -contains $wideDir)) 'PATH is as it was'
+    Check ((Run $wide @('--silent', '--dir', "`"$wideDir`"")) -eq 0) 'installs again'
+    Check ((Run (Join-Path $wideDir 'uninstall.exe') @('--silent', '--delete-data')) -eq 0) 'removes with --delete-data'
+    Check (-not (Test-Path $dataDir)) 'and the data folder goes'
+    Remove-Item -Recurse -Force $wideDir -ErrorAction SilentlyContinue
+
     Write-Host 'Install 1.0.0'
     Check ((Run $v1 @('--silent', '--dir', "`"$install`"")) -eq 0) 'exits 0'
     Check ((Installed-Version) -eq '1.0.0') 'listed in Settings > Apps as 1.0.0'
