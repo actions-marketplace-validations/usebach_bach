@@ -944,3 +944,49 @@ fn a_secret_in_the_source_folder_stops_the_build_until_allowed() {
     assert!(format!("{:#}", parse(&empty, &dir).unwrap_err()).contains("files.allow_secrets"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Every setting the editor schema knows has to be explained in docs/config.md,
+/// and every setting named in a docs table has to exist, so the two can't drift.
+#[test]
+fn the_docs_and_the_schema_name_the_same_settings() {
+    let schema: serde_json::Value = serde_json::from_str(include_str!("../../../../schema/bach.schema.json")).unwrap();
+    let docs = include_str!("../../../../docs/config.md");
+    // Settings with a table row of their own in docs/config.md: `name` in backticks.
+    fn walk(value: &serde_json::Value, path: &str, out: &mut Vec<(String, String)>) {
+        let Some(properties) = value.get("properties").and_then(|p| p.as_object()) else { return };
+        for (name, child) in properties {
+            out.push((format!("{path}{name}"), name.clone()));
+            walk(child.get("items").unwrap_or(child), &format!("{path}{name}."), out);
+        }
+    }
+    let mut settings = Vec::new();
+    walk(&schema, "", &mut settings);
+    assert!(settings.len() > 100, "the schema walk found only {} settings", settings.len());
+    // In a table row, in a TOML example, or as a section heading.
+    let explained = |name: &str| {
+        [format!("`{name}`"), format!("{name} ="), format!("[{name}]"), format!("[[{name}]]")].iter().any(|form| docs.contains(form))
+    };
+    let missing: Vec<&str> =
+        settings.iter().filter(|(path, name)| !path.starts_with("text.") && !explained(name)).map(|(path, _)| path.as_str()).collect();
+    assert!(missing.is_empty(), "in the schema but not in docs/config.md: {missing:?}");
+
+    // The other way: the first column of the settings tables names real settings.
+    let known: std::collections::HashSet<&str> = settings.iter().map(|(_, name)| name.as_str()).collect();
+    let mut unknown = Vec::new();
+    for line in docs.lines() {
+        let Some(rest) = line.strip_prefix("| `") else { continue };
+        let Some((name, _)) = rest.split_once('`') else { continue };
+        let simple = name.chars().all(|c| c.is_ascii_lowercase() || c == '_');
+        if simple && !name.is_empty() && !known.contains(name) && !matches!(name, "none" | "false" | "true") {
+            unknown.push(name.to_string());
+        }
+    }
+    unknown.sort();
+    unknown.dedup();
+    // Names that belong to the command line tables, not to bach.toml.
+    unknown.retain(|name| {
+        !["silent", "dir", "with", "without", "lang", "log", "theme", "preview", "json", "launch", "update", "uninstall"]
+            .contains(&name.as_str())
+    });
+    assert!(unknown.is_empty(), "named in docs/config.md tables but not in the schema: {unknown:?}");
+}
