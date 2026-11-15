@@ -92,6 +92,22 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     let needed = manifest.selected_size(&choices);
     // An update patch carries only what changed; the rest is in the folder.
     let matching = patch_base(manifest, &choices, dir);
+    if previous.is_some() {
+        // What an update or a repair is about to write again: missing, or not what the manifest records.
+        let rewritten: Vec<&str> = manifest
+            .files
+            .iter()
+            .filter(|file| choices.installs(file) && !matching.contains(&file.path))
+            .map(|file| file.path.as_str())
+            .collect();
+        let shown: Vec<&str> = rewritten.iter().take(20).copied().collect();
+        crate::log::line(&format!(
+            "{} file(s) are written: {}{}",
+            rewritten.len(),
+            shown.join(", "),
+            if rewritten.len() > 20 { ", ..." } else { "" }
+        ));
+    }
     let unchanged: u64 = manifest.files.iter().filter(|file| matching.contains(&file.path)).map(|file| file.size).sum();
     let to_copy = needed.saturating_sub(unchanged);
     check_free_space(dir, to_copy, texts)?;

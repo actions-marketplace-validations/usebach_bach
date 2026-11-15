@@ -35,6 +35,7 @@ pub const HELP: &str = "Setup file and uninstall.exe options
   --without IDS           Turn these options off.
   --allow-downgrade       Let a silent run install an older version over a newer one.
   --skip-requirements     Let a silent install go on although a requirement (WebView2, .NET, ...) isn't detected.
+  --repair                Check the installed files against this setup file (same version) and write back what is missing or changed.
   --overwrite             Let a silent first install replace files that are already in the folder (refused otherwise, exit code 1).
   --delete-data           Silent removal: also delete the app's data folders.
   --key-file FILE         The access key, for a setup file that asks for one (or set BACH_ACCESS_KEY).
@@ -97,6 +98,8 @@ pub struct Args {
     pub allow_downgrade: bool,
     /// Lets a silent first install replace files that are already in the folder.
     pub overwrite: bool,
+    /// `--repair`: put back what is missing or changed of the installed version.
+    pub repair: bool,
     /// Lets a silent install go on although a requirement isn't detected.
     pub skip_requirements: bool,
     /// `--log FILE`: where this run's log goes.
@@ -202,6 +205,7 @@ impl Args {
             "silent" => self.silent = true,
             "allow-downgrade" => self.allow_downgrade = true,
             "overwrite" => self.overwrite = true,
+            "repair" => self.repair = true,
             "skip-requirements" => self.skip_requirements = true,
             "delete-data" => self.delete_data = true,
             "update" => self.update = true,
@@ -251,6 +255,7 @@ const FLAGS: &[Flag] = &[
     flag(&["preview"]),
     flag(&["allow-downgrade"]),
     flag(&["overwrite"]),
+    flag(&["repair"]),
     flag(&["skip-requirements"]),
     flag(&["delete-data"]),
     flag(&["update"]),
@@ -525,6 +530,7 @@ mod tests {
             "--without",
             "--allow-downgrade",
             "--overwrite",
+            "--repair",
             "--skip-requirements",
             "--delete-data",
             "--key-file",

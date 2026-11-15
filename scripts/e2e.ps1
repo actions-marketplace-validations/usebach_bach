@@ -163,6 +163,19 @@ try {
     Check (Test-Path (Join-Path $install 'uninstall.exe')) 'uninstaller written'
     Check (Test-Path (Join-Path $install 'old.txt')) 'files installed'
 
+    Write-Host 'Repair'
+    Remove-Item (Join-Path $install 'readme.txt')
+    Set-Content -Path (Join-Path $install 'old.txt') -Value 'damaged'
+    Set-Content -Path (Join-Path $install 'mine.txt') -Value 'user file'
+    Check ((Run $v2 @('--silent', '--repair')) -eq 1) 'refuses a setup file of another version'
+    Check (-not (Test-Path (Join-Path $install 'readme.txt'))) 'and changes nothing'
+    Check ((Run $v1 @('--silent', '--repair')) -eq 0) 'repairs with the installed version'
+    Check ((Get-Content (Join-Path $install 'readme.txt')) -eq 'readme.txt 1.0.0') 'the deleted file is back'
+    Check ((Get-Content (Join-Path $install 'old.txt')) -eq 'old.txt 1.0.0') 'the damaged file is as packaged'
+    Check ((Get-Content (Join-Path $install 'mine.txt')) -eq 'user file') "the user's own file is untouched"
+    Check ((Installed-Version) -eq '1.0.0') 'still 1.0.0'
+    Remove-Item (Join-Path $install 'mine.txt')
+
     Write-Host 'Update while a file is locked'
     $lock = [IO.File]::Open((Join-Path $install 'readme.txt'), 'Open', 'Read', 'None')
     try { $code = Run $v2 @('--silent') } finally { $lock.Close() }

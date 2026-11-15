@@ -34,6 +34,14 @@ pub fn run(args: &Args, package: Package) -> i32 {
     let result = match launch::mode(args, &package) {
         Mode::Install => {
             let start = start::install(manifest);
+            if args.repair {
+                if let Some(problem) = start::repair_problem(manifest, &start) {
+                    eprintln!("{problem}");
+                    crate::log::line(&format!("Repair refused: {problem}"));
+                    return exit::FAILED;
+                }
+                crate::log::line("Repairing the installed version.");
+            }
             let missing = start::missing_requirements(manifest);
             if args.skip_requirements && !missing.is_empty() {
                 let names: Vec<&str> = missing.iter().map(|index| manifest.requirements[*index].name.as_str()).collect();
