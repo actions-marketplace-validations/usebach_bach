@@ -104,30 +104,72 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
         super::migrate::run(manifest);
     }
 
-    unpack(plan, &choices, layout.archive, to_copy, &matching, unlocked.as_ref(), report)?;
-
-    report(0.86, &texts.get(Key::step_tidying));
+    // The files are in place but still undoable: everything below can fail,
+    // and then the earlier version comes back whole.
+    let committed = unpack(plan, &choices, layout.archive, to_copy, &matching, unlocked.as_ref(), report)?;
     let installed = manifest.as_installed(&choices);
+    let uninstaller_before = keep_uninstaller(dir);
+    let later = (|| -> Result<(), String> {
+        super::steps::run_install_steps(manifest, dir, previous.is_none(), &choices, texts, (0.895, 0.915), report)?;
+
+        report(0.92, &texts.get(Key::step_shortcuts));
+        shortcuts(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
+        integrate(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
+
+        report(0.95, &texts.get(Key::step_uninstaller));
+        write_uninstaller(package, &installed, dir, texts)?;
+
+        report(0.97, &texts.get(Key::step_registering));
+        system::register(manifest, dir, needed).map_err(|err| format!("{} {}", texts.get(Key::error_register), plain(&err)))
+    })();
+    if let Err(problem) = later {
+        crate::log::line("A step after the files were placed failed, so the earlier version is being put back.");
+        let staged = committed.rollback();
+        remove_empty_parents(dir, staged.iter().filter_map(|path| path.strip_prefix(dir).ok()).filter_map(|path| path.to_str()));
+        restore_uninstaller(dir, uninstaller_before);
+        if let Some(previous) = &previous {
+            // What the failed update changed around the files goes back too.
+            let before = previous.chosen.clone().unwrap_or_default();
+            let old_program = previous.executable_in(dir);
+            let _ = shortcuts(previous, Some(&installed), &before, dir, &old_program, texts);
+            let _ = integrate(previous, Some(&installed), &before, dir, &old_program, texts);
+        }
+        return Err(problem);
+    }
+    report(0.86, &texts.get(Key::step_tidying));
+    committed.finish();
+    if let Some(uninstaller) = uninstaller_before {
+        let _ = fs::remove_file(uninstaller);
+    }
     if let Some(previous) = &previous {
         remove_stale(dir, previous, &installed);
     }
-
-    report(0.89, &texts.get(Key::step_uninstaller));
-    write_uninstaller(package, &installed, dir, texts)?;
-
-    super::steps::run_install_steps(manifest, dir, previous.is_none(), &choices, texts, (0.895, 0.915), report)?;
-
-    report(0.92, &texts.get(Key::step_shortcuts));
-    shortcuts(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
-    integrate(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
-
-    report(0.97, &texts.get(Key::step_registering));
-    system::register(manifest, dir, needed)
-        .map_err(|err| format!("{} {}", texts.get(Key::error_register), plain(&err)))?;
     keep_key(plan);
     system::notify_shell();
     report(1.0, &texts.get(Key::step_done));
     Ok(())
+}
+
+/// The installed uninstaller, copied aside while an update runs, so a failed
+/// update can put it back. None for a first install.
+fn keep_uninstaller(dir: &Path) -> Option<PathBuf> {
+    let current = dir.join(UNINSTALLER);
+    let kept = place::with_suffix(&current, ".bach-prev");
+    (current.is_file() && fs::copy(&current, &kept).is_ok()).then_some(kept)
+}
+
+/// Puts the uninstaller kept by [`keep_uninstaller`] back; on a first install
+/// (nothing kept) the new one is removed.
+fn restore_uninstaller(dir: &Path, kept: Option<PathBuf>) {
+    let current = dir.join(UNINSTALLER);
+    match kept {
+        Some(kept) => {
+            let _ = place::replace_file(&kept, &current);
+        }
+        None => {
+            let _ = fs::remove_file(&current);
+        }
+    }
 }
 
 /// Opens the files with the access key, when they are locked. A missing or
@@ -241,7 +283,7 @@ fn unpack(
     matching: &HashSet<String>,
     unlocked: Option<&Unlocked>,
     report: Report,
-) -> Result<(), String> {
+) -> Result<place::Committed, String> {
     let texts = &plan.texts;
     let manifest = &plan.package.manifest;
     let dir = &plan.dir;
@@ -305,7 +347,7 @@ fn unpack(
             return Err(texts.get(Key::error_patch_base));
         }
     }
-    transaction.commit(&place::journal_path(dir)).map_err(|failure| {
+    transaction.commit_open(&place::journal_path(dir)).map_err(|failure| {
         if is_in_use_at(&failure.error, &failure.target) {
             texts.with(Key::error_in_use, &[("path", &failure.target.display().to_string())])
         } else {

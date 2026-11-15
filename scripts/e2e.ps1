@@ -37,10 +37,11 @@ function Assert-Readable([string]$file) {
     }
 }
 
-function Build([string]$version, [string[]]$extra) {
+function Build([string]$version, [string[]]$extra, [string]$run = '') {
     $app = Join-Path $work "app-$version"
     New-Item -ItemType Directory -Force -Path $app | Out-Null
     Copy-Item $hello (Join-Path $app 'hello.exe')
+    if ($run) { Copy-Item (Join-Path $env:SystemRoot 'System32\cmd.exe') (Join-Path $app 'fail.exe') }
     foreach ($name in $extra) { Set-Content -Path (Join-Path $app $name) -Value "$name $version" }
     @"
 [app]
@@ -55,6 +56,7 @@ source = "app-$version"
 output = "out/E2E-Setup-$version.exe"
 desktop_shortcut = false
 compression = "fast"
+$run
 "@ | Set-Content -Encoding utf8 (Join-Path $work "bach-$version.toml")
     & $bach build (Join-Path $work "bach-$version.toml") | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "bach build $version failed." }
@@ -129,6 +131,17 @@ try {
     Check ((Installed-Version) -eq '2.0.0') 'listed as 2.0.0'
     Check (-not (Test-Path (Join-Path $install 'old.txt'))) 'file 2.0.0 dropped is gone'
     Check (Test-Path (Join-Path $install 'new.txt')) 'new file installed'
+
+    Write-Host 'Update whose run step fails after the files were placed'
+    $v3 = Build '3.0.0' @('readme.txt', 'three.txt') "[[run]]`nfile = 'fail.exe'`narguments = '/c exit 1'"
+    $before = (Get-FileHash (Join-Path $install 'uninstall.exe')).Hash
+    Check ((Run $v3 @('--silent')) -eq 1) 'exits 1'
+    Check ((Installed-Version) -eq '2.0.0') 'still registered as 2.0.0'
+    Check ((Get-Content (Join-Path $install 'readme.txt')) -eq 'readme.txt 2.0.0') 'files are the 2.0.0 ones'
+    Check (-not (Test-Path (Join-Path $install 'three.txt'))) 'no file of 3.0.0 is left'
+    Check (-not (Test-Path (Join-Path $install 'fail.exe'))) 'and not the step program'
+    Check ((Get-FileHash (Join-Path $install 'uninstall.exe')).Hash -eq $before) 'the uninstaller is the old one'
+    Check (-not (Get-ChildItem $install -Recurse -Force | Where-Object { $_.Name -match '\.bach-' })) 'no .bach-* leftovers'
 
     Write-Host 'Downgrade'
     Check ((Run $v1 @('--silent')) -eq 1) 'refused without --allow-downgrade'

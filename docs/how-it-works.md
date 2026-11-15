@@ -188,6 +188,21 @@ the user unless a step says `elevated = true`, which makes Windows ask for
 administrator rights for that program alone. Steps that run before removal can
 fail without stopping the removal.
 
+## When a step after the files fails
+
+An update (or first install) puts its files in place first, then runs the
+`[[run]]` steps, shortcuts, `PATH`, link schemes and file types, writes the new
+`uninstall.exe` and registers the version. The old copies of the files and the
+journal stay until the last of those has worked. If one fails, the files go back
+to the earlier version, the earlier `uninstall.exe` is restored, shortcuts and
+integration are written again from the earlier manifest, and the version under
+Settings > Apps never changed. Files the earlier version had and this one drops
+are removed only after that. A first install that fails this way leaves no files
+behind. What a run step already did on its own (a database it set up, say)
+can't be undone by setup. A power cut between the file swap and the end is
+rolled back by the journal the next time setup runs; the earlier
+`uninstall.exe` is restored only when setup itself sees the failure.
+
 ## Where the runtime comes from
 
 Every setup file contains the runtime, so `bach` is strict about it:

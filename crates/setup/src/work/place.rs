@@ -94,7 +94,16 @@ impl Transaction {
 
     /// Moves every unpacked file into place, or none. `journal` is where the
     /// list of moves is kept until they're done and on disk.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn commit(self, journal: &Path) -> Result<(), CommitError> {
+        self.commit_open(journal).map(Committed::finish)
+    }
+
+    /// Like [`commit`](Self::commit), but the files stay undoable: the old
+    /// copies and the journal are kept until [`Committed::finish`], so a later
+    /// step that fails can still bring the earlier version back with
+    /// [`Committed::rollback`], and a crash in between is undone by [`recover`].
+    pub fn commit_open(self, journal: &Path) -> Result<Committed, CommitError> {
         if let Err(error) = write_journal(journal, &self.staged) {
             self.discard();
             let _ = fs::remove_file(journal);
@@ -114,17 +123,40 @@ impl Transaction {
                 }
             }
         }
+        Ok(Committed { staged: self.staged, done, journal: journal.to_path_buf() })
+    }
+}
+
+/// Files that are in place, with the old versions still beside them.
+pub struct Committed {
+    staged: Vec<PathBuf>,
+    done: Vec<(PathBuf, Option<PathBuf>)>,
+    journal: PathBuf,
+}
+
+impl Committed {
+    /// Makes the new files final: they are flushed to disk, then the journal
+    /// and the old copies go.
+    pub fn finish(self) {
         // The new files must be on disk before the old copies and the
         // journal go: after a power cut, the journal is what undoes this.
         flush(&self.staged);
-        let _ = fs::remove_file(journal);
+        let _ = fs::remove_file(&self.journal);
         // Old copies a running program still holds stay until next time.
-        for (_, backup) in done {
+        for (_, backup) in self.done {
             if let Some(backup) = backup {
                 let _ = fs::remove_file(backup);
             }
         }
-        Ok(())
+    }
+
+    /// Puts the earlier version back: new files go, old ones return, and the
+    /// paths of the files that were new are handed back so their empty
+    /// folders can be removed.
+    pub fn rollback(self) -> Vec<PathBuf> {
+        undo(&self.done);
+        let _ = fs::remove_file(&self.journal);
+        self.staged
     }
 }
 
