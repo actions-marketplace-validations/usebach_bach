@@ -210,8 +210,9 @@ window speaks several).
   printed); 2 a flag mistake.
 - Silent flags: `--dir PATH`, `--with a,b`, `--without a,b` (ids:
   `desktop-shortcut`, `start-menu`, `autostart`, `path`, component ids),
-  `--lang de`, `--allow-downgrade`, `--log FILE`, and `--delete-data` for the
-  uninstaller.
+  `--lang de`, `--allow-downgrade`, `--overwrite` (a first install into a folder
+  that already holds files of the same names is refused without it), `--log FILE`,
+  and `--delete-data` for the uninstaller.
 - Every run logs to `%TEMP%\<app id>-setup.log`; read it when something
   fails instead of guessing.
 - In the Bach repository itself, `scripts\e2e.ps1` installs, updates and
