@@ -15,6 +15,12 @@ fn main() {
     if target_os != "windows" {
         return;
     }
+    // A setup file often runs from Downloads, and a machine-wide one runs with
+    // administrator rights. Load Windows' own DLLs from System32 only, so a
+    // DLL planted next to the setup file never runs with those rights.
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        println!("cargo:rustc-link-arg-bins=/DEPENDENTLOADFLAG:0x800");
+    }
     #[cfg(windows)]
     embed();
 }

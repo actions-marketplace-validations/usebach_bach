@@ -226,8 +226,12 @@ pub fn mode(args: &Args, package: &Package) -> Mode {
         .or_else(|| system::installed(&package.manifest).map(|installed| installed.dir))
         .unwrap_or_default();
     // A silent removal removes in place (its own file goes after it
-    // exits), so whoever started it can wait for its exit code.
-    if !args.silent && hand_over_to_temp_copy(&dir, package, args) {
+    // exits), so whoever started it can wait for its exit code. So does a
+    // machine-wide one, which runs elevated: a copy in the user's temp folder
+    // is a file the user's own programs can swap before it starts, and
+    // Program Files is where only administrators can write.
+    let in_place = args.silent || package.manifest.install.scope.is_machine();
+    if !in_place && hand_over_to_temp_copy(&dir, package, args) {
         std::process::exit(0);
     }
     // The hand-over failed: remove from here, and this file goes once the
