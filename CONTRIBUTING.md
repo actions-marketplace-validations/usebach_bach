@@ -86,7 +86,11 @@ Also:
 - **Texts** the window shows are `bach_pack::i18n::Key`s with a translation
   in every language, never a literal in `crates/setup`. Adding a key means
   adding it to all 13 languages and to `docs/config.md`.
-- **Use `bun`** for JavaScript, never npm, pnpm or yarn.
+- **Use `bun`** for JavaScript tooling in this repository (`bun install`,
+  `bun scripts/…`), never npm, pnpm or yarn. The one exception is the published
+  npm package in `npm/cli`: it is a plain Node package, tested with
+  `node --test npm/cli/test/resolve.test.js` and published with `npm publish` by
+  the release workflow, because that is what its users install it with.
 
 ## Code style
 
