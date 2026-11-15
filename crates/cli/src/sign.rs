@@ -60,6 +60,73 @@ pub fn sign(signing: &Signing, file: &Path) -> Result<()> {
             status.code().map_or_else(|| "unknown".to_string(), |code| code.to_string())
         );
     }
+    // signtool is the tool whose job is known: a file it didn't sign is a failure. Another
+    // program (a cloud signer, a script) may sign differently or not at all on purpose.
+    if is_signtool(&signing.program) {
+        check_signature(file)?;
+    } else {
+        println!("Signature not checked: {} isn't signtool", signing.program);
+    }
+    Ok(())
+}
+
+/// What the Authenticode check of a freshly signed file means.
+enum Signed {
+    /// Valid, with a timestamp: good for as long as the file lasts.
+    Fine,
+    /// Valid, but no timestamp: it stops being valid when the certificate expires.
+    NoTimestamp,
+    /// Signed, but Windows doesn't trust it (yet): a self-signed or unknown root.
+    NotTrusted(String),
+    /// Not a good signature: nothing was signed, or the file changed after.
+    Broken(String),
+}
+
+fn judge(status: &str, timestamped: bool) -> Signed {
+    match status {
+        "Valid" if timestamped => Signed::Fine,
+        "Valid" => Signed::NoTimestamp,
+        "NotSigned" => Signed::Broken("it has no signature at all".into()),
+        "HashMismatch" => Signed::Broken("the file doesn't match its signature".into()),
+        other => Signed::NotTrusted(other.to_string()),
+    }
+}
+
+/// Looks at the signature `file` has now, with Windows' own check, and says
+/// what it finds. A file with no (or a broken) signature is an error: the build
+/// would otherwise publish an unsigned setup file believing it signed. No
+/// timestamp, or a signature Windows doesn't trust yet, is a warning.
+fn check_signature(file: &Path) -> Result<()> {
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$s = Get-AuthenticodeSignature -LiteralPath $env:BACH_VERIFY_FILE; \
+             \"$($s.Status)\"; \"$($null -ne $s.TimeStamperCertificate)\"",
+        ])
+        .env("BACH_VERIFY_FILE", file)
+        .output();
+    let Ok(output) = output else {
+        println!("warning: couldn't check the signature of {} (PowerShell isn't available)", file.display());
+        return Ok(());
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut lines = text.lines().map(str::trim);
+    let (status, timestamped) = (lines.next().unwrap_or(""), lines.next() == Some("True"));
+    match judge(status, timestamped) {
+        Signed::Fine => println!("Signature checked: valid and timestamped"),
+        Signed::NoTimestamp => println!(
+            "warning: {} is signed but has no timestamp, so the signature stops being valid when the certificate expires; \
+             add a timestamp server to [signing] arguments (signtool: /tr URL /td sha256)",
+            file.display()
+        ),
+        Signed::NotTrusted(status) => println!(
+            "warning: {} is signed, but Windows reports \"{status}\" for the signature (a self-signed or unknown root certificate looks like this)",
+            file.display()
+        ),
+        Signed::Broken(why) => bail!("the sign command ran, but {} isn't signed: {why}", file.display()),
+    }
     Ok(())
 }
 
@@ -181,6 +248,27 @@ mod tests {
 
     fn signing(arguments: &str) -> Signing {
         Signing { program: "signtool".into(), arguments: arguments.into() }
+    }
+
+    #[test]
+    fn a_signature_is_judged_by_status_and_timestamp() {
+        assert!(matches!(judge("Valid", true), Signed::Fine));
+        assert!(matches!(judge("Valid", false), Signed::NoTimestamp));
+        assert!(matches!(judge("NotSigned", false), Signed::Broken(_)));
+        assert!(matches!(judge("HashMismatch", true), Signed::Broken(_)));
+        assert!(matches!(judge("UnknownError", true), Signed::NotTrusted(_)));
+        assert!(matches!(judge("NotTrusted", false), Signed::NotTrusted(_)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_file_nobody_signed_is_an_error() {
+        let file = std::env::temp_dir().join(format!("bach-unsigned-{}.exe", std::process::id()));
+        // A real program that nobody signed: this test's own executable.
+        std::fs::copy(std::env::current_exe().unwrap(), &file).unwrap();
+        let err = check_signature(&file).unwrap_err().to_string();
+        std::fs::remove_file(&file).unwrap();
+        assert!(err.contains("isn't signed"), "{err}");
     }
 
     #[test]

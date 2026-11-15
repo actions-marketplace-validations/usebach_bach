@@ -47,6 +47,11 @@ signed file's SHA-256:
 [signing]
 program = "signtool"      # the default; any program that signs a file
 arguments = 'sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'
+
+# After `signtool` ran, Bach asks Windows (Get-AuthenticodeSignature) what the
+# file now carries. No signature or a broken one fails the build. A valid
+# signature without a timestamp, or one Windows doesn't trust yet (a self-signed
+# certificate), only gives a warning. Other signing programs aren't checked.
 ```
 
 For `signtool` the arguments start with the word `sign`; Bach refuses them
