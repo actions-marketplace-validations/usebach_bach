@@ -77,8 +77,40 @@ pub fn is_valid_id(id: &str) -> bool {
 /// each one reads.
 pub const DATA_ROOTS: &[&str] = &["APPDATA", "LOCALAPPDATA", "USERPROFILE"];
 
+/// Folders that belong to the user or to Windows, not to any one app. A data
+/// folder may not be one of them, though a folder *inside* one is the app's
+/// own (`%USERPROFILE%\Documents\Hello`). Lower case; `OneDrive*` is matched
+/// separately.
+const SHARED_FOLDERS: &[&str] = &[
+    "documents",
+    "desktop",
+    "downloads",
+    "pictures",
+    "music",
+    "videos",
+    "contacts",
+    "favorites",
+    "links",
+    "saved games",
+    "searches",
+    "3d objects",
+    "appdata",
+    "roaming",
+    "local",
+    "locallow",
+    "programs",
+    "packages",
+    "temp",
+];
+
+/// Folders that are off limits together with everything inside them: keys
+/// and credentials, and Windows' own per-user data. Lower case.
+const PROTECTED_TREES: &[&str] = &[".ssh", ".aws", ".azure", ".gnupg", ".kube", "microsoft"];
+
 /// Checks a data folder such as `%APPDATA%\Hello`: one of [`DATA_ROOTS`],
-/// then at least one folder of the app's own.
+/// then at least one folder of the app's own, so never a profile folder like
+/// `Documents` or `AppData\Roaming` and never anything in `.ssh` or
+/// `Microsoft`.
 pub fn check_data_folder(template: &str) -> Result<()> {
     let Some((root, rest)) = split_data_folder(template) else {
         bail!(
@@ -92,17 +124,57 @@ pub fn check_data_folder(template: &str) -> Result<()> {
     if rest.is_empty() {
         bail!("\"{template}\" names the whole %{root}% folder; add your app's own folder after it");
     }
-    normalize(&rest).map(|_| ())
+    let rest = normalize(&rest)?;
+    let parts: Vec<String> = rest.split('/').map(str::to_lowercase).collect();
+    if let Some(tree) = parts.iter().find(|part| PROTECTED_TREES.contains(&part.as_str())) {
+        bail!("\"{template}\" is inside \"{tree}\", which holds data that isn't your app's to delete");
+    }
+    if parts.iter().all(|part| is_shared_folder(part)) {
+        bail!(
+            "\"{template}\" is a folder of the user or of Windows, not of your app; \
+             name your app's own folder inside it, such as %{root}%\\YourApp"
+        );
+    }
+    Ok(())
+}
+
+fn is_shared_folder(part: &str) -> bool {
+    // OneDrive, "OneDrive - Contoso" and the like.
+    SHARED_FOLDERS.contains(&part) || part.starts_with("onedrive")
 }
 
 /// The real folder a checked data folder points at, reading the root from
-/// `lookup` (the environment, in the setup runtime).
+/// `lookup` (the environment, in the setup runtime). Refuses a folder that
+/// turns out to be, or to hold, one of the profile roots, in case the
+/// environment points them somewhere unexpected.
 pub fn expand_data_folder(template: &str, lookup: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     check_data_folder(template).ok()?;
     let (root, rest) = split_data_folder(template)?;
     let base = lookup(&root).filter(|value| !value.trim().is_empty())?;
     let rest = normalize(&rest).ok()?;
-    Some(under(Path::new(&base), &rest))
+    let folder = under(Path::new(&base), &rest);
+    let holds_a_root = DATA_ROOTS.iter().any(|name| {
+        lookup(name)
+            .filter(|value| !value.trim().is_empty())
+            .is_some_and(|value| is_same_or_inside(Path::new(&value), &folder))
+    });
+    (!holds_a_root).then_some(folder)
+}
+
+/// Whether `inner` is `outer` or lies inside it, ignoring case, trailing
+/// separators and the difference between `/` and `\`.
+pub fn is_same_or_inside(inner: &Path, outer: &Path) -> bool {
+    let parts = |path: &Path| -> Vec<String> {
+        path.to_string_lossy()
+            .replace('\\', "/")
+            .to_lowercase()
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let (inner, outer) = (parts(inner), parts(outer));
+    inner.len() >= outer.len() && inner[..outer.len()] == outer[..]
 }
 
 /// `%APPDATA%\Hello\Cache` → ("APPDATA", "Hello\Cache").
@@ -182,6 +254,76 @@ mod tests {
         assert!(check_data_folder(r"%APPDATA%\..\x").is_err());
         assert!(check_data_folder(r"%WINDIR%\x").is_err());
         assert!(check_data_folder(r"C:\Hello").is_err());
+    }
+
+    #[test]
+    fn data_folders_never_name_personal_or_system_folders() {
+        for template in [
+            r"%USERPROFILE%\Documents",
+            "%USERPROFILE%/Documents/",
+            r"%userprofile%\DESKTOP",
+            r"%USERPROFILE%\Downloads\",
+            r"%USERPROFILE%\Pictures",
+            r"%USERPROFILE%\Music",
+            r"%USERPROFILE%\Videos",
+            r"%USERPROFILE%\OneDrive",
+            r"%USERPROFILE%\OneDrive - Contoso",
+            r"%USERPROFILE%\.ssh",
+            r"%USERPROFILE%\.ssh\keys",
+            r"%USERPROFILE%\.aws\Hello",
+            r"%USERPROFILE%\AppData",
+            r"%USERPROFILE%\AppData\Roaming",
+            r"%USERPROFILE%\AppData\Local",
+            r"%USERPROFILE%\AppData\LocalLow",
+            r"%APPDATA%\Microsoft",
+            r"%APPDATA%\Microsoft\Windows",
+            r"%APPDATA%\microsoft\Hello",
+            r"%LOCALAPPDATA%\Programs",
+            r"%LOCALAPPDATA%\Packages",
+            r"%LOCALAPPDATA%\Temp",
+            r"%LOCALAPPDATA%\Microsoft\WindowsApps",
+        ] {
+            assert!(check_data_folder(template).is_err(), "{template:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn data_folders_inside_shared_folders_are_the_apps_own() {
+        for template in [
+            r"%USERPROFILE%\Documents\My Games\Hello",
+            r"%USERPROFILE%\Documents\Hello",
+            r"%USERPROFILE%\AppData\Roaming\Hello",
+            r"%LOCALAPPDATA%\Programs\Hello",
+            r"%USERPROFILE%\.hello",
+        ] {
+            assert!(check_data_folder(template).is_ok(), "{template:?} should be accepted");
+        }
+    }
+
+    #[test]
+    fn data_folders_never_expand_over_a_profile_root() {
+        let lookup = |name: &str| match name {
+            "APPDATA" => Some(r"C:\Users\a\AppData\Roaming".to_string()),
+            "LOCALAPPDATA" => Some(r"C:\Users\a\AppData\Local".to_string()),
+            "USERPROFILE" => Some(r"C:\Users\a".to_string()),
+            _ => None,
+        };
+        assert!(expand_data_folder(r"%USERPROFILE%\AppData\Local\Hello", lookup).is_some());
+        // A hostile environment: APPDATA is the profile itself.
+        let hostile = |name: &str| match name {
+            "APPDATA" => Some(r"C:\Users\a".to_string()),
+            "USERPROFILE" => Some(r"C:\Users\a\Hello".to_string()),
+            _ => None,
+        };
+        assert!(expand_data_folder(r"%APPDATA%\Hello", hostile).is_none());
+    }
+
+    #[test]
+    fn same_or_inside_ignores_case_and_separators() {
+        assert!(is_same_or_inside(Path::new(r"C:\A\b"), Path::new("c:/a")));
+        assert!(is_same_or_inside(Path::new(r"C:\A"), Path::new(r"c:\a\")));
+        assert!(!is_same_or_inside(Path::new(r"C:\Ab"), Path::new(r"C:\A")));
+        assert!(!is_same_or_inside(Path::new(r"C:\A"), Path::new(r"C:\A\b")));
     }
 
     #[test]

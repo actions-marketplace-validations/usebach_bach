@@ -79,7 +79,7 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
 
     if plan.delete_data {
         report(0.75, &texts.get(Key::step_deleting_data));
-        delete_data(manifest, texts)?;
+        delete_data(manifest, dir, texts)?;
     }
 
     report(0.9, &texts.get(Key::step_cleaning));
@@ -148,11 +148,17 @@ fn check_install_dir(dir: &Path, manifest: &Manifest, texts: &Texts) -> Result<(
 
 /// The folders the app keeps its data in (checked when the setup file was
 /// built and again when it was read, so they're inside the user's profile).
-fn delete_data(manifest: &Manifest, texts: &Texts) -> Result<(), String> {
+///
+/// A setup file isn't trusted, so a folder that is, or holds, the install
+/// folder is skipped here even though the manifest check let it through.
+fn delete_data(manifest: &Manifest, install_dir: &Path, texts: &Texts) -> Result<(), String> {
     for template in &manifest.uninstall.data {
         let Some(folder) = paths::expand_data_folder(template, |name| std::env::var(name).ok()) else {
             continue;
         };
+        if paths::is_same_or_inside(install_dir, &folder) {
+            continue;
+        }
         match fs::remove_dir_all(&folder) {
             Ok(()) => {}
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}

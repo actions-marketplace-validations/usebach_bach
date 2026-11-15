@@ -140,7 +140,9 @@ started it can wait for its exit code.
 - Packaged paths are relative and can never contain `..`, so a setup file
   can't write outside its install folder.
 - Data folders must sit inside the user's profile (`%APPDATA%`,
-  `%LOCALAPPDATA%`, `%USERPROFILE%`) and name a folder of their own.
+  `%LOCALAPPDATA%`, `%USERPROFILE%`) and name a folder of their own: never
+  `Documents`, `Desktop`, `AppData`, anything in `.ssh` or `Microsoft`, and
+  never the install folder or a folder that contains it.
 - The uninstaller refuses a folder that doesn't hold the app, and an update
   only cleans up after an earlier install of the same app id.
 - The manifest is checked again when a setup file starts, so a damaged or

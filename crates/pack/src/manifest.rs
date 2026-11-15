@@ -426,6 +426,18 @@ mod tests {
     }
 
     #[test]
+    fn a_setup_file_with_a_personal_data_folder_is_rejected() {
+        for folder in [r"%USERPROFILE%\Documents", r"%APPDATA%\Microsoft", r"%USERPROFILE%\.ssh"] {
+            let mut manifest = sample();
+            manifest.uninstall.data.push(folder.to_string());
+            assert!(manifest.validate().is_err(), "{folder} should be rejected");
+        }
+        let mut manifest = sample();
+        manifest.uninstall.data.push(r"%APPDATA%\Hello".to_string());
+        assert!(manifest.validate().is_ok());
+    }
+
+    #[test]
     fn the_installed_manifest_lists_what_was_installed() {
         let manifest = sample();
         let mut choices = Choices::defaults(&manifest);

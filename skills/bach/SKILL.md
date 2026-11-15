@@ -167,7 +167,7 @@ github = "owner/repo"                     # from that repo's GitHub releases; or
 # mirrors = ["https://mirror.example/myapp/latest.json"]   # fallback feeds
 
 [uninstall]
-data = ['%APPDATA%\My App']               # single quotes keep backslashes
+data = ['%APPDATA%\My App']               # single quotes keep backslashes; your own folder, never Documents or AppData itself
 data_description = "Your settings."
 feedback_url = "https://example.com/why"  # "Tell us why" after removing
 ```

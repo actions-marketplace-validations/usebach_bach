@@ -652,7 +652,7 @@ files there every translation.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `data` | none | Folders the app keeps its data in. The uninstaller offers "Also delete my data" (unticked) and deletes them only when the user ticks it. Each must start with `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%`, followed by your app's own folder, so the uninstaller can only ever delete inside the user's profile. |
+| `data` | none | Folders the app keeps its data in. The uninstaller offers "Also delete my data" (unticked) and deletes them only when the user ticks it. Each must start with `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%`, followed by your app's own folder, so the uninstaller can only ever delete inside the user's profile. A profile folder itself (`Documents`, `Desktop`, `Downloads`, `Pictures`, `Music`, `Videos`, `OneDrive`, `AppData`, `AppData\Roaming`, `AppData\Local`, `Programs`, `Temp`) is refused, and so is anything inside `.ssh`, `.aws`, `.azure`, `.gnupg`, `.kube` or a `Microsoft` folder; a folder inside one (`%USERPROFILE%\Documents\My Game`) is fine. `bach check` names the setting and the reason, and setup files that break the rule are refused when they start. The uninstaller also never deletes a folder that is, or contains, the install folder. |
 | `data_description` | a generic line | What lives in those folders, in a few words, shown under the checkbox. Text or `{ en = "…", de = "…" }`. |
 | `feedback_url` | none | An `https` page the uninstaller's last page links to ("Tell us why"). |
 
