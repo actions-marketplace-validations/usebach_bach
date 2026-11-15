@@ -180,7 +180,7 @@ fn delta_entry(patch: &Path, url: &str) -> Result<DeltaEntry> {
         bail!("{} isn't an update patch; make one with bach build --patch-from OLD-SETUP.exe", patch.display());
     };
     let bytes = std::fs::read(patch).with_context(|| format!("couldn't read {}", patch.display()))?;
-    Ok(DeltaEntry { from, url: url.to_string(), sha256: format!("{:x}", Sha256::digest(&bytes)), size: Some(bytes.len() as u64) })
+    Ok(DeltaEntry { from, url: url.to_string(), sha256: bach_pack::protect::hex(&Sha256::digest(&bytes)), size: Some(bytes.len() as u64) })
 }
 
 fn write(setup: &Path, url: &str, notes: Option<&str>, rollout: Option<u8>, delta: Option<DeltaEntry>, out: Option<&Path>) -> Result<PathBuf> {

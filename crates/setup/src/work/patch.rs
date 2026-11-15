@@ -30,16 +30,14 @@ pub(super) fn patch_base(manifest: &Manifest, choices: &Choices, dir: &Path) -> 
 /// Whether the file at `path` is exactly what `file` records: same size and
 /// SHA-256. A file that is missing, unreadable or unrecorded doesn't match.
 fn matches_on_disk(path: &Path, file: &FileEntry) -> bool {
-    use sha2::{Digest, Sha256};
     let Some(expected) = &file.sha256 else {
         return false;
     };
-    let Ok(mut open) = File::open(path) else {
+    let Ok(open) = File::open(path) else {
         return false;
     };
     if open.metadata().map_or(true, |meta| meta.len() != file.size) {
         return false;
     }
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut open, &mut hasher).is_ok() && format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected)
+    bach_pack::protect::sha256_hex(open).is_ok_and(|actual| actual.eq_ignore_ascii_case(expected))
 }

@@ -182,10 +182,8 @@ fn record_hashes(project: &mut Project) -> Result<()> {
         if entry.path != source.packaged {
             bail!("the file list and the files to pack disagree about {}", source.packaged);
         }
-        let mut hasher = Sha256::new();
-        let mut file = File::open(&source.path).with_context(|| format!("couldn't read {}", source.path.display()))?;
-        std::io::copy(&mut file, &mut hasher).with_context(|| format!("couldn't read {}", source.path.display()))?;
-        entry.sha256 = Some(format!("{:x}", hasher.finalize()));
+        let file = File::open(&source.path).with_context(|| format!("couldn't read {}", source.path.display()))?;
+        entry.sha256 = Some(bach_pack::protect::sha256_hex(file).with_context(|| format!("couldn't read {}", source.path.display()))?);
         done += source.size;
         progress.update(done);
     }
