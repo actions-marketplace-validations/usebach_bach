@@ -58,11 +58,18 @@ pub fn command(options: Options) -> Result<()> {
 }
 
 /// `Publisher.AppId` with only the characters winget allows.
+/// winget allows 32 characters in each of the two parts, and app ids can have 64.
 fn package_id(manifest: &Manifest) -> String {
-    let clean = |text: &str| text.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>();
+    let clean = |text: &str| text.chars().filter(|c| c.is_ascii_alphanumeric()).take(32).collect::<String>();
     let publisher = clean(&manifest.app.publisher);
     let app = clean(&manifest.app.id);
-    format!("{}.{}", if publisher.is_empty() { "Publisher".into() } else { publisher }, app)
+    format!("{}.{}", if publisher.is_empty() { "Publisher".into() } else { publisher }, if app.is_empty() { "App".into() } else { app })
+}
+
+/// A YAML text in double quotes, so a `#` or `: ` in a link is never read as
+/// a comment or a mapping.
+pub(crate) fn quoted(text: &str) -> String {
+    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 /// The architecture winget should list a setup file under, read from the
@@ -98,12 +105,13 @@ fn manifests(manifest: &Manifest, id: &str, url: &str, sha256: &str, license: Op
     // A machine-wide setup file installs for every user (winget calls it "machine").
     let scope = if manifest.install.scope.is_machine() { "machine" } else { "user" };
     let installer = format!(
-        "{}InstallerType: exe\nScope: {scope}\nInstallModes:\n  - interactive\n  - silent\n  - silentWithProgress\nInstallerSwitches:\n  Silent: --silent\n  SilentWithProgress: --silent\n  InstallLocation: --dir \"<INSTALLPATH>\"\n  Log: --log \"<LOGPATH>\"\nUpgradeBehavior: install\nProductCode: {}\nInstallers:\n  - Architecture: {architecture}\n    InstallerUrl: {url}\n    InstallerSha256: {sha256}\nManifestType: installer\nManifestVersion: {MANIFEST_VERSION}\n",
+        "{}InstallerType: exe\nScope: {scope}\nInstallModes:\n  - interactive\n  - silent\n  - silentWithProgress\nInstallerSwitches:\n  Silent: --silent\n  SilentWithProgress: --silent\n  InstallLocation: --dir \"<INSTALLPATH>\"\n  Log: --log \"<LOGPATH>\"\nUpgradeBehavior: install\nProductCode: {}\nInstallers:\n  - Architecture: {architecture}\n    InstallerUrl: {}\n    InstallerSha256: {sha256}\nManifestType: installer\nManifestVersion: {MANIFEST_VERSION}\n",
         header("installer"),
-        yaml(&app.id)
+        yaml(&app.id),
+        quoted(url)
     );
     let description = app.description.clone().unwrap_or_else(|| app.name.clone());
-    let homepage = app.website.as_ref().map(|site| format!("PackageUrl: {site}\n")).unwrap_or_default();
+    let homepage = app.website.as_ref().map(|site| format!("PackageUrl: {}\n", quoted(site))).unwrap_or_default();
     let locale = format!(
         "{}PackageLocale: en-US\nPublisher: {}\nPackageName: {}\n{homepage}License: {}\nShortDescription: {}\nManifestType: defaultLocale\nManifestVersion: {MANIFEST_VERSION}\n",
         header("defaultLocale"),
@@ -122,6 +130,20 @@ fn manifests(manifest: &Manifest, id: &str, url: &str, sha256: &str, license: Op
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn package_ids_fit_winget_and_links_are_quoted() {
+        let mut long = manifest();
+        long.app.id = "A".repeat(50);
+        long.app.publisher = "Publisher With A Rather Long Name Incorporated Worldwide".into();
+        let id = package_id(&long);
+        let (publisher, app) = id.split_once('.').unwrap();
+        assert!(publisher.len() <= 32 && app.len() <= 32 && !publisher.is_empty() && !app.is_empty(), "{id}");
+        assert_eq!(package_id(&manifest()), "HelloInc.HelloApp");
+        // A `#` or `: ` in a link is text, not a comment or a mapping.
+        assert_eq!(quoted("https://x.example/a#b: c"), "\"https://x.example/a#b: c\"");
+        assert_eq!(quoted("a\"b\\c"), "\"a\\\"b\\\\c\"");
+    }
 
     fn manifest() -> Manifest {
         serde_json::from_str(
