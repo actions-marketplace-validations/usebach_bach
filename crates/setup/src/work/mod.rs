@@ -102,27 +102,59 @@ pub(crate) fn delete_after_exit(file: &Path, folder: Option<&Path>) -> std::io::
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-    let file = file.display();
-    let cleanup = match folder {
-        Some(folder) => format!("rmdir \"{}\" >nul 2>&1 & ", folder.display()),
-        None => String::new(),
-    };
+    // The paths travel in environment variables and are read with delayed
+    // expansion (`!NAME!`), which happens after cmd has parsed the line, so a
+    // `%`, `&`, `^` or quote in a folder name is just text and never code.
+    // The wait is `waitfor`, which sleeps its timeout when no signal comes and
+    // needs neither a console nor the network (`ping` needs both).
+    let cleanup = if folder.is_some() { "rmdir \"!BACH_DELETE_DIR!\" >nul 2>&1 & " } else { "" };
     // cmd reads everything after `if (…)` on the same line as part of the
     // if, so the wait sits in the if and the way out in the else.
     let script = format!(
-        "/d /q /c \"for /l %i in (1,1,120) do @(del /f /q \"{file}\" >nul 2>&1 & \
-         if exist \"{file}\" (ping -n 2 127.0.0.1 >nul) else ({cleanup}exit))\""
+        "/v:on /d /q /c \"for /l %i in (1,1,120) do @(del /f /q \"!BACH_DELETE_FILE!\" >nul 2>&1 & \
+         if exist \"!BACH_DELETE_FILE!\" (waitfor /t 1 BachDeleteWait >nul 2>&1) else ({cleanup}exit))\""
     );
     // Windows' own cmd.exe, by full path: this may run with administrator rights.
     let cmd = std::env::var_os("SystemRoot")
         .map(|root| std::path::PathBuf::from(root).join(r"System32\cmd.exe"))
         .filter(|path| path.is_file())
         .unwrap_or_else(|| "cmd.exe".into());
-    std::process::Command::new(cmd)
-        .raw_arg(script)
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-        .map(|_| ())
+    let mut command = std::process::Command::new(cmd);
+    command.env("BACH_DELETE_FILE", file).raw_arg(script).creation_flags(CREATE_NO_WINDOW);
+    if let Some(folder) = folder {
+        command.env("BACH_DELETE_DIR", folder);
+    }
+    command.spawn().map(|_| ())
+}
+
+#[cfg(test)]
+mod delete_tests {
+    use super::*;
+
+    /// The file goes after the helper starts, also with characters in its name
+    /// that cmd would treat as code, and the empty folder goes with it.
+    #[test]
+    fn a_file_with_odd_characters_is_deleted_and_nothing_else() {
+        let base = std::env::temp_dir().join(format!("bach-delete-{}", std::process::id()));
+        let folder = base.join("100% & ^ safe (x86) !");
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("a & b %PATH% ! ^.tmp");
+        std::fs::write(&file, b"x").unwrap();
+        let bystander = base.join("stays.txt");
+        std::fs::write(&bystander, b"x").unwrap();
+
+        delete_after_exit(&file, Some(&folder)).unwrap();
+        for _ in 0..40 {
+            if !file.exists() && !folder.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        assert!(!file.exists(), "the file is deleted");
+        assert!(!folder.exists(), "and its empty folder");
+        assert!(bystander.exists(), "nothing else is touched");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
 }
 
 /// Removes the now-empty folders above each removed file, deepest first,
