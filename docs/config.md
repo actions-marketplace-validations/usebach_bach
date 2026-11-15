@@ -515,10 +515,28 @@ build reads it from an environment variable (or `--key-file`).
 get_key_url = "https://example.com/buy"   # optional: the key page gets a "Get a key" button
 ```
 
-```bash
-bach key                                   # K7QF-3MWD-9XPA-H2TY-6NBC
-BACH_ACCESS_KEY=K7QF-3MWD-9XPA-H2TY-6NBC bach build
+```powershell
+bach key --out key.txt                     # writes one key (try --count 100 for a batch)
+bach build --key-file key.txt              # uses the first line of the file
 ```
+
+`--key-file` works in every shell. The build can also read the key from the
+environment variable, which each shell sets its own way:
+
+```powershell
+$env:BACH_ACCESS_KEY = "K7QF-3MWD-9XPA-H2TY-6NBC"; bach build   # PowerShell
+```
+
+```bat
+set BACH_ACCESS_KEY=K7QF-3MWD-9XPA-H2TY-6NBC && bach build      # cmd
+```
+
+```bash
+BACH_ACCESS_KEY=K7QF-3MWD-9XPA-H2TY-6NBC bach build             # bash, zsh
+```
+
+`bach key > key.txt` also works. Windows PowerShell writes such a file as
+UTF-16 and Bach reads that, a byte order mark and plain UTF-8 alike.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -649,13 +667,13 @@ instead of you running a signing tool. Without this section nothing is signed.
 ```toml
 [signing]
 program = "signtool"      # default
-arguments = '/fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'
+arguments = 'sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'
 ```
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `program` | `signtool` | The signing program, started without a shell. Give its full path if it isn't on `PATH`. |
-| `arguments` | required | Its arguments, split like a command line. The setup file is added last; write `{file}` to put it elsewhere. `{env:NAME}` is replaced by an environment variable, so secrets stay out of `bach.toml` (the build fails when it isn't set). |
+| `program` | `signtool` | The signing program, started without a shell. `signtool` is part of the Windows SDK and is rarely on `PATH`: when it isn't, Bach uses the newest one in `C:\Program Files (x86)\Windows Kits\10\bin`. Give a full path to use another. |
+| `arguments` | required | Its arguments, split like a command line. For `signtool` they start with the word `sign`. The setup file is added last; write `{file}` to put it elsewhere. `{env:NAME}` is replaced by an environment variable, so secrets stay out of `bach.toml` (the build fails when it isn't set). |
 
 Signing runs only when you ask: `bach build --sign` (or `BACH_SIGN=1` in CI)
 signs what it writes, and `bach sign FILE` signs a file you built earlier. A
@@ -718,8 +736,23 @@ data_description = { en = "Your settings and the download cache.", de = "Deine E
 
 Every setup file also installs without a window, for IT tools and scripts:
 
-```bash
-Hello-Setup-1.4.0.exe --silent
+```powershell
+$p = Start-Process .\Hello-Setup-1.4.0.exe -ArgumentList '--silent' -Wait -PassThru
+$p.ExitCode        # 0: done
+```
+
+A setup file is a windowed program, so a shell doesn't wait for it: running
+`.\Hello-Setup-1.4.0.exe --silent` directly installs but returns at once,
+without an exit code. `Start-Process -Wait -PassThru` waits and hands you the
+exit code. In cmd, use `start /wait "" Hello-Setup-1.4.0.exe --silent` and read
+`%ERRORLEVEL%`. PowerShell also needs the `.\` in front of a file in the
+current folder.
+
+More flags go in the argument list, one text each; a path with spaces gets its
+own quotes:
+
+```powershell
+Start-Process .\Hello-Setup-1.4.0.exe -Wait -PassThru -ArgumentList '--silent', '--dir', '"D:\My Apps\Hello"', '--with', 'samples,path'
 ```
 
 | Flag | Meaning |
@@ -748,9 +781,15 @@ killed).
 With `[updates]`, the installed app can ask its own uninstaller, which
 knows the feed:
 
-```bash
-"%LOCALAPPDATA%\Programs\Hello\uninstall.exe" --check-update
+```powershell
+$p = Start-Process "$env:LOCALAPPDATA\Programs\Hello\uninstall.exe" -ArgumentList '--check-update' -Wait -PassThru
+$p.ExitCode        # 10: a newer version is out, 0: up to date
 ```
+
+Use `Start-Process -Wait -PassThru` as in [silent installs](#silent-installs):
+`uninstall.exe` is a windowed program too, and a plain call doesn't wait or
+give you its exit code. From your own app, start it with your language's
+process API and wait for it.
 
 | Flag | Meaning |
 | --- | --- |

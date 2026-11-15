@@ -7,13 +7,25 @@ shows your name as the publisher when people download and run your setup file.
 Bach setup files sign like any other program. Build first, then sign the
 finished file:
 
-```bash
+```powershell
 bach build
-```
-
-```bash
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a "dist\My App-Setup-1.0.0.exe"
 ```
+
+`signtool` comes with the Windows SDK (install its "Windows SDK Signing Tools
+for Desktop Apps"), and it is usually **not on your `PATH`**: PowerShell says
+the name isn't recognised. Use its full path, which looks like this, or open
+"Developer PowerShell for VS" from the Start menu, which knows it:
+
+```powershell
+& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe" sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a "dist\My App-Setup-1.0.0.exe"
+```
+
+(Your SDK folder has its own version number. `Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin"` lists them.) `/a` picks the best code-signing
+certificate in your certificate store, so you need one installed (from a
+certificate authority, or on a hardware token); without it signtool says that
+no certificates were found. Bach itself finds `signtool` for you when it signs
+(see below).
 
 The signature is appended after Bach's payload and covers it, so any change
 to the file after signing breaks the signature. Check it with:
@@ -34,10 +46,13 @@ signed file's SHA-256:
 ```toml
 [signing]
 program = "signtool"      # the default; any program that signs a file
-arguments = '/fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'
+arguments = 'sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a'
 ```
 
-Bach runs `program` with `arguments` and the setup file added at the end
+For `signtool` the arguments start with the word `sign`; Bach refuses them
+otherwise, because signtool answers "Invalid command". When `signtool` isn't on
+`PATH`, Bach uses the newest one in the Windows SDK's folder and says which. Bach
+runs `program` with `arguments` and the setup file added at the end
 (write `{file}` where it belongs when it isn't last), without a shell, and
 prints the command first. A signer that fails fails the build with its exit
 code, so an unsigned file never goes out by accident.

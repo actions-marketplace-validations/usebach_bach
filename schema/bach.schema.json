@@ -4330,7 +4330,7 @@
         },
         "arguments": {
           "type": "string",
-          "description": "Its arguments. The setup file is added last; write {file} to put it elsewhere. {env:NAME} is replaced by an environment variable."
+          "description": "Its arguments. For signtool they start with the word sign. The setup file is added last; write {file} to put it elsewhere. {env:NAME} is replaced by an environment variable."
         }
       }
     }
