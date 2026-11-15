@@ -486,6 +486,9 @@ Either `github` or `feed` is needed, and `app.version` must be numbers like
 
 To roll an update out to a share of computers first, write the feed with
 `bach feed SETUP.exe --rollout 10`; see [updates](updates.md#staged-rollouts).
+To spare computers the whole download, `bach build --patch-from OLD-SETUP.exe`
+also writes a patch with only the files that changed; see
+[update patches](updates.md#update-patches).
 
 Signing changes the setup file, and so its SHA-256: after signing, write the
 feed again with `bach feed SETUP.exe`. The whole story, from publishing with
@@ -614,6 +617,7 @@ a text is given in only one, `bach check` points it out.
 | `access_title`, `access_subtitle`, `access_hint`, `access_button`, `access_paste`, `access_get`, `access_wrong` | The access key page. |
 | `step_running`, `error_run` (`{task}`, `{code}`) | A `[[run]]` step's label and its failure. |
 | `step_migrating` | The label while an older install by another installer is removed (`[[migrate]]`). |
+| `error_patch_base` | What an update patch says when the installed files aren't the version it was made for. |
 | `website`, `feedback` | The link buttons on the last page. |
 
 `crates/pack/src/i18n/en.rs` has every English text in full, and the other

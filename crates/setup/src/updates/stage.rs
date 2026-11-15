@@ -34,6 +34,22 @@ pub struct Staged {
     pub notes: Option<String>,
     /// The setup file.
     pub file: PathBuf,
+    /// Whether the file is an update patch (only the files that changed),
+    /// not a full setup file.
+    pub patch: bool,
+    /// For a patch: the full setup file to fall back on when the patch
+    /// can't be applied.
+    pub full: Option<FeedEntry>,
+}
+
+impl Staged {
+    /// Whether this is the download for `entry`: the full setup file it
+    /// offers, or a patch that stands in for that file.
+    pub fn is_for(&self, entry: &FeedEntry) -> bool {
+        let wanted = entry.sha256.trim().to_ascii_lowercase();
+        self.version == entry.version
+            && (self.sha256 == wanted || self.full.as_ref().is_some_and(|full| full.sha256.trim().eq_ignore_ascii_case(&wanted)))
+    }
 }
 
 /// Where an app's staged update lives.
@@ -55,6 +71,8 @@ pub fn read(folder: &Path) -> Option<Staged> {
         sha256: text_of("sha256").unwrap_or_default(),
         notes: text_of("notes"),
         file,
+        patch: value.get("patch").and_then(|v| v.as_bool()).unwrap_or(false),
+        full: value.get("full").and_then(|v| serde_json::from_value(v.clone()).ok()),
     })
 }
 
@@ -166,9 +184,39 @@ pub fn ensure_with(
     let file = dir.join(&file_name);
     let _ = fs::remove_file(&file);
     fs::rename(&partial, &file).map_err(|err| err.to_string())?;
-    let staged = Staged { version: entry.version.clone(), sha256: expected, notes: entry.notes.clone(), file };
+    let staged = Staged { version: entry.version.clone(), sha256: expected, notes: entry.notes.clone(), file, patch: false, full: None };
     write_marker(&dir, &staged, &file_name, &entry.url)?;
     prune(&dir, &file_name);
+    Ok(staged)
+}
+
+/// Downloads the update patch `entry` offers (a smaller download for
+/// computers that have `delta.from`), and remembers the full setup file to
+/// fall back on when the patch can't be applied.
+pub fn ensure_delta(
+    entry: &FeedEntry,
+    bearer: Option<&Bearer>,
+    app_id: &str,
+    progress: &mut dyn FnMut(u64),
+) -> Result<Staged, String> {
+    let delta = entry.delta.as_ref().ok_or("the feed offers no patch")?;
+    let patch = FeedEntry {
+        version: entry.version.clone(),
+        url: delta.url.clone(),
+        sha256: delta.sha256.clone(),
+        notes: entry.notes.clone(),
+        size: delta.size,
+        rollout: None,
+        delta: None,
+    };
+    let mut staged = ensure_with(&patch, app_id, bearer, progress)?;
+    let full = FeedEntry { delta: None, ..entry.clone() };
+    if !staged.patch || staged.full.as_ref() != Some(&full) {
+        staged.patch = true;
+        staged.full = Some(full);
+        let name = staged.file.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+        write_marker(&folder(app_id), &staged, &name, &delta.url)?;
+    }
     Ok(staged)
 }
 
@@ -181,6 +229,8 @@ fn write_marker(dir: &Path, staged: &Staged, file_name: &str, url: &str) -> Resu
         "notes": staged.notes,
         "file": file_name,
         "url": url,
+        "patch": staged.patch,
+        "full": staged.full,
     });
     let text = serde_json::to_string_pretty(&marker).map_err(|err| err.to_string())?;
     let partial = dir.join(format!("{MARKER}.partial"));
@@ -242,10 +292,43 @@ mod tests {
             sha256: "ab".repeat(32),
             notes: Some("New things".into()),
             file: dir.join("Setup-2.0.exe"),
+            patch: false,
+            full: None,
         };
         write_marker(&dir, &staged, "Setup-2.0.exe", "https://x/y.exe").unwrap();
         assert_eq!(read(&dir), Some(staged));
         assert!(!dir.join(format!("{MARKER}.partial")).exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_patch_remembers_the_full_setup_to_fall_back_on() {
+        let dir = temp("patch");
+        fs::write(dir.join("Setup-2.0.exe"), b"x").unwrap();
+        let full = FeedEntry {
+            version: "2.0".into(),
+            url: "https://x/full.exe".into(),
+            sha256: "cd".repeat(32),
+            notes: None,
+            size: Some(900),
+            rollout: None,
+            delta: None,
+        };
+        let patch = Staged {
+            version: "2.0".into(),
+            sha256: "ab".repeat(32),
+            notes: None,
+            file: dir.join("Setup-2.0.exe"),
+            patch: true,
+            full: Some(full.clone()),
+        };
+        write_marker(&dir, &patch, "Setup-2.0.exe", "https://x/patch.exe").unwrap();
+        let read = read(&dir).unwrap();
+        assert!(read.patch);
+        assert_eq!(read.full, Some(full.clone()));
+        assert!(read.is_for(&full), "the patch stands in for the full file the feed offers");
+        assert!(!read.is_for(&FeedEntry { version: "2.1".into(), ..full.clone() }));
+        assert!(!read.is_for(&FeedEntry { sha256: "ef".repeat(32), ..full }));
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -275,7 +358,7 @@ mod tests {
         let file = dir.join("Setup-1.exe");
         fs::write(&file, b"MZ not a setup file").unwrap();
         let hash = hash_file(&file).unwrap();
-        let staged = Staged { version: "1".into(), sha256: hash, notes: None, file: file.clone() };
+        let staged = Staged { version: "1".into(), sha256: hash, notes: None, file: file.clone(), patch: false, full: None };
         assert!(verify(&staged, "Hello").unwrap_err().contains("isn't a setup file"));
         let wrong_hash = Staged { sha256: "00".repeat(32), ..staged };
         assert!(verify(&wrong_hash, "Hello").unwrap_err().contains("SHA-256"));

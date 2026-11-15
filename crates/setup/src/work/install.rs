@@ -21,7 +21,7 @@ use std::sync::Arc;
 use bach_pack::archive;
 use bach_pack::container;
 use bach_pack::i18n::Key;
-use bach_pack::manifest::{Choices, Manifest, UNINSTALLER};
+use bach_pack::manifest::{Choices, FileEntry, Manifest, UNINSTALLER};
 use bach_pack::paths;
 use bach_pack::protect::{KeyError, Unlocked};
 
@@ -82,7 +82,11 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     ensure_closed(&program, texts)?;
     let previous = previous_install(dir, manifest);
     let needed = manifest.selected_size(&choices);
-    check_free_space(dir, needed, texts)?;
+    // An update patch carries only what changed; the rest is in the folder.
+    let matching = patch_base(manifest, &choices, dir);
+    let unchanged: u64 = manifest.files.iter().filter(|file| matching.contains(&file.path)).map(|file| file.size).sum();
+    let to_copy = needed.saturating_sub(unchanged);
+    check_free_space(dir, to_copy, texts)?;
     verify_archive(package, layout.archive, texts)?;
 
     // An older install of this app by another installer goes first, so its
@@ -92,7 +96,7 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
         super::migrate::run(manifest);
     }
 
-    unpack(plan, &choices, layout.archive, needed, unlocked.as_ref(), report)?;
+    unpack(plan, &choices, layout.archive, to_copy, &matching, unlocked.as_ref(), report)?;
 
     report(0.86, &texts.get(Key::step_tidying));
     let installed = manifest.as_installed(&choices);
@@ -199,12 +203,48 @@ fn check_free_space(dir: &Path, needed: u64, texts: &Texts) -> Result<(), String
     }
 }
 
+/// For an update patch: the chosen files already in the install folder with
+/// exactly the content the patch expects, which the patch leaves out. Empty
+/// for a full setup file.
+fn patch_base(manifest: &Manifest, choices: &Choices, dir: &Path) -> HashSet<String> {
+    if manifest.patch_from.is_none() {
+        return HashSet::new();
+    }
+    manifest
+        .files
+        .iter()
+        .filter(|file| choices.installs(file))
+        .filter(|file| matches_on_disk(&paths::under(dir, &file.path), file))
+        .map(|file| file.path.clone())
+        .collect()
+}
+
+/// Whether the file at `path` is exactly what `file` records: same size and
+/// SHA-256. A file that is missing, unreadable or unrecorded doesn't match.
+fn matches_on_disk(path: &Path, file: &FileEntry) -> bool {
+    use sha2::{Digest, Sha256};
+    let Some(expected) = &file.sha256 else {
+        return false;
+    };
+    let Ok(mut open) = File::open(path) else {
+        return false;
+    };
+    if open.metadata().map_or(true, |meta| meta.len() != file.size) {
+        return false;
+    }
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut open, &mut hasher).is_ok() && format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected)
+}
+
 /// Unpacks the chosen files and moves them into place, all or nothing.
+/// `needed` is what gets copied; `matching` are the files an update patch
+/// leaves out because they are in the folder already.
 fn unpack(
     plan: &InstallPlan,
     choices: &Choices,
     archive_section: container::Section,
     needed: u64,
+    matching: &HashSet<String>,
     unlocked: Option<&Unlocked>,
     report: Report,
 ) -> Result<(), String> {
@@ -227,10 +267,12 @@ fn unpack(
     let reader = BufReader::new(source.take(archive_section.len));
     let mut transaction = Transaction::default();
     let mut write_error: Option<String> = None;
+    let mut present: HashSet<String> = HashSet::new();
     let mut visit = |packaged: &str, _size: u64, body: &mut dyn Read| {
         if !wanted.contains(packaged) {
             return Ok(());
         }
+        present.insert(packaged.to_string());
         let target = paths::under(dir, packaged);
         transaction
             .stage(&target, body, &mut |chunk| {
@@ -257,6 +299,17 @@ fn unpack(
         transaction.discard();
         remove_empty_parents(dir, wanted.iter().copied());
         return Err(write_error.unwrap_or_else(|| format!("{} {}", texts.get(Key::error_damaged), plain(&err))));
+    }
+    // A patch is only good on the version it was made for: every file it
+    // leaves out has to be there, unchanged.
+    if manifest.patch_from.is_some() {
+        let missing = wanted.iter().find(|path| !present.contains(**path) && !matching.contains(**path));
+        if let Some(missing) = missing {
+            crate::log::line(&format!("The update patch needs {missing} as it was in version {}, and it isn't.", manifest.patch_from.as_deref().unwrap_or("?")));
+            transaction.discard();
+            remove_empty_parents(dir, wanted.iter().copied());
+            return Err(texts.get(Key::error_patch_base));
+        }
     }
     transaction.commit(&place::journal_path(dir)).map_err(|failure| {
         if is_in_use(&failure.error) {

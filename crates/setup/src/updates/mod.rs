@@ -206,8 +206,7 @@ fn check(ctx: &Context) -> Result<i32, String> {
     let current = ctx.current_version();
     let newer = feed::is_newer(&entry.version, &current) && ctx.in_rollout(&entry);
     let ready = newer
-        && stage::read(&stage::folder(&ctx.manifest().app.id))
-            .is_some_and(|staged| staged.version == entry.version && staged.sha256 == entry.sha256.trim().to_ascii_lowercase());
+        && stage::read(&stage::folder(&ctx.manifest().app.id)).is_some_and(|staged| staged.is_for(&entry));
     if ctx.args.json {
         let answer = json!({
             "app": ctx.manifest().app.name,
@@ -237,12 +236,34 @@ fn download(ctx: &Context) -> Result<i32, String> {
         println!("{} {} is up to date.", ctx.manifest().app.name, ctx.current_version());
         return Ok(0);
     }
-    stage_entry(ctx, &entry)?;
+    stage_entry(ctx, &entry, true)?;
     println!("{} {} is ready to install.", ctx.manifest().app.name, entry.version);
     Ok(UPDATE_AVAILABLE)
 }
 
-fn stage_entry(ctx: &Context, offer: &Offer) -> Result<stage::Staged, String> {
+/// Whether the installed files are the ones `delta` was made from, as far as
+/// the update can tell before it downloads anything: the same version, and
+/// every installed file's checksum on record (a setup file made before Bach
+/// recorded them can't be checked, so no patch is tried).
+fn delta_fits(ctx: &Context, delta: &bach_pack::manifest::DeltaEntry) -> bool {
+    let files = &ctx.manifest().files;
+    bach_pack::version::compare(&delta.from, &ctx.current_version()) == Some(std::cmp::Ordering::Equal)
+        && !files.is_empty()
+        && files.iter().all(|file| file.sha256.is_some())
+}
+
+/// Downloads what `offer` describes: the update patch when this computer has
+/// the version it was made from and `allow_patch` (the window can't fall back
+/// by itself, so it asks for the full setup file), the full setup file
+/// otherwise or when the patch can't be downloaded.
+fn stage_entry(ctx: &Context, offer: &Offer, allow_patch: bool) -> Result<stage::Staged, String> {
+    if let Some(delta) = offer.entry.delta.as_ref().filter(|delta| allow_patch && delta_fits(ctx, delta)) {
+        crate::log::line(&format!("Downloading the patch from {} to {} of {}", delta.from, offer.version, ctx.manifest().app.name));
+        match stage::ensure_delta(&offer.entry, ctx.bearer().as_ref(), &ctx.manifest().app.id, &mut |_| {}) {
+            Ok(staged) => return Ok(staged),
+            Err(error) => crate::log::line(&format!("The patch couldn't be downloaded ({error}); downloading the full setup file.")),
+        }
+    }
     crate::log::line(&format!("Downloading {} {}", ctx.manifest().app.name, offer.version));
     stage::ensure_any(&offer.entries(), &ctx.manifest().app.id, ctx.bearer().as_ref(), &mut |_| {})
         .map_err(|error| ctx.texts.with(Key::error_download, &[("error", &error)]))
@@ -272,7 +293,7 @@ fn update(ctx: &Context) -> Result<i32, String> {
         return Ok(0);
     }
     eprintln!("{}", ctx.texts.get(Key::step_downloading));
-    let staged = stage_entry(ctx, &entry)?;
+    let staged = stage_entry(ctx, &entry, ctx.args.silent)?;
     // The download is done before the app is asked to close, so waiting for
     // it never delays the user twice.
     apply::wait_for_app(ctx)?;

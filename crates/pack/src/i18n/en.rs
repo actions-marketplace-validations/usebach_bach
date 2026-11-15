@@ -114,4 +114,5 @@ pub const EN: Strings = Strings {
     step_running: "Setting up {task}",
     error_run: "{task} couldn't be set up (exit code {code}). Try again.",
     step_migrating: "Removing the old version of {name}",
+    error_patch_base: "This update is for another version of {name}. Download the full setup file instead.",
 };

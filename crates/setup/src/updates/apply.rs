@@ -46,26 +46,32 @@ pub fn install(ctx: &Context, staged: &Staged) -> Result<i32, String> {
         crate::log::line("Another update of this app is running; leaving this one for later.");
         return Ok(0);
     };
-    for attempt in 1..=ATTEMPTS {
-        crate::log::line(&format!("Installing {} {} (try {attempt})", ctx.manifest().app.name, staged.version));
-        let code = run_setup(ctx, &staged.file)?;
-        if code == 0 {
+    let mut done = run_attempts(ctx, staged)?;
+    // A patch that can't be applied (the installed files aren't the version it
+    // was made for, say) is no reason to leave the app out of date: the full
+    // setup file does the same job, only bigger.
+    if !done && staged.patch {
+        if let Some(full) = &staged.full {
+            crate::log::line("The update patch couldn't be applied; downloading the full setup file instead.");
             stage::clear(app_id);
-            // This process may be the uninstaller the update just replaced;
-            // the copy it left behind goes once it has exited.
-            let old = ctx.dir.join(format!("{}.bach-old", bach_pack::manifest::UNINSTALLER));
-            if old.exists() {
-                let _ = crate::work::delete_after_exit(&old, None);
+            match stage::ensure_any(std::slice::from_ref(full), app_id, ctx.bearer().as_ref(), &mut |_| {}) {
+                Ok(full_staged) => done = run_attempts(ctx, &full_staged)?,
+                Err(error) => crate::log::line(&format!("The full setup file couldn't be downloaded either: {error}")),
             }
-            if ctx.args.launch {
-                launch_app(ctx);
-            }
-            return Ok(0);
         }
-        crate::log::line(&format!("The setup file ended with code {code}."));
-        if attempt < ATTEMPTS {
-            std::thread::sleep(PAUSE);
+    }
+    if done {
+        stage::clear(app_id);
+        // This process may be the uninstaller the update just replaced;
+        // the copy it left behind goes once it has exited.
+        let old = ctx.dir.join(format!("{}.bach-old", bach_pack::manifest::UNINSTALLER));
+        if old.exists() {
+            let _ = crate::work::delete_after_exit(&old, None);
         }
+        if ctx.args.launch {
+            launch_app(ctx);
+        }
+        return Ok(0);
     }
     eprintln!(
         "{} {} couldn't be installed yet. It stays downloaded, and the next update run tries again.",
@@ -73,6 +79,27 @@ pub fn install(ctx: &Context, staged: &Staged) -> Result<i32, String> {
         staged.version
     );
     Ok(1)
+}
+
+/// Runs the staged setup file until it installs: true when it did. A patch is
+/// tried once, because a patch that doesn't fit won't fit the second time; a
+/// full setup file gets a few tries, for a virus scanner that still holds one
+/// of the app's files.
+fn run_attempts(ctx: &Context, staged: &Staged) -> Result<bool, String> {
+    let tries = if staged.patch { 1 } else { ATTEMPTS };
+    let kind = if staged.patch { "patch for" } else { "" };
+    for attempt in 1..=tries {
+        crate::log::line(&format!("Installing {kind} {} {} (try {attempt})", ctx.manifest().app.name, staged.version));
+        let code = run_setup(ctx, &staged.file)?;
+        if code == 0 {
+            return Ok(true);
+        }
+        crate::log::line(&format!("The setup file ended with code {code}."));
+        if attempt < tries {
+            std::thread::sleep(PAUSE);
+        }
+    }
+    Ok(false)
 }
 
 /// Runs a setup file with `--silent` and gives back its exit code.

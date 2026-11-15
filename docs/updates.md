@@ -262,6 +262,67 @@ new installs get the newest. To pull a bad release, publish the feed of the
 last good version again: apps only ever move up, so an app that already took
 the bad one waits for a higher version.
 
+## Update patches
+
+A big app that updates often (an Electron app with its own Chromium, say) can
+spare its users most of the download. `bach build --patch-from` also writes a
+**patch**: a setup file that carries only the files that changed since an
+earlier version.
+
+```bash
+bach build --patch-from "old/Hello-Setup-1.3.0.exe"
+```
+
+```console
+Wrote dist\Hello-Setup-1.4.0.exe (37.8 MB)
+Wrote dist\Hello-Setup-1.4.0-patch-from-1.3.0.exe (17.7 MB), the update patch from 1.3.0: 1 of 4 files changed
+  Update feed  dist\latest.json
+```
+
+The feed then offers it next to the full file:
+
+```json latest.json
+{
+  "version": "1.4.0", "url": "…/Hello-Setup-1.4.0.exe", "sha256": "…",
+  "delta": { "from": "1.3.0", "url": "…/Hello-Setup-1.4.0-patch-from-1.3.0.exe", "sha256": "…" }
+}
+```
+
+What the installed app does with it:
+
+- It downloads the patch only when 1.3.0 is installed and every installed file
+  has a checksum on record (setup files made with this Bach version or newer do).
+  Every other computer downloads the full file, as before.
+- The patch is a setup file for the same app, checked like any update (SHA-256
+  against the feed, same app id, the feed's version). Before it places anything
+  it checks that every file it left out is in the install folder, byte for byte
+  (size and SHA-256). If one isn't, because the user or something else changed
+  it, nothing is touched and the app downloads the full file instead and installs
+  that. An update never ends up half done.
+- The window of `--update` (without `--silent`) always uses the full file: it
+  can't fall back by itself. Silent updates, the background task and
+  `--download-update` use patches.
+
+Things to know:
+
+- A patch works on whole files. A file that changed by one byte is in the patch
+  in full, so it pays off when most of your app's size is files that don't
+  change (a runtime, assets, libraries), not when it is one big program.
+- A patch is a setup file itself, so it carries the setup runtime (about
+  10 MB). `bach build` only puts a patch in the feed when it's at least a fifth
+  smaller than the full file, and says so when it leaves it out. Force it with
+  `bach feed … --patch`.
+- Build the patch from the setup file you published for that version (keep
+  it, or download it from your release). You can build one patch per older
+  version you want to support, and offer one in the feed: the most recent
+  version most people have.
+- After signing, write the feed again and pass the signed patch too:
+  `bach feed dist/Hello-Setup-1.4.0.exe --patch dist/Hello-Setup-1.4.0-patch-from-1.3.0.exe`
+  (the patch's link comes from `bach.toml`, or `--patch-url`). With `--sign`,
+  `bach build` signs the patch too.
+- An app with `[access]` gets a patch that is encrypted with the same key.
+- The online installer and a first install always use the full file.
+
 ## Private updates
 
 Without [`[access]`](config.md#access), the feed and the setup file must be

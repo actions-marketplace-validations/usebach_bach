@@ -113,6 +113,7 @@ pub const DE: Strings = Strings {
     step_running: "{task} wird eingerichtet",
     error_run: "{task} konnte nicht eingerichtet werden (Exitcode {code}). Versuche es erneut.",
     step_migrating: "Alte Version von {name} wird entfernt",
+    error_patch_base: "Dieses Update gehört zu einer anderen Version von {name}. Lade stattdessen die vollständige Setup-Datei herunter.",
 };
 
 pub const NL: Strings = Strings {
@@ -226,4 +227,5 @@ pub const NL: Strings = Strings {
     step_running: "{task} instellen",
     error_run: "{task} kon niet worden ingesteld (afsluitcode {code}). Probeer het opnieuw.",
     step_migrating: "De oude versie van {name} wordt verwijderd",
+    error_patch_base: "Deze update is voor een andere versie van {name}. Download in plaats daarvan het volledige setupbestand.",
 };
