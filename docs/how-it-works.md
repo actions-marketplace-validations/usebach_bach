@@ -44,7 +44,10 @@ so a newer setup file still reads the uninstaller an older one installed.
    app is listed under **Settings › Apps**
    (`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\<id>`).
 
-Everything is per user, so nothing asks for administrator rights. The
+Everything is per user by default, so nothing asks for administrator rights.
+An app that sets `installer.scope = "machine"` installs the same way into
+`%ProgramFiles%` and `HKLM` instead, after setup has started itself again with
+administrator rights (one Windows prompt, before anything is changed). The
 window can't be closed while files are moving.
 
 ## The online installer

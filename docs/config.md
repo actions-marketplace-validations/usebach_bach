@@ -102,6 +102,49 @@ signs and publishes both files.
 | `open_button` | `true` | Whether the last page offers "Open My App". |
 | `start_menu_folder` | none | A folder in the Start menu for the shortcuts, like your company's name. Removed when it's empty after uninstalling. |
 | `website_button` | `false` | Whether the last page links to `app.website`. |
+| `scope` | `"user"` | `"user"` installs for the person who runs setup and needs no administrator rights. `"machine"` installs for every user of the computer, into `%ProgramFiles%`, and Windows asks for administrator rights once. See [machine-wide installs](#machine-wide-installs). |
+
+### Machine-wide installs
+
+With `scope = "machine"`, setup starts again with administrator rights before
+it does anything: Windows shows its prompt once (or asks for an administrator's
+password), then the whole install runs elevated. Nothing is hidden from that
+prompt, and a setup run from an elevated terminal or by a deployment tool
+that already has the rights doesn't ask.
+
+```toml
+[installer]
+scope = "machine"
+```
+
+| | Per user (`"user"`, default) | Machine-wide (`"machine"`) |
+| --- | --- | --- |
+| Install folder | `%LOCALAPPDATA%\Programs\<folder>` | `%ProgramFiles%\<folder>` |
+| Settings › Apps entry | `HKCU` | `HKLM` |
+| Start menu and desktop shortcuts | the user's | every user's |
+| Start with Windows, link schemes, file types | `HKCU` | `HKLM` |
+| `PATH` (`add_to_path`) | the user's | the computer's |
+| `[[registry]]`, `[[env]]`, `[[context_menu]]` | `HKCU` | `HKLM` |
+| Administrator prompt | never | once, at the start |
+
+Things to know:
+
+- Updates and the uninstaller ask for administrator rights too. `uninstall.exe`
+  does it when Settings › Apps starts it; an update started by the app asks
+  when its setup file starts.
+- Background updates (`[updates] auto`) are off: an update has to write to
+  Program Files, which a signed-in user can't. `auto` must be left out or
+  `"never"`. The app can still use `--check-update`, `--download-update` and
+  `--update` (see [updating from the app](#updating-from-the-app)); Windows
+  asks when the update installs.
+- `--silent` works the same way. Run from a non-elevated terminal it shows
+  Windows' prompt; declining it exits with code 1. Deployment tools that run
+  setup elevated or as SYSTEM see no prompt.
+- "Also delete my data" deletes the data folders of the account that runs the
+  uninstaller, because `%APPDATA%` and `%LOCALAPPDATA%` belong to one user.
+- Don't change `scope` after your first release: an app installed per user and
+  one installed machine-wide are two installs to Windows, so an update with
+  the other scope installs next to the old one instead of replacing it.
 
 ### Options
 
@@ -249,10 +292,29 @@ success_codes = [0, 3010]              # exit codes that mean it worked; 0 alway
 | `ignore_errors` | `false` | Go on when it fails. Not allowed with `when = "uninstall"`, because removing never stops for a failed step. |
 | `component` | the file's component | Only run when this optional component is installed. |
 
+| `elevated` | `false` | Run this step with administrator rights: Windows asks once when it starts (not at all when setup is elevated already, as with `scope = "machine"`). Setup itself stays unelevated. Declining fails the step like any other failure. |
+
 Steps run as the user, in the program's own folder, in the order listed.
 A program that asks for administrator rights fails to start, which is
-reported like any other failure. A step that runs longer than 15 minutes is
-ended. Each run is in the log. `bach inspect` lists them as `Runs`.
+reported like any other failure, unless the step says `elevated = true`: that
+is for things Windows only lets an administrator do, like the Visual C++
+redistributable's own installer:
+
+```toml
+[[run]]
+name = "Visual C++ runtime"
+file = "redist/vc_redist.x64.exe"
+arguments = "/quiet /norestart"
+success_codes = [0, 1638, 3010]   # installed, newer already there, restart needed
+when = "first_install"
+elevated = true
+```
+
+An elevated step starts the program from the install folder. In a per-user
+install that folder is writable by the user's own programs, so use `elevated`
+for well-known installers (and sign them), not for anything else. A step that
+runs longer than 15 minutes is ended. Each run is in the log. `bach inspect`
+lists them as `Runs`.
 
 ## [[registry]]
 

@@ -7,7 +7,9 @@
 //!   folder through the same path rules as everything else; setup never runs
 //!   something from anywhere else, and never through a shell.
 //! - It runs as the user, like setup. A program that asks for administrator
-//!   rights fails to start, and that is reported like any other failure.
+//!   rights fails to start, and that is reported like any other failure,
+//!   unless the step says `elevated = true`: then Windows asks once and the
+//!   program runs with administrator rights (setup itself stays as it is).
 //! - Setup waits for it, up to [`LIMIT`], and ends it if it takes longer.
 //! - A step that fails stops an install or update with a readable sentence
 //!   (unless it says `ignore_errors`); a step that runs before removal never
@@ -23,6 +25,7 @@ use bach_pack::manifest::{Choices, Manifest, RunStep, RunWhen};
 use bach_pack::paths;
 
 use super::Report;
+use crate::system::elevate::{self, Outcome};
 use crate::texts::Texts;
 
 /// How long one step may take before setup gives up on it.
@@ -91,6 +94,10 @@ pub fn run_removal_steps(manifest: &Manifest, dir: &Path, texts: &Texts, report:
 pub fn run(step: &RunStep, dir: &Path, texts: &Texts) -> Result<(), String> {
     let failed = |code: String| texts.with(Key::error_run, &[("task", &step.name), ("code", &code)]);
     let program = paths::under(dir, &step.file);
+    // Setup already elevated (a machine-wide install) needs no second prompt.
+    if step.elevated && !elevate::is_elevated() {
+        return run_elevated(step, &program, &failed);
+    }
     let mut command = Command::new(&program);
     command.current_dir(program.parent().unwrap_or(dir)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     if let Some(arguments) = &step.arguments {
@@ -128,6 +135,37 @@ pub fn run(step: &RunStep, dir: &Path, texts: &Texts) -> Result<(), String> {
     }
 }
 
+/// Starts the step's program with administrator rights and waits for it.
+fn run_elevated(step: &RunStep, program: &Path, failed: &dyn Fn(String) -> String) -> Result<(), String> {
+    let arguments = step.arguments.as_deref().unwrap_or("");
+    crate::log::line(&format!("Running {} {arguments} with administrator rights", program.display()));
+    match elevate::run(program, arguments, program.parent(), LIMIT, true) {
+        Outcome::Exited(code) => {
+            // Exit codes are signed on the command line; 0xC0000005 reads as -1073741819.
+            let code = code as i32;
+            crate::log::line(&format!("It ended with code {code}."));
+            if step.succeeded(code) {
+                Ok(())
+            } else {
+                Err(failed(code.to_string()))
+            }
+        }
+        Outcome::Declined => {
+            crate::log::line("Windows' administrator prompt was declined.");
+            // 1223 is ERROR_CANCELLED, what Windows itself reports for it.
+            Err(failed("1223".into()))
+        }
+        Outcome::TimedOut => {
+            crate::log::line("It took too long, so setup ended it.");
+            Err(failed("timeout".into()))
+        }
+        Outcome::Failed(why) => {
+            crate::log::line(&format!("{} didn't start: {why}", program.display()));
+            Err(failed("-1".into()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,6 +196,7 @@ mod tests {
             success_codes: vec![0],
             ignore_errors: false,
             component: None,
+            elevated: false,
         }
     }
 

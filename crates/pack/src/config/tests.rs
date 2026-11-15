@@ -569,6 +569,42 @@ fn a_windows_requirement_needs_a_build_number() {
 }
 
 #[test]
+fn a_machine_wide_install_is_chosen_with_scope() {
+    let dir = project_dir("scope");
+    assert!(parse(MINIMAL, &dir).unwrap().manifest.install.scope.is_user(), "per user unless asked");
+    let machine = format!("{MINIMAL}\n[installer]\nscope = \"machine\"\n");
+    let project = parse(&machine, &dir).unwrap();
+    assert!(project.manifest.install.scope.is_machine());
+    project.manifest.validate().unwrap();
+    let err = format!("{:#}", parse(&format!("{MINIMAL}\n[installer]\nscope = \"everyone\"\n"), &dir).unwrap_err());
+    assert!(err.contains("installer.scope"), "{err}");
+
+    // Background updates can't write to Program Files, so they're off there.
+    let updates = "[updates]\nfeed = \"https://example.com/latest.json\"\ndownload_url = \"https://example.com/{file}\"\n";
+    let project = parse(&format!("{machine}\n{updates}"), &dir).unwrap();
+    assert_eq!(project.manifest.updates.unwrap().auto, Choice::Never);
+    for auto in ["true", "false", "\"always\""] {
+        let err = format!("{:#}", parse(&format!("{machine}\n{updates}auto = {auto}\n"), &dir).unwrap_err());
+        assert!(err.contains("updates.auto"), "{auto}: {err}");
+    }
+    assert!(parse(&format!("{machine}\n{updates}auto = \"never\"\n"), &dir).is_ok());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn run_steps_can_ask_for_administrator_rights() {
+    let dir = project_dir("elevated");
+    std::fs::create_dir_all(dir.join("build/redist")).unwrap();
+    std::fs::write(dir.join("build/redist/vc.exe"), b"MZ").unwrap();
+    let step = |extra: &str| format!("{MINIMAL}\n[[run]]\nfile = \"redist/vc.exe\"\n{extra}");
+    assert!(!parse(&step(""), &dir).unwrap().manifest.run[0].elevated);
+    let project = parse(&step("elevated = true"), &dir).unwrap();
+    assert!(project.manifest.run[0].elevated);
+    project.manifest.validate().unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn system_changes_are_checked() {
     let dir = project_dir("system");
     let ok = format!(

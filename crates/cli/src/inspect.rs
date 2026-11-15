@@ -57,8 +57,15 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
     field("Publisher", &manifest.app.publisher);
     field("Program", &manifest.app.executable);
     field("Files", format!("{} ({})", manifest.files.len(), output::size(manifest.total_size())));
-    let folder = format!(r"%LOCALAPPDATA%\Programs\{}", install.folder);
+    let folder = if install.scope.is_machine() {
+        format!(r"%ProgramFiles%\{}", install.folder)
+    } else {
+        format!(r"%LOCALAPPDATA%\Programs\{}", install.folder)
+    };
     field("Installs to", if install.change_folder { folder } else { format!("{folder} (fixed)") });
+    if install.scope.is_machine() {
+        field("For", "every user of the computer (asks for administrator rights once)");
+    }
 
     let mut options = Vec::new();
     for (choice, name) in [
@@ -119,7 +126,8 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
             bach_pack::manifest::RunWhen::Uninstall => "before removal",
         };
         let args = step.arguments.as_deref().map(|args| format!(" {args}")).unwrap_or_default();
-        field("Runs", format!("{} ({}{args}), {when}", step.name, step.file));
+        let elevated = if step.elevated { ", as administrator" } else { "" };
+        field("Runs", format!("{} ({}{args}), {when}{elevated}", step.name, step.file));
     }
     for shortcut in &manifest.shortcuts {
         field("Shortcut", format!("{} → {}", shortcut.name, shortcut.target));

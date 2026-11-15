@@ -1,7 +1,10 @@
 //! What setup asks of Windows: where per-user programs and shortcuts live,
 //! `.lnk` shortcuts, and the entry under Settings › Apps that lists the
 //! app and starts its uninstaller. Everything here is per user (HKCU, the
-//! user's own folders), so setup never needs administrator rights.
+//! user's own folders), so setup never needs administrator rights, unless the
+//! app asked for a machine-wide install (`installer.scope = "machine"`): then
+//! the same things happen in HKLM and the shared folders, from an elevated
+//! setup (see [`elevate`]).
 //!
 //! These calls block; setup runs them on its worker thread, apart from the
 //! quick registry read at startup.
@@ -14,6 +17,7 @@
 
 pub mod apps;
 pub mod changes;
+pub mod elevate;
 pub mod env_path;
 pub mod host;
 pub mod integration;
@@ -23,23 +27,33 @@ pub mod task;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use bach_pack::manifest::{Manifest, UNINSTALLER};
+use bach_pack::manifest::{Manifest, Scope, UNINSTALLER};
 use windows::core::{Interface, GUID, HSTRING};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IPersistFile,
     CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::UI::Shell::{
-    FOLDERID_Desktop, FOLDERID_Programs, FOLDERID_UserProgramFiles, IShellLinkW, SHChangeNotify,
+    FOLDERID_CommonPrograms, FOLDERID_Desktop, FOLDERID_ProgramFiles, FOLDERID_Programs, FOLDERID_PublicDesktop,
+    FOLDERID_UserProgramFiles, IShellLinkW, SHChangeNotify,
     SHGetKnownFolderPath, ShellLink, KF_FLAG_DEFAULT, SHCNE_ASSOCCHANGED, SHCNF_IDLIST,
 };
-use windows_registry::CURRENT_USER;
+use windows_registry::{Key, CURRENT_USER, LOCAL_MACHINE};
 
 /// An install found in the registry.
 #[derive(Clone, Debug)]
 pub struct Installed {
     pub dir: PathBuf,
     pub version: String,
+}
+
+/// The part of the registry this install lives in: the user's, or the
+/// computer's for a machine-wide install.
+pub fn hive(manifest: &Manifest) -> &'static Key {
+    match manifest.install.scope {
+        Scope::User => CURRENT_USER,
+        Scope::Machine => LOCAL_MACHINE,
+    }
 }
 
 fn uninstall_key(manifest: &Manifest) -> String {
@@ -49,7 +63,7 @@ fn uninstall_key(manifest: &Manifest) -> String {
 /// The install Settings › Apps lists for this app, if any, and only while
 /// its program is still there.
 pub fn installed(manifest: &Manifest) -> Option<Installed> {
-    let key = CURRENT_USER.open(uninstall_key(manifest)).ok()?;
+    let key = hive(manifest).open(uninstall_key(manifest)).ok()?;
     let dir = PathBuf::from(key.get_string("InstallLocation").ok()?);
     let version = key.get_string("DisplayVersion").unwrap_or_default();
     manifest
@@ -58,13 +72,19 @@ pub fn installed(manifest: &Manifest) -> Option<Installed> {
         .then_some(Installed { dir, version })
 }
 
-/// `%LOCALAPPDATA%\Programs\<folder>`, where per-user apps go.
-pub fn default_install_dir(folder: &str) -> PathBuf {
-    known_folder(&FOLDERID_UserProgramFiles)
+/// `%LOCALAPPDATA%\Programs\<folder>`, where per-user apps go, or
+/// `%ProgramFiles%\<folder>` for a machine-wide install.
+pub fn default_install_dir(manifest: &Manifest) -> PathBuf {
+    let folder = &manifest.install.folder;
+    let (id, variable, below) = match manifest.install.scope {
+        Scope::User => (&FOLDERID_UserProgramFiles, "LOCALAPPDATA", "Programs"),
+        Scope::Machine => (&FOLDERID_ProgramFiles, "ProgramFiles", ""),
+    };
+    known_folder(id)
         .or_else(|_| {
-            std::env::var_os("LOCALAPPDATA")
-                .map(|local| PathBuf::from(local).join("Programs"))
-                .ok_or_else(|| anyhow!("LOCALAPPDATA isn't set"))
+            std::env::var_os(variable)
+                .map(|base| PathBuf::from(base).join(below))
+                .ok_or_else(|| anyhow!("{variable} isn't set"))
         })
         .map(|programs| programs.join(folder))
         .unwrap_or_else(|_| PathBuf::from(r"C:\").join(folder))
@@ -89,7 +109,10 @@ fn shortcut_name(manifest: &Manifest) -> String {
 /// The app's folder in the Start menu: `installer.start_menu_folder`, or
 /// the Start menu itself.
 pub fn start_menu_folder(manifest: &Manifest) -> Result<PathBuf> {
-    let programs = known_folder(&FOLDERID_Programs)?;
+    let programs = known_folder(match manifest.install.scope {
+        Scope::User => &FOLDERID_Programs,
+        Scope::Machine => &FOLDERID_CommonPrograms,
+    })?;
     Ok(match &manifest.install.start_menu_folder {
         Some(folder) => programs.join(folder),
         None => programs,
@@ -115,7 +138,11 @@ pub fn extra_shortcuts(manifest: &Manifest) -> Vec<(PathBuf, &bach_pack::manifes
 
 /// Where the desktop shortcut goes (the desktop may live in OneDrive).
 pub fn desktop_shortcut(manifest: &Manifest) -> Result<PathBuf> {
-    Ok(known_folder(&FOLDERID_Desktop)?.join(shortcut_name(manifest)))
+    let desktop = match manifest.install.scope {
+        Scope::User => &FOLDERID_Desktop,
+        Scope::Machine => &FOLDERID_PublicDesktop,
+    };
+    Ok(known_folder(desktop)?.join(shortcut_name(manifest)))
 }
 
 fn known_folder(id: &GUID) -> Result<PathBuf> {
@@ -166,7 +193,7 @@ pub fn register(manifest: &Manifest, dir: &Path, size: u64) -> Result<()> {
     let app = &manifest.app;
     let exe = manifest.executable_in(dir);
     let uninstaller = dir.join(UNINSTALLER);
-    let key = CURRENT_USER.create(uninstall_key(manifest))?;
+    let key = hive(manifest).create(uninstall_key(manifest))?;
     key.set_string("DisplayName", &app.name)?;
     key.set_string("DisplayVersion", &app.version)?;
     key.set_string("Publisher", &app.publisher)?;
@@ -188,8 +215,8 @@ pub fn register(manifest: &Manifest, dir: &Path, size: u64) -> Result<()> {
 /// Takes the app off Settings › Apps.
 pub fn unregister(manifest: &Manifest) -> Result<()> {
     let key = uninstall_key(manifest);
-    match CURRENT_USER.open(&key) {
-        Ok(_) => Ok(CURRENT_USER.remove_tree(&key)?),
+    match hive(manifest).open(&key) {
+        Ok(_) => Ok(hive(manifest).remove_tree(&key)?),
         // Nothing registered: nothing to remove.
         Err(_) => Ok(()),
     }

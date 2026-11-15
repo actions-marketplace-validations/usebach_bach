@@ -13,24 +13,38 @@ use anyhow::{bail, Context, Result};
 use windows::core::w;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE};
-use windows_registry::{Type, CURRENT_USER};
+use bach_pack::manifest::Scope;
+use windows_registry::{Key, Type, CURRENT_USER, LOCAL_MACHINE};
 
 const ENVIRONMENT: &str = "Environment";
+/// Where the `PATH` that every user shares lives.
+const MACHINE_ENVIRONMENT: &str = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
 const VALUE: &str = "Path";
 /// Windows reads at most this many characters of an environment variable.
 const MAX_LEN: usize = 32_767;
 
-/// Adds `folder` to the user's `PATH` unless it's there already.
-pub fn add(folder: &Path) -> Result<()> {
-    if edit(ENVIRONMENT, VALUE, folder, with_entry)? {
+/// The registry key `PATH` lives in for this scope.
+pub fn location(scope: Scope) -> (&'static Key, &'static str) {
+    match scope {
+        Scope::User => (CURRENT_USER, ENVIRONMENT),
+        Scope::Machine => (LOCAL_MACHINE, MACHINE_ENVIRONMENT),
+    }
+}
+
+/// Adds `folder` to the `PATH` (the user's, or everyone's for a machine-wide
+/// install) unless it's there already.
+pub fn add(scope: Scope, folder: &Path) -> Result<()> {
+    let (hive, key_path) = location(scope);
+    if edit(hive, key_path, VALUE, folder, with_entry)? {
         broadcast();
     }
     Ok(())
 }
 
-/// Takes `folder` off the user's `PATH`, if it's there.
-pub fn remove(folder: &Path) -> Result<()> {
-    if edit(ENVIRONMENT, VALUE, folder, without_entry)? {
+/// Takes `folder` off the `PATH`, if it's there.
+pub fn remove(scope: Scope, folder: &Path) -> Result<()> {
+    let (hive, key_path) = location(scope);
+    if edit(hive, key_path, VALUE, folder, without_entry)? {
         broadcast();
     }
     Ok(())
@@ -38,6 +52,7 @@ pub fn remove(folder: &Path) -> Result<()> {
 
 /// Applies `change` to the value; true when it wrote something.
 fn edit(
+    hive: &Key,
     key_path: &str,
     value_name: &str,
     folder: &Path,
@@ -47,7 +62,7 @@ fn edit(
     if entry.contains(&u16::from(b';')) {
         bail!("{} contains a semicolon, which PATH can't hold", folder.display());
     }
-    let key = CURRENT_USER.create(key_path).context("couldn't open the user's environment")?;
+    let key = hive.create(key_path).context("couldn't open the environment")?;
     let (kind, current) = match key.get_type(value_name) {
         Ok(kind @ (Type::String | Type::ExpandString)) => {
             let raw = key.get_value(value_name).context("couldn't read PATH")?;
@@ -191,17 +206,17 @@ mod tests {
         key.set_expand_string(VALUE, r"%USERPROFILE%\bin").unwrap();
         let folder = Path::new(r"C:\Users\x\AppData\Local\Programs\Hello");
 
-        assert!(edit(&key_path, VALUE, folder, with_entry).unwrap());
-        assert!(!edit(&key_path, VALUE, folder, with_entry).unwrap(), "added once only");
+        assert!(edit(CURRENT_USER, &key_path, VALUE, folder, with_entry).unwrap());
+        assert!(!edit(CURRENT_USER, &key_path, VALUE, folder, with_entry).unwrap(), "added once only");
         assert_eq!(key.get_type(VALUE).unwrap(), Type::ExpandString);
         assert_eq!(key.get_string(VALUE).unwrap(), format!(r"%USERPROFILE%\bin;{}", folder.display()));
 
-        assert!(edit(&key_path, VALUE, folder, without_entry).unwrap());
+        assert!(edit(CURRENT_USER, &key_path, VALUE, folder, without_entry).unwrap());
         assert_eq!(key.get_string(VALUE).unwrap(), r"%USERPROFILE%\bin");
         assert_eq!(key.get_type(VALUE).unwrap(), Type::ExpandString);
 
         key.set_u32(VALUE, 7).unwrap();
-        assert!(edit(&key_path, VALUE, folder, with_entry).is_err(), "a number is left alone");
+        assert!(edit(CURRENT_USER, &key_path, VALUE, folder, with_entry).is_err(), "a number is left alone");
         CURRENT_USER.remove_tree(format!(r"Software\BachTest-{}", std::process::id())).unwrap();
     }
 }

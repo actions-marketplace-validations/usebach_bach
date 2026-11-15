@@ -73,6 +73,10 @@ pub struct RunStep {
     /// Only when this optional component is installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<String>,
+    /// Run it with administrator rights: Windows asks the user once (or not
+    /// at all when setup is elevated already).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub elevated: bool,
 }
 
 fn zero() -> Vec<i32> {
@@ -201,7 +205,7 @@ mod tests {
         let step: RunStep = serde_json::from_str(r#"{"name":"VC++","file":"redist/vc.exe","when":"first_install"}"#).unwrap();
         assert_eq!(step.when, RunWhen::FirstInstall);
         assert_eq!(step.success_codes, [0]);
-        assert!(!step.ignore_errors && step.arguments.is_none() && step.component.is_none());
+        assert!(!step.ignore_errors && step.arguments.is_none() && step.component.is_none() && !step.elevated);
         assert!(step.succeeded(0) && !step.succeeded(3010));
         assert_eq!(RunWhen::parse(" First-Install "), Some(RunWhen::FirstInstall));
         assert_eq!(RunWhen::parse("later"), None);

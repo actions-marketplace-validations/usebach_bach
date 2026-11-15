@@ -244,6 +244,13 @@
         },
         "website_button": {
           "type": "boolean"
+        },
+        "scope": {
+          "enum": [
+            "user",
+            "machine"
+          ],
+          "description": "user (default): installs for whoever runs setup, no administrator rights. machine: installs for every user into Program Files; Windows asks for administrator rights once."
         }
       }
     },
@@ -492,6 +499,10 @@
           "component": {
             "type": "string",
             "description": "Only run when this optional component is installed."
+          },
+          "elevated": {
+            "type": "boolean",
+            "description": "Run this step with administrator rights: Windows asks once when it starts."
           }
         }
       }

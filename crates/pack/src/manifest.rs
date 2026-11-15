@@ -19,6 +19,7 @@ mod access;
 mod choices;
 pub mod extras;
 pub(crate) mod features;
+mod scope;
 pub mod system;
 mod validate;
 
@@ -26,6 +27,7 @@ pub use access::{Access, Encryption};
 pub use choices::{auto_update_setting as choices_auto_update, Choice, Choices, OPTION_AUTO_UPDATE, OPTION_AUTOSTART, OPTION_DESKTOP, OPTION_PATH, OPTION_START_MENU};
 pub use extras::{Check, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
 pub use features::{Component, FileType, Protocol};
+pub use scope::Scope;
 pub use system::{ContextMenuEntry, ContextTarget, EnvVar, RegistryData, RegistryValue, SystemChanges};
 pub use validate::MAX_LICENSE;
 
@@ -137,6 +139,9 @@ pub struct Install {
     /// Whether the last page links to `app.website`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub website_button: bool,
+    /// Whether the app installs for the user or for every user of the computer.
+    #[serde(default, skip_serializing_if = "Scope::is_user")]
+    pub scope: Scope,
 }
 
 fn yes() -> bool {
@@ -331,6 +336,7 @@ pub(crate) fn sample() -> Manifest {
             open_button: true,
             start_menu_folder: None,
             website_button: false,
+            scope: Scope::User,
         },
         uninstall: Uninstall {
             data: vec![r"%APPDATA%\Hello".into()],

@@ -81,6 +81,9 @@ fn extras(manifest: &Manifest) -> Result<()> {
         if let Some(mirror) = updates.mirrors.iter().find(|mirror| !is_https(mirror)) {
             bail!("the update mirror \"{mirror}\" isn't an https link");
         }
+        if manifest.install.scope.is_machine() && updates.auto != super::Choice::Never {
+            bail!("a machine-wide install can't update itself in the background");
+        }
     }
     for step in &manifest.run {
         if step.name.trim().is_empty() || step.name.len() > 100 || step.name.chars().any(char::is_control) {

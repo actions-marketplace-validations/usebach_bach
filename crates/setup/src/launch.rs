@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use bach_pack::manifest::{Theme, UNINSTALLER};
 
 use crate::package::Package;
-use crate::system;
+use crate::system::{self, elevate};
 
 /// What `--help` prints: the flags of a setup file and of `uninstall.exe`.
 pub const HELP: &str = "Setup file and uninstall.exe options
@@ -170,6 +170,42 @@ impl Args {
     }
 }
 
+/// Whether this run must start again with administrator rights before it does
+/// anything: a machine-wide app installs, updates and removes elevated. A
+/// preview, `--help` and the update checks change nothing system-wide (an
+/// update starts the new setup file, which asks for itself).
+pub fn needs_elevation(args: &Args, package: &Package) -> bool {
+    package.manifest.install.scope.is_machine()
+        && !args.preview
+        && !args.help
+        && !args.updating()
+        && !elevate::is_elevated()
+}
+
+/// Starts this setup again elevated with the same command line and waits for
+/// it; the exit code to end with. Windows asks the user once.
+pub fn elevate_and_wait(args: &Args) -> i32 {
+    if args.silent {
+        system::host::attach_parent_console();
+    }
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    match elevate::relaunch(&arguments) {
+        elevate::Outcome::Exited(code) => code as i32,
+        elevate::Outcome::Declined => {
+            if args.silent {
+                eprintln!("This setup installs for every user, so it needs administrator rights, and Windows' prompt was declined.");
+            }
+            1
+        }
+        elevate::Outcome::TimedOut | elevate::Outcome::Failed(_) => {
+            if args.silent {
+                eprintln!("Couldn't start setup with administrator rights.");
+            }
+            1
+        }
+    }
+}
+
 /// The mode for this package. For the installed uninstaller this hands
 /// over to a temp copy and exits the process.
 pub fn mode(args: &Args, package: &Package) -> Mode {
@@ -180,7 +216,7 @@ pub fn mode(args: &Args, package: &Package) -> Mode {
     if args.preview {
         let dir = system::installed(&package.manifest)
             .map(|installed| installed.dir)
-            .unwrap_or_else(|| system::default_install_dir(&package.manifest.install.folder));
+            .unwrap_or_else(|| system::default_install_dir(&package.manifest));
         return Mode::Remove { dir };
     }
     if let Some(dir) = &args.install_dir {

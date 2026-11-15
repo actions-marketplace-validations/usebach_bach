@@ -125,6 +125,7 @@ struct InstallerSection {
     start_menu_folder: Option<String>,
     website_button: Option<bool>,
     logo_height: Option<u16>,
+    scope: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -269,7 +270,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     if file.app.website.is_none() && file.installer.website_button == Some(true) {
         bail!("installer.website_button is true, but app.website isn't set");
     }
-    let update_settings = extras::updates(file.updates.as_ref())?;
+    let update_settings = extras::updates(file.updates.as_ref(), install.scope.is_machine())?;
     if update_settings.is_some() && crate::version::compare(&app.version, &app.version).is_none() {
         bail!(
             "app.version is \"{}\"; an app that updates itself compares versions, so use numbers like 1.2.3 \

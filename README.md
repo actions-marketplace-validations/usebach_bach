@@ -93,8 +93,10 @@ case, an app that installs for one user, with settings instead of code:
 - **No script.** Everything is a setting in one TOML file with an
   [editor schema](schema/bach.schema.json). Every mistake is reported as one
   sentence naming the setting at fault.
-- **No admin prompt.** Apps install per user into `%LOCALAPPDATA%\Programs`
-  and only write to the user's own folders and `HKCU`.
+- **No admin prompt unless you want one.** Apps install per user into
+  `%LOCALAPPDATA%\Programs` and only write to the user's own folders and
+  `HKCU`. For every user of a computer, `scope = "machine"` installs into
+  `%ProgramFiles%` after one Windows prompt.
 - **Updates that can't half-fail.** A newer setup file updates an install in
   place: files are unpacked first and swapped in together, and if one is
   locked, everything is put back. Files the new version no longer ships are
@@ -104,9 +106,8 @@ case, an app that installs for one user, with settings instead of code:
 - **Builds anywhere.** `bach` runs on Windows, macOS and Linux, so installers
   can come out of any CI. Setup files need no .NET and no Visual C++ runtime.
 
-**Use something else when** you need a machine-wide install or anything that
-requires administrator rights, an MSI for Group Policy deployment, Windows
-services or drivers, custom install-time scripts, delta updates
+**Use something else when** you need an MSI for Group Policy deployment,
+Windows services or drivers, custom install-time scripts, delta updates
 ([Velopack](https://velopack.io) does those), or a small stub: a Bach setup
 file adds about 10 MB to your app.
 

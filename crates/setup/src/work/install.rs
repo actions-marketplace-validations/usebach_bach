@@ -439,11 +439,11 @@ fn integrate(
     if let Some(previous) = previous.filter(|previous| previous.chosen.as_ref().is_some_and(|before| before.add_to_path)) {
         let old_folder = previous.path_folder_in(dir);
         if old_folder != path_folder || !choices.add_to_path {
-            env_path::remove(&old_folder).map_err(fail)?;
+            env_path::remove(previous.install.scope, &old_folder).map_err(fail)?;
         }
     }
     if choices.add_to_path {
-        env_path::add(&path_folder).map_err(fail)?;
+        env_path::add(manifest.install.scope, &path_folder).map_err(fail)?;
     }
 
     if let Some(previous) = previous {
@@ -460,6 +460,6 @@ fn integrate(
     for file_type in &manifest.file_types {
         integration::register_file_type(manifest, file_type, program).map_err(fail)?;
     }
-    changes::apply(&changes::USER, manifest, previous, dir, program).map_err(fail)?;
+    changes::apply(&changes::at(manifest), manifest, previous, dir, program).map_err(fail)?;
     Ok(())
 }

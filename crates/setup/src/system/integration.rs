@@ -1,4 +1,5 @@
-//! Starting with Windows, link schemes and file types, all per user.
+//! Starting with Windows, link schemes and file types: per user, or for
+//! every user when the app installs machine-wide.
 //!
 //! Every key setup creates here carries a `BachApp` value with the app id,
 //! and setup only ever changes or deletes keys with its own mark. A scheme
@@ -9,7 +10,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use bach_pack::manifest::{FileType, Manifest, Protocol};
-use windows_registry::{CLASSES_ROOT, CURRENT_USER};
+use windows_registry::CLASSES_ROOT;
+
+use super::hive;
 
 const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const CLASSES: &str = r"Software\Classes";
@@ -25,14 +28,14 @@ fn open_command(exe: &Path) -> String {
 
 /// Starts the app when the user signs in.
 pub fn set_autostart(manifest: &Manifest, exe: &Path) -> Result<()> {
-    let key = CURRENT_USER.create(RUN).context("couldn't open the sign-in programs")?;
+    let key = hive(manifest).create(RUN).context("couldn't open the sign-in programs")?;
     key.set_string(&manifest.app.id, quoted(exe)).context("couldn't add the app to the sign-in programs")?;
     Ok(())
 }
 
 /// Stops starting the app at sign-in, if setup set it up for this install.
 pub fn clear_autostart(manifest: &Manifest, exe: &Path) -> Result<()> {
-    let Ok(key) = CURRENT_USER.open(RUN) else {
+    let Ok(key) = hive(manifest).open(RUN) else {
         return Ok(());
     };
     let Ok(command) = key.get_string(&manifest.app.id) else {
@@ -40,7 +43,7 @@ pub fn clear_autostart(manifest: &Manifest, exe: &Path) -> Result<()> {
     };
     // Only our own entry: the same name could belong to something else.
     if command.to_lowercase().contains(&exe.display().to_string().to_lowercase()) {
-        CURRENT_USER
+        hive(manifest)
             .options()
             .read()
             .write()
@@ -60,7 +63,7 @@ enum Owner {
 }
 
 fn owner(manifest: &Manifest, name: &str) -> Owner {
-    match CURRENT_USER.open(format!(r"{CLASSES}\{name}")) {
+    match hive(manifest).open(format!(r"{CLASSES}\{name}")) {
         Ok(key) => match key.get_string(MARK) {
             Ok(id) if id == manifest.app.id => Owner::Us,
             _ => Owner::Other,
@@ -77,7 +80,7 @@ pub fn register_protocol(manifest: &Manifest, protocol: &Protocol, exe: &Path) -
         return Ok(false);
     }
     let description = protocol.description.clone().unwrap_or_else(|| format!("URL:{}", manifest.app.name));
-    let key = CURRENT_USER.create(format!(r"{CLASSES}\{}", protocol.scheme))?;
+    let key = hive(manifest).create(format!(r"{CLASSES}\{}", protocol.scheme))?;
     key.set_string(MARK, &manifest.app.id)?;
     key.set_string("", description)?;
     key.set_string("URL Protocol", "")?;
@@ -89,7 +92,7 @@ pub fn register_protocol(manifest: &Manifest, protocol: &Protocol, exe: &Path) -
 pub fn unregister_protocol(manifest: &Manifest, protocol: &Protocol) -> Result<()> {
     if matches!(owner(manifest, &protocol.scheme), Owner::Us) {
         // With a subkey named, RegDeleteTree deletes that key itself too.
-        CURRENT_USER.remove_tree(format!(r"{CLASSES}\{}", protocol.scheme))?;
+        hive(manifest).remove_tree(format!(r"{CLASSES}\{}", protocol.scheme))?;
     }
     Ok(())
 }
@@ -102,13 +105,13 @@ pub fn register_file_type(manifest: &Manifest, file_type: &FileType, exe: &Path)
         return Ok(());
     }
     let description = file_type.description.clone().unwrap_or_else(|| format!("{} file", manifest.app.name));
-    let key = CURRENT_USER.create(format!(r"{CLASSES}\{prog_id}"))?;
+    let key = hive(manifest).create(format!(r"{CLASSES}\{prog_id}"))?;
     key.set_string(MARK, &manifest.app.id)?;
     key.set_string("", description)?;
     key.create("DefaultIcon")?.set_string("", format!("{},0", exe.display()))?;
     key.create(r"shell\open\command")?.set_string("", open_command(exe))?;
 
-    let extension = CURRENT_USER.create(format!(r"{CLASSES}\{}", file_type.extension))?;
+    let extension = hive(manifest).create(format!(r"{CLASSES}\{}", file_type.extension))?;
     extension.create("OpenWithProgids")?.set_string(&prog_id, "")?;
     let claimed = CLASSES_ROOT
         .open(&file_type.extension)
@@ -122,7 +125,7 @@ pub fn register_file_type(manifest: &Manifest, file_type: &FileType, exe: &Path)
 
 pub fn unregister_file_type(manifest: &Manifest, file_type: &FileType) -> Result<()> {
     let prog_id = file_type.prog_id(&manifest.app.id);
-    if let Ok(extension) = CURRENT_USER.options().read().write().open(format!(r"{CLASSES}\{}", file_type.extension)) {
+    if let Ok(extension) = hive(manifest).options().read().write().open(format!(r"{CLASSES}\{}", file_type.extension)) {
         if extension.get_string("").is_ok_and(|default| default == prog_id) {
             let _ = extension.remove_value("");
         }
@@ -131,7 +134,7 @@ pub fn unregister_file_type(manifest: &Manifest, file_type: &FileType) -> Result
         }
     }
     if matches!(owner(manifest, &prog_id), Owner::Us) {
-        CURRENT_USER.remove_tree(format!(r"{CLASSES}\{prog_id}"))?;
+        hive(manifest).remove_tree(format!(r"{CLASSES}\{prog_id}"))?;
     }
     Ok(())
 }
@@ -139,6 +142,7 @@ pub fn unregister_file_type(manifest: &Manifest, file_type: &FileType) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows_registry::CURRENT_USER;
 
     fn manifest(id: &str) -> Manifest {
         let json = format!(

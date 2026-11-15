@@ -122,7 +122,7 @@ fn undo_integration(manifest: &Manifest, dir: &Path, program: &Path, texts: &Tex
         None => manifest.install.add_to_path == Choice::Always,
     };
     if added_to_path {
-        env_path::remove(&manifest.path_folder_in(dir)).map_err(fail)?;
+        env_path::remove(manifest.install.scope, &manifest.path_folder_in(dir)).map_err(fail)?;
     }
     for protocol in &manifest.protocols {
         integration::unregister_protocol(manifest, protocol).map_err(fail)?;
@@ -130,7 +130,7 @@ fn undo_integration(manifest: &Manifest, dir: &Path, program: &Path, texts: &Tex
     for file_type in &manifest.file_types {
         integration::unregister_file_type(manifest, file_type).map_err(fail)?;
     }
-    changes::undo(&changes::USER, manifest, dir);
+    changes::undo(&changes::at(manifest), manifest, dir);
     Ok(())
 }
 

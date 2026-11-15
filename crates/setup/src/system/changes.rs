@@ -23,8 +23,12 @@ pub struct Where<'a> {
     pub environment: &'a str,
 }
 
-/// The current user's own registry.
-pub const USER: Where<'static> = Where { hive: CURRENT_USER, environment: "Environment" };
+/// Where this app's changes go: the user's registry, or the computer's for a
+/// machine-wide install.
+pub fn at(manifest: &Manifest) -> Where<'static> {
+    let (hive, environment) = super::env_path::location(manifest.install.scope);
+    Where { hive, environment }
+}
 
 /// Writes everything the manifest lists, after taking back what the
 /// previous version made and this one doesn't.
@@ -266,7 +270,7 @@ mod tests {
     fn menu_entries_are_ours_alone() {
         let tag = std::process::id();
         let extension = format!(".bt{tag}");
-        let at = USER;
+        let at = Where { hive: CURRENT_USER, environment: "Environment" };
         let dir = Path::new(r"C:\Apps\Hello");
         let exe = dir.join("hello.exe");
         let entry = ContextMenuEntry {

@@ -8,9 +8,11 @@ description: Build a modern Windows installer (Setup.exe) for any desktop app wi
 Bach turns a folder with an app into one `Setup.exe`: a calm, native-looking
 install window (light and dark, 13 languages, follows Windows' language), a
 built-in updater (a newer setup over an install updates it in place) and a
-clean uninstaller in Settings › Apps. Installs are per user, so there is no
-administrator prompt. There is no script language: everything is declared in
-`bach.toml`.
+clean uninstaller in Settings › Apps. Installs are per user by default, so
+there is no administrator prompt; `installer.scope = "machine"` installs for
+every user into Program Files after one Windows prompt, and a `[[run]]` step
+can say `elevated = true`. There is no script language: everything is declared
+in `bach.toml`.
 
 ## 1. Get the `bach` command
 

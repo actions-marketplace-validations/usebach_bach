@@ -77,6 +77,7 @@ impl Package {
                 open_button: true,
                 start_menu_folder: None,
                 website_button: false,
+                scope: manifest::Scope::User,
             },
             uninstall: manifest::Uninstall { data: vec![r"%APPDATA%\Sample".into()], data_description: None, feedback_url: None },
             look: manifest::Look::default(),
