@@ -160,6 +160,24 @@ started it can wait for its exit code.
 `paths.rs`, with no shell and no elevation, and are waited for (15 minutes at
 most). Steps that run before removal can fail without stopping the removal.
 
+## Windows on ARM
+
+A setup file is the setup runtime with the app's files appended, and the
+runtime is a native Windows program. The `bach-setup.exe` that `bach build`
+downloads is built for x64, which Windows 11 on ARM runs through its emulation.
+For a native ARM64 setup file, build with the ARM64 runtime: every Bach release
+has a `bach-<version>-windows-arm64.zip` with an ARM64 `bach.exe` and
+`bach-setup.exe`.
+
+```bash
+bach build --runtime path/to/arm64/bach-setup.exe
+```
+
+(`BACH_RUNTIME` does the same.) The runtime copies files and writes registry
+values, so it doesn't care what architecture your app is; which one to ship is
+your choice. Requirements that look for a runtime are architecture-specific:
+`kind = "vcredist"` looks for the x64 redistributable.
+
 ## Signing
 
 The payload sits before the signature's certificate table, so `signtool`
