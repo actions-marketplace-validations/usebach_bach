@@ -37,7 +37,33 @@ pub fn detect(dir: &Path) -> Option<Detected> {
     // be, `bach init` drops, so the folder's own name is used and the config it
     // writes passes `bach check`.
     found.name = found.name.as_deref().and_then(app_name);
+    // The other values come from files anyone who made the project could write. Each
+    // must be what its setting expects, or it is dropped and `bach init` leaves the default.
+    found.executable = found.executable.filter(|exe| is_plain_file_name(exe));
+    found.source = found.source.filter(|source| is_plain_relative_path(source));
+    found.version = found.version.filter(|version| is_plain_version(version));
+    found.publisher = found
+        .publisher
+        .map(|publisher| publisher.chars().filter(|c| !c.is_control()).take(100).collect::<String>().trim().to_string())
+        .filter(|publisher| !publisher.is_empty());
     Some(found)
+}
+
+/// A file name: no folders, no `..`, no characters Windows forbids.
+fn is_plain_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && bach_pack::paths::normalize(name).is_ok_and(|normal| !normal.contains('/'))
+        && !name.contains(['\\', '/', '"', '\''])
+}
+
+/// A folder inside the project, written with `/`: never absolute, never climbing out.
+fn is_plain_relative_path(path: &str) -> bool {
+    !path.is_empty() && !path.contains(['\\', '"', '\'']) && bach_pack::paths::normalize(path).is_ok()
+}
+
+/// A version: digits, letters and `. - + _` only.
+fn is_plain_version(version: &str) -> bool {
+    !version.is_empty() && version.len() <= 64 && version.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+' | '_'))
 }
 
 /// A manifest's name as an `app.name` that is also a valid id: no npm scope,
@@ -349,6 +375,37 @@ mod tests {
             std::fs::write(path, text).unwrap();
         }
         dir
+    }
+
+    /// A project file is not trusted: whatever it says can't add settings to the config
+    /// `bach init` writes, or point it outside the project.
+    #[test]
+    fn hostile_project_files_cannot_inject_settings() {
+        let hostile = project(
+            "hostile",
+            &[(
+                "wails.json",
+                r#"{"name":"ok","outputfilename":"..\\..\\evil","author":{"name":"Jane\"\n[signing]\nprogram = \"calc\""},"info":{"productVersion":"1.0\"\n[[run]]\nfile = \"x\"","companyName":"A\"\nB"}}"#,
+            )],
+        );
+        let found = detect(&hostile).unwrap();
+        assert_eq!(found.executable, None, "a path isn't a program name");
+        assert_eq!(found.version, None, "a version with a quote and a newline is dropped");
+        let text = crate::template::fill(Some(&found), "folder", &hostile);
+        for line in text.lines() {
+            assert!(!line.starts_with("[signing]") && !line.starts_with("[[run]]"), "injected: {line}");
+        }
+        // Even a value that slipped past detection is escaped when written.
+        let sneaky = Detected {
+            name: Some("a\"\n[signing]".into()),
+            version: Some("1\"\n[[run]]".into()),
+            source: Some("x\\\"y".into()),
+            ..Detected::default()
+        };
+        let text = crate::template::fill(Some(&sneaky), "folder", &hostile);
+        assert!(text.lines().all(|line| !line.starts_with("[signing]") && !line.starts_with("[[run]]")), "{text}");
+        assert!(!is_plain_relative_path("../up") && !is_plain_relative_path("C:/abs") && !is_plain_relative_path("/abs"));
+        assert!(is_plain_file_name("My App.exe") && !is_plain_file_name("a/b.exe"));
     }
 
     #[test]

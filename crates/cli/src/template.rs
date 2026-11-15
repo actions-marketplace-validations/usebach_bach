@@ -137,6 +137,22 @@ fn add_workflow(dir: &Path) {
 
 /// The template with what the project says about itself, or placeholders
 /// from the folder's name.
+/// `text` as the inside of a TOML basic string: quotes, backslashes and control
+/// characters can't end the string or add lines. Whatever a project file says,
+/// it stays one value of the setting it was put in.
+fn toml_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 pub(crate) fn fill(found: Option<&Detected>, folder_name: &str, dir: &Path) -> String {
     let empty = Detected::default();
     let found = found.unwrap_or(&empty);
@@ -145,7 +161,7 @@ pub(crate) fn fill(found: Option<&Detected>, folder_name: &str, dir: &Path) -> S
     let exclude = if found.exclude.is_empty() {
         "# exclude = [\"*.pdb\", \"*.log\"]".to_string()
     } else {
-        let patterns: Vec<String> = found.exclude.iter().map(|pattern| format!("\"{pattern}\"")).collect();
+        let patterns: Vec<String> = found.exclude.iter().map(|pattern| format!("\"{}\"", toml_text(pattern))).collect();
         format!("exclude = [{}]", patterns.join(", "))
     };
     let requirements = found.requirements.clone().map(|block| format!("{block}\n")).unwrap_or_default();
@@ -154,15 +170,15 @@ pub(crate) fn fill(found: Option<&Detected>, folder_name: &str, dir: &Path) -> S
         None => format!("{UPDATES_OFF}\n{UPDATES_OPTIONS_OFF}"),
     };
     TEMPLATE
-        .replace("@NAME@", &name)
-        .replace("@VERSION@", found.version.as_deref().unwrap_or("1.0.0"))
-        .replace("@PUBLISHER@", found.publisher.as_deref().unwrap_or(&name))
-        .replace("@EXE@", &found.executable.clone().unwrap_or_else(|| format!("{scheme}.exe")))
-        .replace("@SOURCE@", found.source.as_deref().unwrap_or("build"))
+        .replace("@NAME@", &toml_text(&name))
+        .replace("@VERSION@", &toml_text(found.version.as_deref().unwrap_or("1.0.0")))
+        .replace("@PUBLISHER@", &toml_text(found.publisher.as_deref().unwrap_or(&name)))
+        .replace("@EXE@", &toml_text(&found.executable.clone().unwrap_or_else(|| format!("{scheme}.exe"))))
+        .replace("@SOURCE@", &toml_text(found.source.as_deref().unwrap_or("build")))
         .replace("@EXCLUDE@", &exclude)
         .replace("@REQUIREMENTS@", &requirements)
         .replace("@UPDATES@", &updates)
-        .replace("@SCHEME@", &scheme)
+        .replace("@SCHEME@", &toml_text(&scheme))
 }
 
 /// "My Cool App" → "my-cool-app": also a usable link scheme and extension.
