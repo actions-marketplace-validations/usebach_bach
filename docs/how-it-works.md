@@ -145,6 +145,10 @@ started it can wait for its exit code.
   never the install folder or a folder that contains it.
 - The uninstaller refuses a folder that doesn't hold the app, and an update
   only cleans up after an earlier install of the same app id.
+- A machine-wide install reads the install folder's access list before it
+  writes and before an elevated update or removal, and refuses a folder that
+  ordinary users can change or that Administrators, SYSTEM or TrustedInstaller
+  don't own.
 - A first install into a folder that already holds files of the same names
   (and no earlier install of this app) warns in the window, naming them, and
   is refused by a silent run unless it gets `--overwrite`.

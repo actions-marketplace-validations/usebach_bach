@@ -116,6 +116,7 @@ pub const FR: Strings = Strings {
     error_patch_base: "Cette mise à jour est destinée à une autre version de {name}. Téléchargez plutôt le fichier d'installation complet.",
     overwrite_title: "Ce dossier contient déjà des fichiers",
     overwrite_subtitle: "Installer {name} ici remplacerait {files}. Ce ne sont pas des fichiers de {name} et ils seraient perdus définitivement. Choisissez un autre dossier pour les conserver.",
+    error_unsafe_folder: "D'autres utilisateurs peuvent modifier {path}, donc {name} ne peut pas s'y exécuter avec des droits d'administrateur. Supprimez le dossier ou corrigez ses autorisations, puis réessayez.",
 };
 
 pub const ES: Strings = Strings {
@@ -232,6 +233,7 @@ pub const ES: Strings = Strings {
     error_patch_base: "Esta actualización es para otra versión de {name}. Descarga el archivo de instalación completo.",
     overwrite_title: "Esta carpeta ya tiene archivos",
     overwrite_subtitle: "Instalar {name} aquí reemplazaría {files}. No son archivos de {name} y se perderían para siempre. Elige otra carpeta para conservarlos.",
+    error_unsafe_folder: "Otros usuarios pueden modificar {path}, así que {name} no puede ejecutarse desde allí con derechos de administrador. Elimina la carpeta o corrige sus permisos y vuelve a intentarlo.",
 };
 
 pub const IT: Strings = Strings {
@@ -348,6 +350,7 @@ pub const IT: Strings = Strings {
     error_patch_base: "Questo aggiornamento è per un'altra versione di {name}. Scarica invece il file di installazione completo.",
     overwrite_title: "Questa cartella contiene già dei file",
     overwrite_subtitle: "Installando {name} qui verrebbero sostituiti {files}. Non sono file di {name} e andrebbero persi per sempre. Scegli un'altra cartella per conservarli.",
+    error_unsafe_folder: "Altri utenti possono modificare {path}, quindi {name} non può essere eseguito da lì con diritti di amministratore. Elimina la cartella o correggi i suoi permessi, poi riprova.",
 };
 
 pub const PT: Strings = Strings {
@@ -464,4 +467,5 @@ pub const PT: Strings = Strings {
     error_patch_base: "Esta atualização é para outra versão de {name}. Transfira o ficheiro de instalação completo.",
     overwrite_title: "Esta pasta já tem ficheiros",
     overwrite_subtitle: "Instalar o {name} aqui substituiria {files}. Não são ficheiros do {name} e perder-se-iam para sempre. Escolha outra pasta para os manter.",
+    error_unsafe_folder: "Outros utilizadores podem alterar {path}, por isso o {name} não pode ser executado a partir daí com direitos de administrador. Elimine a pasta ou corrija as suas permissões e tente novamente.",
 };

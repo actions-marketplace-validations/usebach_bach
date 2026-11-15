@@ -159,7 +159,11 @@ Things to know:
 - The install folder has to be inside Program Files (the default). A machine-wide
   app runs, updates and uninstalls with administrator rights, so setup refuses a
   folder the user's own programs could write to, with the usual "choose another
-  folder" message.
+  folder" message. Even inside Program Files, setup reads the folder's access
+  list before it writes, and again before an elevated update or removal: a
+  folder that belongs to someone other than Administrators, SYSTEM or
+  TrustedInstaller, or that Users, Authenticated Users or Everyone may change,
+  is refused with `error_unsafe_folder`, and the log names the reason.
 - A protected setup file (`[access]`) run silently should get its key with
   `--key-file`: the elevated copy is sure to get the arguments, and the
   `BACH_ACCESS_KEY` variable may not reach it.
@@ -665,6 +669,7 @@ a text is given in only one, `bach check` points it out.
 | `error_read_setup`, `error_damaged`, `error_uninstaller`, `error_register`, `error_unregister`, `error_system`, `error_open_failed` (`{error}`) | The rarer errors. |
 | `problem_title`, `problem_damaged` (`{error}`) | The page a damaged setup file shows. |
 | `downgrade_title`, `downgrade_subtitle` (`{old_version}`), `downgrade_button` | Installing over a newer version. `downgrade_button` also confirms the next one. |
+| `error_unsafe_folder` | A machine-wide app's install folder that ordinary users can change. |
 | `overwrite_title`, `overwrite_subtitle` (`{files}`) | A first install into a folder that already holds files the install would replace: the window names up to five of them (and how many more) before it installs. |
 | `close_app`, `error_close_app` | "Close and continue", and what it says when the app won't close. |
 | `requirement_title`, `requirement_subtitle`, `requirement_button` (all `{requirement}`) | The page for a missing requirement. |

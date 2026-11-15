@@ -83,6 +83,7 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
         return Err(texts.with(Key::error_no_access, &[("path", &dir.display().to_string())]));
     }
     create_install_dir(dir, texts)?;
+    check_elevated_folder(manifest, dir, texts)?;
     // An update that was cut short earlier is undone first.
     place::recover(dir);
     let program = manifest.executable_in(dir);
@@ -177,6 +178,25 @@ fn create_install_dir(dir: &Path, texts: &Texts) -> Result<(), String> {
             failed(texts, Key::error_create, dir, &err)
         }
     })
+}
+
+/// A machine-wide app runs elevated from its folder, so the folder must not
+/// be one that ordinary users can change (an old installer or a script may
+/// have left such a folder in Program Files). Checked before anything is
+/// written, and again before an elevated update or removal.
+pub(super) fn check_elevated_folder(manifest: &Manifest, dir: &Path, texts: &Texts) -> Result<(), String> {
+    if !manifest.install.scope.is_machine() {
+        return Ok(());
+    }
+    let unsafe_folder = |why: &str| {
+        crate::log::line(&format!("{} isn't safe to run elevated: {why}.", dir.display()));
+        texts.with(Key::error_unsafe_folder, &[("path", &dir.display().to_string())])
+    };
+    match crate::system::acl::weakness(dir) {
+        Ok(None) => Ok(()),
+        Ok(Some(why)) => Err(unsafe_folder(&why)),
+        Err(why) => Err(unsafe_folder(&why)),
+    }
 }
 
 /// Fails with a readable sentence when the app is running from `program`.

@@ -15,6 +15,7 @@
 //! - [`changes`]: registry values, environment variables and right-click entries.
 //! - [`secret`]: an app's access key, sealed for this Windows user.
 
+pub mod acl;
 pub mod apps;
 pub mod changes;
 pub mod elevate;

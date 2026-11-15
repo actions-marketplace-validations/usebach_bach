@@ -116,6 +116,7 @@ pub const JA: Strings = Strings {
     error_patch_base: "このアップデートは {name} の別のバージョン用です。代わりに完全なセットアップファイルをダウンロードしてください。",
     overwrite_title: "このフォルダーには既にファイルがあります",
     overwrite_subtitle: "ここに {name} をインストールすると、{files} が置き換えられます。これらは {name} のファイルではなく、完全に失われます。残すには別のフォルダーを選んでください。",
+    error_unsafe_folder: "他のユーザーが {path} を変更できるため、{name} は管理者権限でそこから実行できません。フォルダーを削除するかアクセス許可を修正して、もう一度お試しください。",
 };
 
 pub const KO: Strings = Strings {
@@ -232,6 +233,7 @@ pub const KO: Strings = Strings {
     error_patch_base: "이 업데이트는 {name}의 다른 버전용입니다. 대신 전체 설치 파일을 다운로드하세요.",
     overwrite_title: "이 폴더에 이미 파일이 있습니다",
     overwrite_subtitle: "여기에 {name}을(를) 설치하면 {files}을(를) 덮어씁니다. {name}의 파일이 아니며 완전히 사라집니다. 보관하려면 다른 폴더를 선택하세요.",
+    error_unsafe_folder: "다른 사용자가 {path}을(를) 변경할 수 있으므로 {name}은(는) 관리자 권한으로 그곳에서 실행할 수 없습니다. 폴더를 삭제하거나 권한을 수정한 후 다시 시도하세요.",
 };
 
 pub const ZH: Strings = Strings {
@@ -348,4 +350,5 @@ pub const ZH: Strings = Strings {
     error_patch_base: "此更新适用于 {name} 的其他版本。请改为下载完整的安装文件。",
     overwrite_title: "此文件夹中已有文件",
     overwrite_subtitle: "在此安装 {name} 会替换 {files}。这些不是 {name} 的文件，将永久丢失。请选择其他文件夹以保留它们。",
+    error_unsafe_folder: "其他用户可以修改 {path}，因此 {name} 无法以管理员权限从该处运行。请删除该文件夹或更正其权限，然后重试。",
 };

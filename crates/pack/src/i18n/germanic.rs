@@ -116,6 +116,7 @@ pub const DE: Strings = Strings {
     error_patch_base: "Dieses Update gehört zu einer anderen Version von {name}. Lade stattdessen die vollständige Setup-Datei herunter.",
     overwrite_title: "Dieser Ordner enthält schon Dateien",
     overwrite_subtitle: "{name} würde hier {files} ersetzen. Das sind keine Dateien von {name}, sie gingen dauerhaft verloren. Wähle einen anderen Ordner, um sie zu behalten.",
+    error_unsafe_folder: "Andere Benutzer können {path} ändern, deshalb darf {name} nicht mit Administratorrechten daraus laufen. Lösche den Ordner oder korrigiere seine Berechtigungen und versuche es dann erneut.",
 };
 
 pub const NL: Strings = Strings {
@@ -232,4 +233,5 @@ pub const NL: Strings = Strings {
     error_patch_base: "Deze update is voor een andere versie van {name}. Download in plaats daarvan het volledige setupbestand.",
     overwrite_title: "Deze map bevat al bestanden",
     overwrite_subtitle: "{name} zou hier {files} vervangen. Dat zijn geen bestanden van {name} en ze gaan definitief verloren. Kies een andere map om ze te behouden.",
+    error_unsafe_folder: "Andere gebruikers kunnen {path} wijzigen, dus {name} mag er niet met beheerdersrechten vanuit draaien. Verwijder de map of corrigeer de machtigingen en probeer het opnieuw.",
 };

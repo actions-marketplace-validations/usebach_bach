@@ -36,6 +36,7 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     let texts = &plan.texts;
     let dir = &plan.dir;
     check_install_dir(dir, manifest, texts)?;
+    super::install::check_elevated_folder(manifest, dir, texts)?;
     let _lock = host::SetupLock::acquire(&manifest.app.id).ok_or_else(|| texts.get(Key::error_busy))?;
     let uninstaller = dir.join(UNINSTALLER);
     let current = std::env::current_exe().ok();

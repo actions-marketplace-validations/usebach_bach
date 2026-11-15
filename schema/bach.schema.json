@@ -4315,6 +4315,38 @@
               "minProperties": 1
             }
           ]
+        },
+        "error_unsafe_folder": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
         }
       }
     },
