@@ -39,6 +39,10 @@ windows = { version = "0.62", features = [
     "Win32_System_Registry",
     "Win32_System_Variant",
     "Win32_System_JobObjects",
+    # Not used here: bach-cli needs it, and a feature only one of the two asks
+    # for would build bach-setup differently when both are built together,
+    # which build-release.ps1 would then reject.
+    "Win32_System_LibraryLoader",
     "Win32_System_RemoteDesktop",
     "Win32_System_RestartManager",
     "Win32_System_Threading",
