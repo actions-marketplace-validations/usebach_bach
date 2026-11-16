@@ -15,6 +15,7 @@ mod asian;
 mod eastern;
 mod en;
 mod germanic;
+mod more;
 mod romance;
 
 use std::collections::BTreeMap;
@@ -118,6 +119,11 @@ pub const LANGUAGES: &[Language] = &[
     Language { code: "ko", name: "한국어", strings: &asian::KO },
     Language { code: "zh", name: "简体中文", strings: &asian::ZH },
     Language { code: "zh-tw", name: "繁體中文", strings: &asian::ZH_TW },
+    Language { code: "sv", name: "Svenska", strings: &more::SV },
+    Language { code: "cs", name: "Čeština", strings: &more::CS },
+    Language { code: "vi", name: "Tiếng Việt", strings: &more::VI },
+    Language { code: "id", name: "Bahasa Indonesia", strings: &more::ID },
+    Language { code: "hi", name: "हिन्दी", strings: &more::HI },
 ];
 
 /// The built-in language with this code, if Bach speaks it.
@@ -292,8 +298,12 @@ mod tests {
     fn languages_are_picked_like_windows_would() {
         assert_eq!(pick(&[], &codes(&["de-DE"])).code, "de");
         assert_eq!(pick(&[], &codes(&["pt-BR", "en-US"])).code, "pt");
-        assert_eq!(pick(&[], &codes(&["sv-SE", "fr-FR"])).code, "fr");
-        assert_eq!(pick(&[], &codes(&["sv-SE"])).code, "en");
+        // The newer languages are picked by their Windows tags like the rest.
+        for (tag, code) in [("sv-SE", "sv"), ("cs-CZ", "cs"), ("vi-VN", "vi"), ("id-ID", "id"), ("hi-IN", "hi")] {
+            assert_eq!(pick(&[], &codes(&[tag, "en-US"])).code, code, "{tag}");
+        }
+        assert_eq!(pick(&[], &codes(&["da-DK", "fr-FR"])).code, "fr");
+        assert_eq!(pick(&[], &codes(&["da-DK"])).code, "en");
         // An app that only speaks German speaks German to everyone.
         assert_eq!(pick(&codes(&["de"]), &codes(&["en-US"])).code, "de");
         assert_eq!(pick(&codes(&["fr", "de"]), &codes(&["de-AT"])).code, "de");

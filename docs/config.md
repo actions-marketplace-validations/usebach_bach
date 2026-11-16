@@ -228,7 +228,8 @@ and unticking one takes the shortcut, PATH entry or autostart away again.
 
 Built-in languages: `en` English, `de` Deutsch, `nl` Nederlands, `fr`
 Français, `es` Español, `it` Italiano, `pt` Português (Brazilian), `pl` Polski, `ru`
-Русский, `tr` Türkçe, `ja` 日本語, `ko` 한국어, `zh` 简体中文, `zh-tw` 繁體中文 (Traditional Chinese, for Taiwan, Hong Kong and Macau; `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant` tags pick it, and `zh-CN`, `zh-SG` and `zh-Hans` pick `zh`).
+Русский, `tr` Türkçe, `ja` 日本語, `ko` 한국어, `zh` 简体中文, `zh-tw` 繁體中文 (Traditional Chinese, for Taiwan, Hong Kong and Macau; `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant` tags pick it, and `zh-CN`, `zh-SG` and `zh-Hans` pick `zh`), `sv` Svenska, `cs` Čeština, `vi` Tiếng Việt, `id`
+Bahasa Indonesia, `hi` हिन्दी.
 
 ## [[components]]
 

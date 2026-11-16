@@ -6,7 +6,7 @@ description: Build a modern Windows installer (Setup.exe) for any desktop app wi
 # Bach: Windows installers from one bach.toml
 
 Bach turns a folder with an app into one `Setup.exe`: a calm, native-looking
-install window (light and dark, 14 languages, follows Windows' language), a
+install window (light and dark, 19 languages, follows Windows' language), a
 built-in updater (a newer setup over an install updates it in place) and a
 clean uninstaller in Settings › Apps. Installs are per user by default, so
 there is no administrator prompt; `installer.scope = "machine"` installs for
@@ -118,7 +118,7 @@ icon = "assets/app.ico"                   # setup file icon; also the logo if it
 [installer]
 accent = "#2563eb"
 logo = "assets/logo.png"                  # .svg (one colour), .png, or "none"
-languages = ["en", "de"]                  # default: all 14; one entry = always that language
+languages = ["en", "de"]                  # default: all 19; one entry = always that language
 license = "LICENSE.txt"                   # accept page before installing
 # options: true (offered, ticked) | false (offered, unticked) | "always" | "never"
 desktop_shortcut = true
