@@ -929,6 +929,12 @@ The manifests say `Scope: machine` for a setup file with
 architecture of its runtime: `x64`, or `arm64` for a setup file built with the
 ARM64 runtime.
 
+Bach's own release workflow opens the winget pull request for each normal
+release with `wingetcreate` (never for a pre-release, a draft or a dry run),
+when the repository has the secret `WINGET_TOKEN` and the variable
+`WINGET_PACKAGE`. The package has to be listed already: the first pull request
+is made by hand.
+
 ## Listing your app in Chocolatey
 
 ```bash
