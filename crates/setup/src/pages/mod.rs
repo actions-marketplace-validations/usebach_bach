@@ -184,10 +184,14 @@ pub fn subtitle_text(text: impl Into<SharedString>, theme: &Theme) -> AnyElement
 /// The meta line on the left, the buttons on the right. Always 32px tall,
 /// so pages without buttons keep the same frame.
 pub fn footer(meta: Option<SharedString>, buttons: Vec<AnyElement>, theme: &Theme) -> AnyElement {
+    // Buttons that don't fit in one row (four of them with long translations)
+    // wrap onto a second row instead of being cut off.
     div()
         .mt(px(16.))
-        .h(px(32.))
+        .min_h(px(32.))
         .flex()
+        .flex_wrap()
+        .justify_end()
         .flex_none()
         .items_center()
         .gap(px(8.))
