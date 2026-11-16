@@ -86,7 +86,7 @@ texts! {
     problem_title, problem_damaged,
     downgrade_title, downgrade_subtitle, downgrade_button, close_app, error_close_app,
     support_save, support_saved, support_failed,
-    requirement_title, requirement_subtitle, requirement_button, step_downloading, error_download,
+    requirement_title, requirement_subtitle, requirement_button, requirement_skip, step_downloading, error_download,
     website, feedback,
     step_finding, step_fetching, error_fetch,
     access_title, access_subtitle, access_hint, access_button, access_paste, access_wrong, access_get,

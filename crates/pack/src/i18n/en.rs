@@ -100,6 +100,7 @@ pub const EN: Strings = Strings {
     requirement_title: "{requirement} is needed",
     requirement_subtitle: "{name} needs {requirement} to run. Install it, then come back here.",
     requirement_button: "Get {requirement}",
+    requirement_skip: "Continue anyway",
     step_downloading: "Downloading the update",
     error_download: "Couldn't download the update. {error}",
     website: "Website",

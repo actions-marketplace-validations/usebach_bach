@@ -751,7 +751,7 @@ a text is given in only one, `bach check` points it out.
 | `overwrite_title`, `overwrite_subtitle` (`{files}`) | A first install into a folder that already holds files the install would replace: the window names up to five of them (and how many more) before it installs. |
 | `close_app`, `error_close_app` | "Close and continue", and what it says when the app won't close. |
 | `support_save`, `support_saved`, `support_failed` | The failed page's button "Save support info", what it says once the file is on the desktop, and when it couldn't be saved. The button writes `<app id>-support.txt` to the desktop: the app's name, version and id, Bach's version, the Windows build, the processor type, whether setup is elevated, the install folder, the free space, the failure's sentence and setup's log, with the user's name and profile folder replaced and no key and no app files. Nothing is sent. |
-| `requirement_title`, `requirement_subtitle`, `requirement_button` (all `{requirement}`) | The page for a missing requirement. |
+| `requirement_title`, `requirement_subtitle`, `requirement_button` (all `{requirement}`), `requirement_skip` | The page for a missing requirement, and its "Continue anyway" button. |
 | `step_downloading`, `error_download` (`{error}`) | Updating from the app. |
 | `step_finding`, `step_fetching`, `error_fetch` (`{error}`) | The online installer's labels, and what it says when it can't download. |
 | `access_title`, `access_subtitle`, `access_hint`, `access_button`, `access_paste`, `access_get`, `access_wrong` | The access key page. |

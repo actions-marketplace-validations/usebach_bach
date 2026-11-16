@@ -31,6 +31,8 @@ pub enum Target {
     Secondary,
     /// "Save support info" on the failed page.
     Support,
+    /// "Continue anyway" on the requirement page.
+    Skip,
     /// The page's main button: I agree, Install, Open, Try again.
     Primary,
 }
@@ -61,7 +63,7 @@ pub fn page_targets(stage: &Stage, facts: &PageFacts) -> Vec<Target> {
         buttons
     };
     match stage {
-        Stage::Requirement(_) => vec![Target::Cancel, Target::Secondary, Target::Primary],
+        Stage::Requirement(_) => vec![Target::Cancel, Target::Secondary, Target::Skip, Target::Primary],
         Stage::Access => {
             let get_key = facts.get_key_link.then_some(Target::GetKey);
             get_key.into_iter().chain([Target::Paste, Target::Cancel, Target::Primary]).collect()
@@ -166,6 +168,7 @@ impl SetupView {
             Target::Cancel => self.close(cx),
             Target::Secondary => self.recheck_requirements(cx),
             Target::Support => self.save_support(cx),
+            Target::Skip => self.skip_requirements(cx),
             Target::GetKey => self.open_get_key(),
             Target::Paste => self.paste_key(cx),
             Target::Link if self.is_removing() => self.open_feedback(),
@@ -206,7 +209,7 @@ mod tests {
     #[test]
     fn every_page_has_its_tab_order() {
         let nothing = facts();
-        assert_eq!(page_targets(&Stage::Requirement(0), &nothing), [Target::Cancel, Target::Secondary, Target::Primary]);
+        assert_eq!(page_targets(&Stage::Requirement(0), &nothing), [Target::Cancel, Target::Secondary, Target::Skip, Target::Primary]);
         assert_eq!(page_targets(&Stage::Access, &nothing), [Target::Paste, Target::Cancel, Target::Primary]);
         assert_eq!(
             page_targets(&Stage::Access, &PageFacts { get_key_link: true, ..facts() }),

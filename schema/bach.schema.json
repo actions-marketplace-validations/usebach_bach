@@ -4421,6 +4421,44 @@
             }
           ]
         },
+        "requirement_skip": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
         "step_downloading": {
           "description": "Text for every language, or a table of texts by language code.",
           "oneOf": [

@@ -20,6 +20,21 @@ impl SetupView {
         cx.notify();
     }
 
+    /// "Continue anyway": the requirement may be there although setup didn't
+    /// find it (an unusual install). Setup goes on to the first page; the app
+    /// may not start without it, and the log says what was passed over.
+    pub fn skip_requirements(&mut self, cx: &mut Context<Self>) {
+        let missing: Vec<String> = crate::start::missing_requirements(&self.package.manifest)
+            .iter()
+            .filter_map(|index| self.package.manifest.requirements.get(*index))
+            .map(|requirement| requirement.name.clone())
+            .collect();
+        crate::log::line(&format!("The user went on without: {}.", missing.join(", ")));
+        self.stage = self.first_page();
+        self.focused = None;
+        cx.notify();
+    }
+
     /// Opens the download page of the requirement on screen.
     pub fn get_requirement(&mut self) {
         if let Stage::Requirement(index) = self.stage {

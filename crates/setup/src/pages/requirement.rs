@@ -26,6 +26,11 @@ impl SetupView {
                 .focused(self.is_focused(Target::Secondary))
                 .on_click(cx.listener(|this, _, _, cx| this.recheck_requirements(cx)))
                 .into_any_element(),
+            FormButton::new("setup-skip", texts.get(Key::requirement_skip))
+                .outline()
+                .focused(self.is_focused(Target::Skip))
+                .on_click(cx.listener(|this, _, _, cx| this.skip_requirements(cx)))
+                .into_any_element(),
             FormButton::new("setup-get", texts.with(Key::requirement_button, &values))
                 .focused(self.is_focused(Target::Primary))
                 .on_click(cx.listener(|this, _, _, _| this.get_requirement()))
