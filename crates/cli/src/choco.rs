@@ -29,6 +29,11 @@ pub fn command(options: Options) -> Result<()> {
     let architecture = crate::winget::setup_architecture(options.setup)?;
     let id = package_id(&manifest);
     let version = &manifest.app.version;
+    // The version comes from the setup file and becomes a folder name, and NuGet
+    // refuses anything else anyway: stop before a path is made from it.
+    if !valid_version(version) {
+        bail!("the version \"{version}\" isn't one NuGet accepts (like 1.2.3 or 1.2.3-beta), so there is no Chocolatey package for it");
+    }
     let dir = match options.out {
         Some(out) => out.to_path_buf(),
         None => options.setup.parent().unwrap_or(Path::new(".")).join("choco").join(&id).join(version),
@@ -55,9 +60,6 @@ pub fn command(options: Options) -> Result<()> {
     }
     if architecture == "arm64" {
         warnings.push("Chocolatey has no ARM64 download field; the link is listed as the 64-bit one".to_string());
-    }
-    if !valid_version(version) {
-        warnings.push(format!("\"{version}\" isn't a version NuGet accepts (like 1.2.3 or 1.2.3-beta); `choco pack` will refuse it"));
     }
     crate::output::warnings(&warnings);
     say!("Build it with `choco pack` in that folder, then test it with `choco install {id} --source .`.");
@@ -189,6 +191,13 @@ mod tests {
         }
         for bad in ["", "1.2.3.4.5", "v1.2", "1..2", "1.2.3-", "1.2 3", "1.2.3+build"] {
             assert!(!valid_version(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_version_that_could_leave_the_folder_is_not_a_version() {
+        for evil in [r"..\..\x", "../x", "1.2/../..", r"C:\x", r"1.0.0\.."] {
+            assert!(!valid_version(evil), "{evil}");
         }
     }
 

@@ -33,7 +33,7 @@ pub fn command(options: Options) -> Result<()> {
     let version = &manifest.app.version;
     let dir = match options.out {
         Some(out) => out.to_path_buf(),
-        None => options.setup.parent().unwrap_or(Path::new(".")).join("winget").join(&id).join(version),
+        None => options.setup.parent().unwrap_or(Path::new(".")).join("winget").join(&id).join(folder_name(version)),
     };
     std::fs::create_dir_all(&dir).with_context(|| format!("couldn't create {}", dir.display()))?;
     let files = manifests(&manifest, &id, options.url, &sha256, options.license, architecture);
@@ -46,6 +46,19 @@ pub fn command(options: Options) -> Result<()> {
     }
     say!("Check them with `winget validate {}`, then open a pull request to microsoft/winget-pkgs.", dir.display());
     Ok(())
+}
+
+/// A version as a folder name. It comes from the setup file, so it may hold
+/// anything: only letters, digits, `.`, `-`, `+` and `_` stay, and a name made
+/// of dots alone (`..`) is replaced.
+fn folder_name(version: &str) -> String {
+    let name: String =
+        version.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+' | '_') { c } else { '_' }).collect();
+    if name.chars().all(|c| c == '.') {
+        "version".into()
+    } else {
+        name
+    }
 }
 
 /// The manifest of a full setup file, for the commands that list a setup file
@@ -151,6 +164,16 @@ mod tests {
         // A `#` or `: ` in a link is text, not a comment or a mapping.
         assert_eq!(quoted("https://x.example/a#b: c"), "\"https://x.example/a#b: c\"");
         assert_eq!(quoted("a\"b\\c"), "\"a\\\"b\\\\c\"");
+    }
+
+    #[test]
+    fn a_version_never_leaves_the_output_folder() {
+        assert_eq!(folder_name("1.2.3-beta+5"), "1.2.3-beta+5");
+        assert_eq!(folder_name(r"..\..\x"), ".._.._x");
+        for evil in ["..", ".", "", "../..", "a/b", r"a\b", "C:"] {
+            let name = folder_name(evil);
+            assert!(!name.is_empty() && name != ".." && name != "." && !name.contains(['/', '\\', ':']), "{evil:?} -> {name:?}");
+        }
     }
 
     fn manifest() -> Manifest {
