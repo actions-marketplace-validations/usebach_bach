@@ -697,3 +697,33 @@ fn the_checksums_in_a_setup_file_are_those_of_the_packed_files() {
     assert_eq!(first, std::fs::read(&setup).unwrap(), "two builds of the same files differ");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn the_same_files_in_another_folder_give_the_same_setup_file() {
+    need_runtime!();
+    // Two checkouts of one project: other folder, other modified times, other
+    // order of creation. Whoever builds from the same sources gets the same
+    // bytes, so anyone can check that a setup file came from them.
+    let first = project("repro-a", &config(""));
+    let built = run(&first, &["build"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+    let second = project("repro-b", &config(""));
+    // The same files, written in the opposite order, and touched later.
+    let (exe, data) = (std::fs::read(second.join("app/hello.exe")).unwrap(), std::fs::read(second.join("app/data.bin")).unwrap());
+    std::fs::remove_file(second.join("app/hello.exe")).unwrap();
+    std::fs::remove_file(second.join("app/data.bin")).unwrap();
+    std::fs::write(second.join("app/data.bin"), data).unwrap();
+    std::fs::write(second.join("app/hello.exe"), exe).unwrap();
+    let built = run(&second, &["build"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let (a, b) = (dir_setup(&first), dir_setup(&second));
+    assert_eq!(a.len(), b.len());
+    assert!(a == b, "the two setup files differ");
+    std::fs::remove_dir_all(&first).unwrap();
+    std::fs::remove_dir_all(&second).unwrap();
+}
+
+fn dir_setup(dir: &Path) -> Vec<u8> {
+    std::fs::read(dir.join("dist/Hello-Setup-1.0.0.exe")).unwrap()
+}

@@ -74,8 +74,21 @@ pub fn write_hashed<W: Write>(
     compression: Compression,
     progress: &mut dyn FnMut(u64),
 ) -> Result<(W, Vec<String>)> {
-    let mut encoder = zstd::stream::Encoder::new(out, compression.level())?;
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()) as u32;
+    write_with_threads(out, sources, compression, threads, progress)
+}
+
+/// [`write_hashed`] with the number of compression threads given. It only
+/// changes how fast the archive is made: the bytes are the same for every
+/// number, so a build gives the same setup file on any computer.
+fn write_with_threads<W: Write>(
+    out: W,
+    sources: &[Source],
+    compression: Compression,
+    threads: u32,
+    progress: &mut dyn FnMut(u64),
+) -> Result<(W, Vec<String>)> {
+    let mut encoder = zstd::stream::Encoder::new(out, compression.level())?;
     // Multithreading only changes speed, never the format; ignore a build
     // of zstd without it.
     let _ = encoder.multithread(threads);
@@ -224,6 +237,38 @@ mod tests {
         assert_eq!(seen[0].1, big);
         assert_eq!(seen[1].1, b"hello");
         assert!(seen[2].1.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_archive_is_the_same_whatever_the_number_of_threads() {
+        // Larger than one compression job, so the threads really split the work.
+        let dir = temp_dir("threads");
+        let mut state = 12345u32;
+        let data: Vec<u8> = (0..12_000_000u32)
+            .map(|i| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                // Half noise, half pattern: something for the compressor to do.
+                if i % 2 == 0 {
+                    (state >> 24) as u8
+                } else {
+                    (i % 97) as u8
+                }
+            })
+            .collect();
+        std::fs::write(dir.join("big.bin"), &data).unwrap();
+        std::fs::write(dir.join("small.txt"), b"small").unwrap();
+        let sources = vec![
+            Source { packaged: "big.bin".into(), path: dir.join("big.bin"), size: data.len() as u64 },
+            Source { packaged: "small.txt".into(), path: dir.join("small.txt"), size: 5 },
+        ];
+        for level in [Compression::Fast, Compression::Normal] {
+            let make = |threads| write_with_threads(Vec::new(), &sources, level, threads, &mut |_| {}).unwrap().0;
+            let one = make(1);
+            assert_eq!(one, make(2), "{level:?}: 1 and 2 threads");
+            assert_eq!(one, make(7), "{level:?}: 1 and 7 threads");
+            assert_eq!(one, make(1), "{level:?}: and again");
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -253,6 +253,27 @@ Every setup file contains the runtime, so `bach` is strict about it:
   says so and asks for `--runtime` or `BACH_RUNTIME`.
 - `BACH_NO_DOWNLOAD` forbids the download altogether.
 
+## Reproducible builds
+
+The same files, the same `bach.toml` and the same `bach` version give the same
+setup file, byte for byte, on any computer: files are packed in sorted order,
+nothing in the file records a time or a path, and the compressed archive does
+not depend on how many processor cores made it. A test builds one project in
+two folders, with different file times, and compares the two setup files.
+
+That lets anyone check that a setup file comes from its sources: build it
+again and compare the SHA-256.
+
+```powershell
+bach build bach.toml --out check\Setup.exe
+(Get-FileHash check\Setup.exe).Hash   # the same as the published file's
+```
+
+Three things make a build differ on purpose: an `[access]` key (its salt and
+nonce are random), signing (a signature carries the time it was made, and a
+signed file is the unsigned one plus the signature), and another version of
+`bach` or of its `bach-setup.exe` runtime.
+
 ## Windows on ARM
 
 A setup file is the setup runtime with the app's files appended, and the
