@@ -8,6 +8,7 @@
 //
 // The release workflow runs it for both programs and attests the results.
 
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -96,6 +97,10 @@ const dependencies = [...seen]
 const bom = {
   bomFormat: "CycloneDX",
   specVersion: "1.5",
+  // A serial number is required by tools that take the file (GitHub's attest
+  // action refuses a CycloneDX file without one). It is made from the content,
+  // not at random, so the same sources still give the same file.
+  serialNumber: "urn:uuid:00000000-0000-0000-0000-000000000000",
   version: 1,
   metadata: {
     // No time stamp: the same sources give the same file.
@@ -105,6 +110,13 @@ const bom = {
   components,
   dependencies,
 };
+
+{
+  const hex = createHash("sha256").update(JSON.stringify(bom)).digest("hex");
+  // The 128 bits of a version 5 style UUID: version and variant bits set.
+  const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  bom.serialNumber = `urn:uuid:${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
 
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, JSON.stringify(bom, null, 2) + "\n");
