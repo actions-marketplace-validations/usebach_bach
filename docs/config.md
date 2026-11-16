@@ -205,6 +205,16 @@ Each option takes one of four values:
 | `add_to_path` | `"never"` | Adds the app's folder to the user's `PATH`, so command-line tools run from any terminal. Only that one entry is ever added or removed; the rest of `PATH` is kept byte for byte. |
 | `path_folder` | the install folder | The folder, inside the install folder, that goes on `PATH`, like `"bin"`. |
 
+Every shortcut setup writes (the Start menu one, the desktop one and those of
+`[[shortcuts]]`) carries the app's AppUserModelID: the app id with every
+character other than letters, digits, `.`, `_` and `-` turned into a `.` (at
+most 128 characters), so `My App` becomes `My.App`. Windows uses it to group
+the app's windows on the taskbar and to tie its notifications to the app. It
+does not change with the version, and it lives in the shortcut file, so
+removing the shortcuts leaves nothing behind. For the grouping to follow a
+window, your program has to use the same ID
+(`SetCurrentProcessExplicitAppUserModelID`) or leave it to Windows.
+
 The whole row is a click target: clicking anywhere on it ticks or unticks
 its box. On an update, the boxes start the way the user left them last time,
 and unticking one takes the shortcut, PATH entry or autostart away again.

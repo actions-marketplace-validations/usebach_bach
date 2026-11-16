@@ -484,6 +484,7 @@ fn shortcuts(
             }
         }
     }
+    let app_id = system::app_user_model_id(manifest);
     let wanted = [
         (system::start_menu_shortcut(manifest), choices.start_menu_shortcut),
         (system::desktop_shortcut(manifest), choices.desktop_shortcut),
@@ -493,7 +494,7 @@ fn shortcuts(
             continue;
         };
         if wanted {
-            system::create_shortcut(&link, program, &description).map_err(|err| failed(&link, err))?;
+            system::create_shortcut(&link, program, &description, &app_id).map_err(|err| failed(&link, err))?;
         } else {
             let _ = remove_file_if_present(&link);
         }
@@ -503,7 +504,8 @@ fn shortcuts(
         let installed = manifest.files.iter().any(|file| file.path == shortcut.target && choices.installs(file));
         if choices.start_menu_shortcut && installed {
             let description = shortcut.description.clone().unwrap_or_else(|| shortcut.name.clone());
-            system::create_shortcut_with(&link, &target, shortcut.arguments.as_deref(), &description).map_err(|err| failed(&link, err))?;
+            system::create_shortcut_with(&link, &target, shortcut.arguments.as_deref(), &description, &app_id)
+                .map_err(|err| failed(&link, err))?;
         } else {
             let _ = remove_file_if_present(&link);
         }

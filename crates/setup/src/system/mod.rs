@@ -31,9 +31,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Context, Result};
 use bach_pack::manifest::{Manifest, Scope, UNINSTALLER};
 use windows::core::{Interface, GUID, HSTRING};
+use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
+use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
 };
+use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 use windows::Win32::UI::Shell::{
     FOLDERID_CommonPrograms, FOLDERID_Desktop, FOLDERID_ProgramFiles, FOLDERID_Programs, FOLDERID_PublicDesktop, FOLDERID_UserProgramFiles,
     IShellLinkW, SHChangeNotify, SHGetKnownFolderPath, ShellLink, KF_FLAG_DEFAULT, SHCNE_ASSOCCHANGED, SHCNF_IDLIST,
@@ -142,13 +145,24 @@ fn known_folder(id: &GUID) -> Result<PathBuf> {
     }
 }
 
-/// Writes a `.lnk` at `link` that starts `target` in its own folder.
-pub fn create_shortcut(link: &Path, target: &Path, description: &str) -> Result<()> {
-    create_shortcut_with(link, target, None, description)
+/// The app's AppUserModelID: its app id, in the characters Windows allows
+/// (no spaces; at most 128). The shortcuts carry it, so the taskbar groups the
+/// windows of the app under them and notifications are traced back to the app.
+/// It never changes with the version, so an update keeps the grouping.
+pub fn app_user_model_id(manifest: &Manifest) -> String {
+    let id: String =
+        manifest.app.id.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '.' }).collect();
+    id.chars().take(128).collect()
+}
+
+/// Writes a `.lnk` at `link` that starts `target` in its own folder, carrying
+/// the app's AppUserModelID.
+pub fn create_shortcut(link: &Path, target: &Path, description: &str, app_id: &str) -> Result<()> {
+    create_shortcut_with(link, target, None, description, app_id)
 }
 
 /// [`create_shortcut`] with command-line arguments.
-pub fn create_shortcut_with(link: &Path, target: &Path, arguments: Option<&str>, description: &str) -> Result<()> {
+pub fn create_shortcut_with(link: &Path, target: &Path, arguments: Option<&str>, description: &str, app_id: &str) -> Result<()> {
     if let Some(parent) = link.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -166,6 +180,11 @@ pub fn create_shortcut_with(link: &Path, target: &Path, arguments: Option<&str>,
             shell_link.SetArguments(&HSTRING::from(arguments))?;
         }
         shell_link.SetIconLocation(&HSTRING::from(target.as_os_str()), 0)?;
+        if !app_id.is_empty() {
+            let store: IPropertyStore = shell_link.cast()?;
+            store.SetValue(&PKEY_AppUserModel_ID, &PROPVARIANT::from(app_id))?;
+            store.Commit()?;
+        }
         let file: IPersistFile = shell_link.cast()?;
         file.Save(&HSTRING::from(link.as_os_str()), true)?;
     }
@@ -233,5 +252,64 @@ impl Drop for ComThread {
             // Safety: this thread's own successful CoInitializeEx.
             unsafe { CoUninitialize() };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::core::BSTR;
+
+    fn manifest(id: &str) -> Manifest {
+        let json = format!(
+            r#"{{"format":1,"builder":"t","app":{{"id":"{id}","name":"Hello","version":"1.0.0","publisher":"P","executable":"hello.exe"}},
+            "install":{{"folder":"Hello","desktop_shortcut":true}},"uninstall":{{"data":[],"data_description":null}},
+            "look":{{"theme":"system","accent":null,"logo":null}},"files":[{{"path":"hello.exe","size":1}}]}}"#
+        );
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn the_id_is_made_of_what_windows_allows() {
+        assert_eq!(app_user_model_id(&manifest("Hello")), "Hello");
+        assert_eq!(app_user_model_id(&manifest("My App (beta)")), "My.App..beta.");
+        let long = "a".repeat(200);
+        assert_eq!(app_user_model_id(&manifest(&long)).len(), 128);
+        assert!(!app_user_model_id(&manifest("a b")).contains(' '));
+    }
+
+    /// What a shortcut says its AppUserModelID is, read back the way Explorer does.
+    fn read_back(link: &Path) -> Option<String> {
+        let _com = ComThread::enter();
+        // Safety: COM calls on interfaces we own, on a thread with COM initialised.
+        unsafe {
+            let shell_link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).ok()?;
+            let file: IPersistFile = shell_link.cast().ok()?;
+            file.Load(&HSTRING::from(link.as_os_str()), windows::Win32::System::Com::STGM_READ).ok()?;
+            let store: IPropertyStore = shell_link.cast().ok()?;
+            let value = store.GetValue(&PKEY_AppUserModel_ID).ok()?;
+            BSTR::try_from(&value).ok().map(|text| text.to_string())
+        }
+    }
+
+    #[test]
+    fn a_shortcut_carries_the_app_user_model_id() {
+        let dir = std::env::temp_dir().join(format!("bach-aumid-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("hello.exe");
+        std::fs::write(&target, b"MZ").unwrap();
+        let link = dir.join("Hello.lnk");
+        let id = app_user_model_id(&manifest("BachQA.Aumid Test"));
+        create_shortcut(&link, &target, "Says hello", &id).unwrap();
+        assert_eq!(read_back(&link).as_deref(), Some("BachQA.Aumid.Test"));
+        // An update writes the shortcut again with the same id.
+        create_shortcut(&link, &target, "Says hello", &id).unwrap();
+        assert_eq!(read_back(&link).as_deref(), Some("BachQA.Aumid.Test"));
+        // Without an id nothing is written.
+        let plain = dir.join("Plain.lnk");
+        create_shortcut(&plain, &target, "Says hello", "").unwrap();
+        assert_eq!(read_back(&plain).filter(|id| !id.is_empty()), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
