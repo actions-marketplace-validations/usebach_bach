@@ -51,7 +51,8 @@ code as it is; where a protection does not exist yet, it says so.
   `[updates] public_key`. Without one, a compromised host can point to another
   file together with that file's hash, and the updater will accept it. With one,
   every entry must carry the publisher's signature (see
-  [signed feeds](updates.md#signed-feeds)). The key can't be rotated yet.
+  [signed feeds](updates.md#signed-feeds)). A key can be handed over with `next_public_key` in two releases
+  (see [Changing the key](updates.md#changing-the-key)), but not revoked remotely.
 - An update's setup file is not yet checked for the publisher's Authenticode
   signature (KAN-17).
 - `uninstall.exe` is written on the user's computer and is not signed.

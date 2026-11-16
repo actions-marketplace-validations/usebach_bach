@@ -12,13 +12,16 @@ use super::curl::{self, Bearer, Fetch};
 #[derive(Clone, Copy)]
 pub struct Signer<'a> {
     pub public_key: &'a str,
+    /// A second key that is trusted too (see `[updates] next_public_key`).
+    pub next_public_key: Option<&'a str>,
     pub app_id: &'a str,
 }
 
 /// The signer an installed app asks for: its manifest's key, when it has one.
 pub fn signer_of(manifest: &bach_pack::manifest::Manifest) -> Option<Signer<'_>> {
-    let public_key = manifest.updates.as_ref()?.public_key.as_deref()?;
-    Some(Signer { public_key, app_id: &manifest.app.id })
+    let updates = manifest.updates.as_ref()?;
+    let public_key = updates.public_key.as_deref()?;
+    Some(Signer { public_key, next_public_key: updates.next_public_key.as_deref(), app_id: &manifest.app.id })
 }
 
 /// Fetches and checks the feed at `url`. `work` is a folder to keep the
@@ -68,7 +71,15 @@ pub fn fetch_offers(urls: &[String], work: &Path, bearer: Option<&Bearer>, signe
 /// key didn't sign. An app without a key takes every entry, as before.
 pub fn accepted(entry: FeedEntry, signer: Option<Signer>) -> Result<FeedEntry, String> {
     match signer {
-        Some(signer) => bach_pack::feedsig::verify(signer.public_key, signer.app_id, &entry).map(|()| entry),
+        Some(signer) => {
+            // Either trusted key may have signed it; the first key's complaint is the one to show.
+            let first = bach_pack::feedsig::verify(signer.public_key, signer.app_id, &entry);
+            match (first, signer.next_public_key) {
+                (Ok(()), _) => Ok(entry),
+                (Err(err), None) => Err(err),
+                (Err(err), Some(next)) => bach_pack::feedsig::verify(next, signer.app_id, &entry).map(|()| entry).map_err(|_| err),
+            }
+        }
         None => Ok(entry),
     }
 }
@@ -198,7 +209,7 @@ mod tests {
     #[test]
     fn a_publisher_key_makes_the_signature_the_only_way_in() {
         let (private, public) = bach_pack::feedsig::generate().unwrap();
-        let signer = Some(Signer { public_key: &public, app_id: "Hello" });
+        let signer = Some(Signer { public_key: &public, next_public_key: None, app_id: "Hello" });
         let mut good = entry("2.0.0", "https://example.com/Hello-2.0.0.exe", &"ab".repeat(32));
         good.signature = Some(bach_pack::feedsig::sign(&private, "Hello", &good).unwrap());
         assert!(accepted(good.clone(), signer).is_ok());
@@ -227,9 +238,33 @@ mod tests {
             auto: bach_pack::manifest::Choice::Never,
             mirrors: Vec::new(),
             public_key: Some("ab".repeat(32)),
+            next_public_key: Some("cd".repeat(32)),
         });
         let signer = signer_of(&manifest).unwrap();
         assert_eq!((signer.public_key, signer.app_id), ("ab".repeat(32).as_str(), manifest.app.id.as_str()));
+        assert_eq!(signer.next_public_key, Some("cd".repeat(32).as_str()));
+    }
+
+    #[test]
+    fn a_second_key_is_trusted_for_the_hand_over() {
+        let (old_private, old_public) = bach_pack::feedsig::generate().unwrap();
+        let (new_private, new_public) = bach_pack::feedsig::generate().unwrap();
+        let (other_private, _) = bach_pack::feedsig::generate().unwrap();
+        let unsigned = entry("2.0.0", "https://example.com/Hello-2.0.0.exe", &"ab".repeat(32));
+        let signed_by = |private: &str| FeedEntry {
+            signature: Some(bach_pack::feedsig::sign(private, "Hello", &unsigned).unwrap()),
+            ..unsigned.clone()
+        };
+
+        // Copies that know both keys take a feed signed with either: the old
+        // key keeps working while the new one takes over.
+        let both = Some(Signer { public_key: &old_public, next_public_key: Some(&new_public), app_id: "Hello" });
+        assert!(accepted(signed_by(&old_private), both).is_ok());
+        assert!(accepted(signed_by(&new_private), both).is_ok());
+        assert!(accepted(signed_by(&other_private), both).is_err(), "a third key is nobody's");
+        // Copies that only know the old key (not updated yet) refuse the new one.
+        let only_old = Some(Signer { public_key: &old_public, next_public_key: None, app_id: "Hello" });
+        assert!(accepted(signed_by(&new_private), only_old).is_err());
     }
 
     fn entry(version: &str, url: &str, sha: &str) -> FeedEntry {

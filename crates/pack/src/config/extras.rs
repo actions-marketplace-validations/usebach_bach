@@ -72,6 +72,8 @@ pub struct UpdatesSection {
     /// The publisher's Ed25519 public key (`bach feed-key` makes one): the
     /// installed app then accepts only feed entries signed with its private half.
     public_key: Option<String>,
+    /// A second key to trust as well, for handing over to a new key.
+    next_public_key: Option<String>,
 }
 
 /// The environment variable the access key is read from unless `key_env`
@@ -333,7 +335,21 @@ pub fn updates(section: Option<&UpdatesSection>, machine: bool) -> Result<Option
             Some(key.to_ascii_lowercase())
         }
     };
-    Ok(Some(UpdateSettings { updates: Updates { feed, auto, mirrors, public_key }, download_url: download, github }))
+    let next_public_key = match section.next_public_key.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(_) if public_key.is_none() => {
+            bail!("updates.next_public_key needs updates.public_key: it is the second key to trust, beside the first")
+        }
+        Some(key) => {
+            crate::feedsig::check_public(key).map_err(|err| anyhow::anyhow!("updates.next_public_key: {err:#}"))?;
+            let key = key.to_ascii_lowercase();
+            if Some(&key) == public_key.as_ref() {
+                bail!("updates.next_public_key is the same key as updates.public_key; give the new key");
+            }
+            Some(key)
+        }
+    };
+    Ok(Some(UpdateSettings { updates: Updates { feed, auto, mirrors, public_key, next_public_key }, download_url: download, github }))
 }
 
 /// `[access]`: an access key the installer asks for.

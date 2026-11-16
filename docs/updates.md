@@ -277,8 +277,28 @@ SHA-256, size, rollout or patch, an unsigned entry or one signed by another key
 is ignored with a line in the log. Release notes are not signed. Old feeds without
 a signature keep working for apps without a `public_key`. An app that has one
 and receives an unsigned feed stops updating, so run `bach feed` with the key
-before you publish. The key can't be rotated yet: an app only trusts the key it
-was built with, so keep the private key safe.
+before you publish. An app only trusts the keys its own setup file carries, so
+keep the private key safe, and change it in two steps (below) if you must.
+
+### Changing the key
+
+A key has to be replaced when it leaks, or is lost. Because installed copies only
+trust what they were built with, the new key has to reach them while the old one
+still works:
+
+1. Make the new key with `bach feed-key` and keep the old one. Build a release
+   whose `bach.toml` has both, the old key as `public_key` and the new one as
+   `next_public_key`, and sign its feed with the **old** private key. Computers
+   that update to it now trust both keys.
+2. Wait until most computers have that release. Then build the next one with
+   `public_key` set to the new key (and no `next_public_key`) and sign its feed
+   with the **new** private key. Computers on the release from step 1 accept it.
+   Computers that never took step 1 still hold only the old key and refuse it,
+   so they need a new download of the setup file.
+
+If the old key leaked, step 1's feed can be forged by whoever has it until
+everyone has moved on; the key cannot be revoked remotely. `bach feed` accepts
+a private key that belongs to either of the two keys.
 
 ## Staged rollouts
 

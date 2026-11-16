@@ -732,6 +732,11 @@
           "type": "string",
           "pattern": "^[0-9a-fA-F]{64}$",
           "description": "The publisher's Ed25519 public key (bach feed-key makes one). With it, the installed app accepts only feed entries signed with the private key, whichever host or mirror served them."
+        },
+        "next_public_key": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$",
+          "description": "A second Ed25519 public key that is trusted too, to hand over to a new key (needs public_key): entries signed with either key are accepted."
         }
       }
     },

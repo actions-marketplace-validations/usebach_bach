@@ -582,6 +582,7 @@ download_url = "https://example.com/hello/{file}"   # {file}: the setup file's n
 | `feed` | from `github` | The `https` link of `latest.json`, which the installed app reads. Needed without `github`. |
 | `download_url` | from `github` | The `https` link the setup file will be downloaded from. `{file}` is the setup file's name (encoded for a link), `{version}` the app's version. |
 | `public_key` | none | The publisher's Ed25519 public key (64 hex digits, from `bach feed-key`). With it, the installed app accepts only feed entries signed with the matching private key. See [Signed feeds](updates.md#signed-feeds). |
+| `next_public_key` | none | A second public key that is trusted too, to hand over to a new key without stranding installed copies (needs `public_key`, and must differ from it). See [Changing the key](updates.md#changing-the-key). |
 | `mirrors` | none | More feeds to ask when `feed` can't be reached, each the `https` link of a full feed with its own download link. The first feed that answers decides the newest version; a mirror only offers another place to download the *same* file (same version and SHA-256), so a weaker mirror can't widen what an installed app trusts. |
 | `auto` | `true` | Keep the app up to date in the background: `true` (the install page offers "Automatic updates", ticked), `false` (offered, unticked), `"always"` or `"never"`. |
 

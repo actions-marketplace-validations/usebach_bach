@@ -998,6 +998,29 @@ fn a_publisher_key_for_updates_is_checked_and_kept() {
     let updates = |key: &str| format!("{MINIMAL}\n[updates]\nfeed = \"https://x.example/latest.json\"\npublic_key = \"{key}\"\n");
     let project = parse(&updates(&public.to_uppercase()), &dir).unwrap();
     assert_eq!(project.manifest.updates.as_ref().unwrap().public_key.as_deref(), Some(public.as_str()), "kept in lower case");
+    // A second key for the hand-over: valid, different, and only with a first key.
+    let (_, next) = crate::feedsig::generate().unwrap();
+    let with_next = format!(
+        "{MINIMAL}
+[updates]
+feed = \"https://x.example/latest.json\"
+public_key = \"{public}\"
+next_public_key = \"{}\"
+",
+        next.to_uppercase()
+    );
+    let project = parse(&with_next, &dir).unwrap();
+    assert_eq!(project.manifest.updates.as_ref().unwrap().next_public_key.as_deref(), Some(next.as_str()));
+    let same = with_next.replace(&next.to_uppercase(), &public);
+    assert!(format!("{:#}", parse(&same, &dir).unwrap_err()).contains("same key"));
+    let alone = format!(
+        "{MINIMAL}
+[updates]
+feed = \"https://x.example/latest.json\"
+next_public_key = \"{next}\"
+"
+    );
+    assert!(format!("{:#}", parse(&alone, &dir).unwrap_err()).contains("needs updates.public_key"));
     project.manifest.validate().unwrap();
     for bad in ["short", &"zz".repeat(32), &"ab".repeat(31)] {
         let err = format!("{:#}", parse(&updates(bad), &dir).unwrap_err());

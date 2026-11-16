@@ -167,6 +167,11 @@ pub struct Updates {
     /// host or mirror they came from. Without it, feeds are trusted as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_key: Option<String>,
+    /// A second key that is trusted too, to hand over from one key to the next
+    /// without stranding installed copies: release a version that lists the new
+    /// key here, still signed with the old one, then switch (see docs/signing.md).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_public_key: Option<String>,
 }
 
 impl Updates {

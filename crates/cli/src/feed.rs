@@ -276,11 +276,13 @@ fn write(
     };
     // An app that has a publisher key accepts only signed feeds, so an unsigned
     // one would silently stop every installed copy from updating.
-    if let Some(public) = manifest.updates.as_ref().and_then(|updates| updates.public_key.as_deref()) {
+    if let Some(updates) = manifest.updates.as_ref().filter(|updates| updates.public_key.is_some()) {
         match private_key() {
             Ok(private) => {
-                if bach_pack::feedsig::public_of(&private)? != public.to_ascii_lowercase() {
-                    bail!("the feed signing key doesn't belong to [updates] public_key in this setup file; use the private key that `bach feed-key` made with it");
+                let mine = bach_pack::feedsig::public_of(&private)?;
+                let trusted = [updates.public_key.as_deref(), updates.next_public_key.as_deref()];
+                if !trusted.iter().flatten().any(|key| key.eq_ignore_ascii_case(&mine)) {
+                    bail!("the feed signing key doesn't belong to [updates] public_key (or next_public_key) in this setup file; use the private key that `bach feed-key` made with it");
                 }
                 entry.signature = Some(bach_pack::feedsig::sign(&private, &manifest.app.id, &entry)?);
             }

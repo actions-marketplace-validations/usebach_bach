@@ -284,7 +284,13 @@ mod tests {
         use super::super::Updates;
         let mut manifest = sample();
         assert!(!Choices::defaults(&manifest).auto_update, "no [updates], no automatic updates");
-        manifest.updates = Some(Updates { feed: "https://x/latest.json".into(), auto: Choice::On, mirrors: Vec::new(), public_key: None });
+        manifest.updates = Some(Updates {
+            feed: "https://x/latest.json".into(),
+            auto: Choice::On,
+            mirrors: Vec::new(),
+            public_key: None,
+            next_public_key: None,
+        });
         let mut choices = Choices::defaults(&manifest);
         assert!(choices.auto_update, "offered and ticked");
         assert!(choices.set(&manifest, OPTION_AUTO_UPDATE, false));
@@ -294,11 +300,21 @@ mod tests {
         previous.chosen = Some(choices);
         assert!(!Choices::for_update(&manifest, &previous).auto_update);
         // ...but a version that never offered it asks fresh, ticked.
-        previous.updates =
-            Some(Updates { feed: "https://x/latest.json".into(), auto: Choice::Never, mirrors: Vec::new(), public_key: None });
+        previous.updates = Some(Updates {
+            feed: "https://x/latest.json".into(),
+            auto: Choice::Never,
+            mirrors: Vec::new(),
+            public_key: None,
+            next_public_key: None,
+        });
         assert!(Choices::for_update(&manifest, &previous).auto_update);
-        manifest.updates =
-            Some(Updates { feed: "https://x/latest.json".into(), auto: Choice::Never, mirrors: Vec::new(), public_key: None });
+        manifest.updates = Some(Updates {
+            feed: "https://x/latest.json".into(),
+            auto: Choice::Never,
+            mirrors: Vec::new(),
+            public_key: None,
+            next_public_key: None,
+        });
         assert!(!Choices { auto_update: true, ..Choices::default() }.settle(&manifest).auto_update);
     }
 

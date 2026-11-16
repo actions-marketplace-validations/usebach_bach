@@ -170,6 +170,7 @@ github = "owner/repo"                     # from that repo's GitHub releases; or
 # auto = true                             # offer "Automatic updates" (false / "always" / "never")
 # mirrors = ["https://mirror.example/myapp/latest.json"]   # fallback feeds
 # public_key = "..."   # from `bach feed-key`: the app then accepts only feeds signed with it (BACH_FEED_KEY signs)
+# next_public_key = "..."   # to hand over to a new key: both are trusted (see docs/updates.md "Changing the key")
 
 [uninstall]
 data = ['%APPDATA%\My App']               # single quotes keep backslashes; your own folder, never Documents or AppData itself
