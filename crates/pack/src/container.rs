@@ -72,12 +72,7 @@ pub fn finish(file: &mut File, archive_offset: u64, logo: &[u8], manifest: &Mani
     let padding = (ALIGN - (end + TRAILER_LEN) % ALIGN) % ALIGN;
     file.write_all(&vec![0u8; padding as usize])?;
 
-    let trailer = Trailer {
-        padding: padding as u32,
-        archive_len,
-        logo_len: logo.len() as u64,
-        manifest_len: json.len() as u64,
-    };
+    let trailer = Trailer { padding: padding as u32, archive_len, logo_len: logo.len() as u64, manifest_len: json.len() as u64 };
     file.write_all(&trailer.encode())?;
     file.flush()?;
     Ok(Layout {
@@ -111,8 +106,7 @@ pub fn locate(file: &mut File) -> Result<Option<Layout>> {
 /// Reads and checks the manifest.
 pub fn read_manifest(file: &mut File, layout: &Layout) -> Result<Manifest> {
     let bytes = read_section(file, layout.manifest, MAX_MANIFEST)?;
-    let manifest: Manifest =
-        serde_json::from_slice(&bytes).context("the setup file's manifest is damaged")?;
+    let manifest: Manifest = serde_json::from_slice(&bytes).context("the setup file's manifest is damaged")?;
     manifest.validate()?;
     Ok(manifest)
 }

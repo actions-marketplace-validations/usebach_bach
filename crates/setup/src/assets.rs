@@ -31,10 +31,7 @@ impl AssetSource for Assets {
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-        Ok(Embedded::iter()
-            .filter(|name| name.starts_with(path))
-            .map(SharedString::from)
-            .collect())
+        Ok(Embedded::iter().filter(|name| name.starts_with(path)).map(SharedString::from).collect())
     }
 }
 
@@ -46,20 +43,13 @@ pub fn icon(name: &str) -> SharedString {
 /// Inter as static TTF instances (400/500/600 at the text optical size,
 /// plus a 500 display cut for headings). DirectWrite's in-memory loader
 /// can't read WOFF2, so they ship as plain TTF.
-const FONT_FILES: [&str; 4] = [
-    "fonts/Inter-Regular.ttf",
-    "fonts/Inter-Medium.ttf",
-    "fonts/Inter-SemiBold.ttf",
-    "fonts/InterDisplay-Medium.ttf",
-];
+const FONT_FILES: [&str; 4] =
+    ["fonts/Inter-Regular.ttf", "fonts/Inter-Medium.ttf", "fonts/Inter-SemiBold.ttf", "fonts/InterDisplay-Medium.ttf"];
 
 /// Registers the embedded fonts. On failure GPUI's own fallback (Segoe UI)
 /// renders everything, so this only explains why.
 pub fn load_fonts(cx: &mut App) -> Result<(), String> {
-    let fonts: Vec<Cow<'static, [u8]>> = FONT_FILES
-        .iter()
-        .filter_map(|path| Embedded::get(path).map(|file| file.data))
-        .collect();
+    let fonts: Vec<Cow<'static, [u8]>> = FONT_FILES.iter().filter_map(|path| Embedded::get(path).map(|file| file.data)).collect();
     if fonts.len() != FONT_FILES.len() {
         return Err("some font files are missing from the build".into());
     }

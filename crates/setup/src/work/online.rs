@@ -43,8 +43,8 @@ pub fn fetch(plan: &InstallPlan, report: Report) -> Result<Package, String> {
     };
 
     report(0.02, &texts.get(Key::step_finding));
-    let scratch = std::env::temp_dir().join(format!("{}-online", app_id.replace(' ', "-")));
-    let mut offers = feed::fetch_offers(&updates.feeds(), &scratch, bearer.as_ref()).map_err(refused)?;
+    let scratch = std::env::temp_dir().join(format!("{}-online", bach_pack::paths::safe_dir_name(app_id)));
+    let mut offers = feed::fetch_offers(&updates.feeds(), &scratch, bearer.as_ref(), feed::signer_of(manifest)).map_err(refused)?;
     crate::log::line(&format!("The feed offers {} {}", manifest.app.name, offers[0].version));
 
     let label = texts.get(Key::step_fetching);
@@ -77,13 +77,7 @@ pub fn forget_download(plan: &InstallPlan) {
 /// choices carried over to its manifest.
 pub fn plan_for(plan: &InstallPlan, downloaded: Package) -> InstallPlan {
     let choices = plan.choices.clone().carry_over(&plan.package.manifest, &downloaded.manifest);
-    InstallPlan {
-        package: Arc::new(downloaded),
-        texts: plan.texts.clone(),
-        dir: plan.dir.clone(),
-        choices,
-        key: plan.key.clone(),
-    }
+    InstallPlan { package: Arc::new(downloaded), texts: plan.texts.clone(), dir: plan.dir.clone(), choices, key: plan.key.clone() }
 }
 
 fn capitalised(text: &str) -> String {

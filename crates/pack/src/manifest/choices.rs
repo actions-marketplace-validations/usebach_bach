@@ -88,8 +88,9 @@ impl<'de> Deserialize<'de> for Choice {
         match Raw::deserialize(deserializer)? {
             Raw::Bool(true) => Ok(Self::On),
             Raw::Bool(false) => Ok(Self::Off),
-            Raw::Word(word) => Self::parse(&word)
-                .ok_or_else(|| serde::de::Error::custom(format!("\"{word}\" isn't on, off, always or never"))),
+            Raw::Word(word) => {
+                Self::parse(&word).ok_or_else(|| serde::de::Error::custom(format!("\"{word}\" isn't on, off, always or never")))
+            }
         }
     }
 }
@@ -124,12 +125,7 @@ impl Choices {
             start_with_windows: install.start_with_windows.starts_on(),
             add_to_path: install.add_to_path.starts_on(),
             auto_update: auto_update_setting(manifest).starts_on(),
-            components: manifest
-                .components
-                .iter()
-                .filter(|component| component.default)
-                .map(|component| component.id.clone())
-                .collect(),
+            components: manifest.components.iter().filter(|component| component.default).map(|component| component.id.clone()).collect(),
         }
     }
 
@@ -288,7 +284,15 @@ mod tests {
         use super::super::Updates;
         let mut manifest = sample();
         assert!(!Choices::defaults(&manifest).auto_update, "no [updates], no automatic updates");
-        manifest.updates = Some(Updates { feed: "https://x/latest.json".into(), auto: Choice::On, mirrors: Vec::new() });
+        manifest.updates = Some(Updates {
+            feed: "https://x/latest.json".into(),
+            auto: Choice::On,
+            mirrors: Vec::new(),
+            public_key: None,
+            next_public_key: None,
+            signer: None,
+            beta_feed: None,
+        });
         let mut choices = Choices::defaults(&manifest);
         assert!(choices.auto_update, "offered and ticked");
         assert!(choices.set(&manifest, OPTION_AUTO_UPDATE, false));
@@ -298,9 +302,25 @@ mod tests {
         previous.chosen = Some(choices);
         assert!(!Choices::for_update(&manifest, &previous).auto_update);
         // ...but a version that never offered it asks fresh, ticked.
-        previous.updates = Some(Updates { feed: "https://x/latest.json".into(), auto: Choice::Never, mirrors: Vec::new() });
+        previous.updates = Some(Updates {
+            feed: "https://x/latest.json".into(),
+            auto: Choice::Never,
+            mirrors: Vec::new(),
+            public_key: None,
+            next_public_key: None,
+            signer: None,
+            beta_feed: None,
+        });
         assert!(Choices::for_update(&manifest, &previous).auto_update);
-        manifest.updates = Some(Updates { feed: "https://x/latest.json".into(), auto: Choice::Never, mirrors: Vec::new() });
+        manifest.updates = Some(Updates {
+            feed: "https://x/latest.json".into(),
+            auto: Choice::Never,
+            mirrors: Vec::new(),
+            public_key: None,
+            next_public_key: None,
+            signer: None,
+            beta_feed: None,
+        });
         assert!(!Choices { auto_update: true, ..Choices::default() }.settle(&manifest).auto_update);
     }
 

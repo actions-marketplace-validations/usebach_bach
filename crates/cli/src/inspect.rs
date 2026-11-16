@@ -24,7 +24,15 @@ pub fn inspect(path: &Path) -> Result<()> {
     } else {
         "Uninstaller"
     };
-    println!("{kind} for {} {}", app.name, app.version);
+    output::result("kind", kind.to_lowercase());
+    output::result("app_id", app.id.clone());
+    output::result("name", app.name.clone());
+    output::result("version", app.version.clone());
+    output::result("publisher", app.publisher.clone());
+    output::result("executable", app.executable.clone());
+    output::result("files", manifest.files.len());
+    output::result("size", manifest.total_size());
+    say!("{kind} for {} {}", app.name, app.version);
     field("App id", &app.id);
     details(&manifest, manifest.access.as_ref().is_some_and(|access| access.encryption.is_some()));
     if layout.has_archive() {

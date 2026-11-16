@@ -30,19 +30,20 @@ pub fn command(options: Options) -> Result<()> {
     let Some(signing) = &project.signing else {
         bail!("{} has no [signing] section, so Bach doesn't know how to sign; see docs/signing.md", options.config.display());
     };
-    sign(signing, options.file)?;
-    println!("Signed {}", options.file.display());
+    sign(signing, options.file, project.manifest.updates.as_ref().and_then(|updates| updates.signer.as_deref()))?;
+    say!("Signed {}", options.file.display());
     Ok(())
 }
 
 /// Signs `file` with the program and arguments of `signing`.
-pub fn sign(signing: &Signing, file: &Path) -> Result<()> {
+/// `publisher` is `[updates] signer`: when it is set, the file has to be signed by that publisher.
+pub fn sign(signing: &Signing, file: &Path, publisher: Option<&str>) -> Result<()> {
     let arguments = arguments(signing, file, |name| std::env::var(name).ok())?;
     // The command as it will run, with secrets shown as the variable's name,
     // so a log never holds them and nobody is surprised by what bach.toml runs.
     let shown = self::arguments(signing, file, |name| Some(format!("{{env:{name}}}")))?;
     let program = find_program(&signing.program);
-    println!("Signing: {} {}", program.display(), shown.join(" "));
+    say!("Signing: {} {}", program.display(), shown.join(" "));
     let status = Command::new(&program).args(&arguments).status().with_context(|| {
         if is_signtool(&signing.program) {
             "couldn't start signtool. It is part of the Windows SDK (install its \"Windows SDK Signing Tools for Desktop Apps\"), \
@@ -60,7 +61,114 @@ pub fn sign(signing: &Signing, file: &Path) -> Result<()> {
             status.code().map_or_else(|| "unknown".to_string(), |code| code.to_string())
         );
     }
+    // signtool is the tool whose job is known: a file it didn't sign is a failure. Another
+    // program (a cloud signer, a script) may sign differently or not at all on purpose.
+    if is_signtool(&signing.program) {
+        check_signature(file, publisher)?;
+    } else {
+        say!("Signature not checked: {} isn't signtool", signing.program);
+    }
     Ok(())
+}
+
+/// What the Authenticode check of a freshly signed file means.
+enum Signed {
+    /// Valid, with a timestamp: good for as long as the file lasts.
+    Fine,
+    /// Valid, but no timestamp: it stops being valid when the certificate expires.
+    NoTimestamp,
+    /// Signed, but Windows doesn't trust it (yet): a self-signed or unknown root.
+    NotTrusted(String),
+    /// Not a good signature: nothing was signed, or the file changed after.
+    Broken(String),
+}
+
+fn judge(status: &str, timestamped: bool) -> Signed {
+    match status {
+        "Valid" if timestamped => Signed::Fine,
+        "Valid" => Signed::NoTimestamp,
+        "NotSigned" => Signed::Broken("it has no signature at all".into()),
+        "HashMismatch" => Signed::Broken("the file doesn't match its signature".into()),
+        other => Signed::NotTrusted(other.to_string()),
+    }
+}
+
+/// Looks at the signature `file` has now, with Windows' own check, and says
+/// what it finds. A file with no (or a broken) signature is an error: the build
+/// would otherwise publish an unsigned setup file believing it signed. No
+/// timestamp, or a signature Windows doesn't trust yet, is a warning.
+fn check_signature(file: &Path, publisher: Option<&str>) -> Result<()> {
+    let found = match read_signature(file) {
+        Ok(found) => found,
+        Err(why) => {
+            say!("warning: couldn't check the signature of {}: {why}", file.display());
+            return Ok(());
+        }
+    };
+    let (status, timestamped, subject) = (found.status.as_str(), found.timestamped, found.subject.as_str());
+    // The update check of every installed copy will look for this publisher: say so now, not after the release.
+    if let Some(publisher) = publisher.filter(|_| !subject.is_empty()) {
+        if !bach_pack::manifest::extras::subject_names(subject, publisher) {
+            bail!(
+                "{} is signed by \"{subject}\", but [updates] signer says {publisher}; installed apps would refuse every update.                  Sign with that publisher's certificate, or change [updates] signer",
+                file.display()
+            );
+        }
+    }
+    match judge(status, timestamped) {
+        Signed::Fine => say!("Signature checked: valid and timestamped"),
+        Signed::NoTimestamp => say!(
+            "warning: {} is signed but has no timestamp, so the signature stops being valid when the certificate expires; \
+             add a timestamp server to [signing] arguments (signtool: /tr URL /td sha256)",
+            file.display()
+        ),
+        Signed::NotTrusted(status) => say!(
+            "warning: {} is signed, but Windows reports \"{status}\" for the signature (a self-signed or unknown root certificate looks like this)",
+            file.display()
+        ),
+        Signed::Broken(why) => bail!("the sign command ran, but {} isn't signed: {why}", file.display()),
+    }
+    Ok(())
+}
+
+/// What Windows says about a file's signature.
+struct Found {
+    status: String,
+    timestamped: bool,
+    subject: String,
+}
+
+/// Asks Windows PowerShell for the signature of `file`. An error says why
+/// Windows gave no answer, which is not the same as "not signed".
+fn read_signature(file: &Path) -> Result<Found> {
+    // Windows' own PowerShell by its full name, and with its own module path:
+    // one inherited from PowerShell 7 (a CI step, a terminal) can hide the
+    // module that has `Get-AuthenticodeSignature`.
+    let powershell = std::env::var_os("SystemRoot")
+        .map(|root| PathBuf::from(root).join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe"))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("powershell"));
+    let output = Command::new(powershell)
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$s = Get-AuthenticodeSignature -LiteralPath $env:BACH_VERIFY_FILE; \
+             \"$($s.Status)\"; \"$($null -ne $s.TimeStamperCertificate)\"; \"$($s.SignerCertificate.Subject)\"",
+        ])
+        .env("BACH_VERIFY_FILE", file)
+        .env_remove("PSModulePath")
+        .output()
+        .map_err(|_| anyhow::anyhow!("PowerShell isn't available"))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut lines = text.lines().map(str::trim);
+    let status = lines.next().unwrap_or("");
+    if status.is_empty() {
+        let said = String::from_utf8_lossy(&output.stderr);
+        let said = said.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("it printed nothing").to_string();
+        bail!("Windows PowerShell gave no answer ({}; {said})", output.status);
+    }
+    Ok(Found { status: status.to_string(), timestamped: lines.next() == Some("True"), subject: lines.next().unwrap_or("").to_string() })
 }
 
 /// Whether `program` names Windows' signing tool without a folder.
@@ -75,7 +183,7 @@ fn find_program(program: &str) -> PathBuf {
     if is_signtool(program) && !on_path(program) {
         let kits = std::env::var_os("ProgramFiles(x86)").map(|files| PathBuf::from(files).join("Windows Kits").join("10").join("bin"));
         if let Some(found) = kits.as_deref().and_then(newest_signtool) {
-            println!("signtool isn't on PATH; using {}", found.display());
+            say!("signtool isn't on PATH; using {}", found.display());
             return found;
         }
     }
@@ -85,8 +193,7 @@ fn find_program(program: &str) -> PathBuf {
 /// Whether a program of this name is in a folder on `PATH`.
 fn on_path(program: &str) -> bool {
     let names = [program.to_string(), format!("{program}.exe")];
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| names.iter().any(|name| dir.join(name).is_file())))
+    std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| names.iter().any(|name| dir.join(name).is_file())))
 }
 
 /// The newest `signtool.exe` below `bin`, the SDK's folder of versioned
@@ -185,6 +292,34 @@ mod tests {
     }
 
     #[test]
+    fn a_signature_is_judged_by_status_and_timestamp() {
+        assert!(matches!(judge("Valid", true), Signed::Fine));
+        assert!(matches!(judge("Valid", false), Signed::NoTimestamp));
+        assert!(matches!(judge("NotSigned", false), Signed::Broken(_)));
+        assert!(matches!(judge("HashMismatch", true), Signed::Broken(_)));
+        assert!(matches!(judge("UnknownError", true), Signed::NotTrusted(_)));
+        assert!(matches!(judge("NotTrusted", false), Signed::NotTrusted(_)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_file_nobody_signed_is_an_error() {
+        let file = std::env::temp_dir().join(format!("bach-unsigned-{}.exe", std::process::id()));
+        // A real program that nobody signed: this test's own executable.
+        std::fs::copy(std::env::current_exe().unwrap(), &file).unwrap();
+        let answer = read_signature(&file);
+        let result = check_signature(&file, None);
+        std::fs::remove_file(&file).unwrap();
+        if let Err(why) = answer {
+            // Windows gave no answer at all (say, no PowerShell module on this machine): nothing to judge.
+            eprintln!("skipped: {why}");
+            return;
+        }
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("isn't signed"), "{err}");
+    }
+
+    #[test]
     fn words_are_split_like_a_command_line() {
         assert_eq!(split(r#"sign /d "My App" /a"#), ["sign", "/d", "My App", "/a"]);
         assert_eq!(split("  a   b "), ["a", "b"]);
@@ -209,7 +344,9 @@ mod tests {
     fn the_newest_signtool_in_the_sdk_is_found() {
         let bin = std::env::temp_dir().join(format!("bach-kits-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&bin);
-        for (version, arch) in [("10.0.19041.0", "x64"), ("10.0.26100.0", "x86"), ("10.0.26100.0", "x64"), ("10.0.9.0", "x64"), ("notes", "x64")] {
+        for (version, arch) in
+            [("10.0.19041.0", "x64"), ("10.0.26100.0", "x86"), ("10.0.26100.0", "x64"), ("10.0.9.0", "x64"), ("notes", "x64")]
+        {
             let folder = bin.join(version).join(arch);
             std::fs::create_dir_all(&folder).unwrap();
             std::fs::write(folder.join("signtool.exe"), b"").unwrap();

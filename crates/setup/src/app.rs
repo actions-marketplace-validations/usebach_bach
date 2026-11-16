@@ -7,8 +7,8 @@ use std::sync::Arc;
 use bach_pack::i18n::{self, Key};
 use bach_pack::manifest::Theme as ThemeChoice;
 use gpui::{
-    div, px, size, App, AppContext, Application, Bounds, Context, IntoElement, ParentElement, Render,
-    SharedString, Styled, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    div, px, size, App, AppContext, Application, Bounds, Context, IntoElement, ParentElement, Render, SharedString, Styled,
+    TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 
 use crate::assets::{self, Assets};
@@ -28,7 +28,14 @@ const ROW_HEIGHT: f32 = 73.;
 const MAX_SCREEN_SHARE: f32 = 0.85;
 
 pub fn main() {
-    let args = Args::parse();
+    let args = match Args::parse() {
+        Ok(args) => args,
+        Err(mistake) => {
+            // Exit code 2 is "a mistake in the options", as for every silent run.
+            crate::system::host::show_command_line_mistake(&mistake);
+            std::process::exit(launch::exit::USAGE);
+        }
+    };
     if args.wants_help() {
         crate::system::host::attach_parent_console();
         print!("{}", launch::HELP);
@@ -188,9 +195,7 @@ fn guard_close<V: 'static>(view: &gpui::Entity<V>, window: &mut Window, cx: &mut
         return;
     };
     let view = view.downgrade();
-    window.on_window_should_close(cx, move |_, cx| {
-        view.upgrade().is_none_or(|view| !matches!(view.read(cx).stage, Stage::Working { .. }))
-    });
+    window.on_window_should_close(cx, move |_, cx| view.upgrade().is_none_or(|view| !matches!(view.read(cx).stage, Stage::Working { .. })));
 }
 
 /// Paints with the chosen theme, or the system's, following it live.
@@ -226,9 +231,7 @@ impl Render for Problem {
                 self.title.clone(),
                 footer(
                     None,
-                    vec![FormButton::new("problem-close", self.close.clone())
-                        .on_click(|_, _, cx| cx.quit())
-                        .into_any_element()],
+                    vec![FormButton::new("problem-close", self.close.clone()).on_click(|_, _, cx| cx.quit()).into_any_element()],
                     &theme,
                 ),
             )

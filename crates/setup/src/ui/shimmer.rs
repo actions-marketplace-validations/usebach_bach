@@ -19,9 +19,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::{
-    point, px, size, App, AvailableSpace, Bounds, ContentMask, Element, ElementId,
-    GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, Pixels, SharedString,
-    TextAlign, Window, WrappedLine,
+    point, px, size, App, AvailableSpace, Bounds, ContentMask, Element, ElementId, GlobalElementId, Hsla, InspectorElementId, IntoElement,
+    LayoutId, Pixels, SharedString, TextAlign, Window, WrappedLine,
 };
 
 use super::motion::{reduced_motion, SHIMMER};
@@ -39,11 +38,7 @@ pub struct Shimmer {
 
 impl Shimmer {
     pub fn new(text: impl Into<SharedString>) -> Self {
-        Self {
-            text: text.into(),
-            color: None,
-            active: true,
-        }
+        Self { text: text.into(), color: None, active: true }
     }
 
     /// The band's full-strength colour (default: the theme's foreground).
@@ -77,10 +72,7 @@ pub struct ShimmerLayout {
 /// The sweep's phase right now, 0..1.
 fn phase() -> f32 {
     let period = SHIMMER.as_millis().max(1);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|since| since.as_millis())
-        .unwrap_or(0);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|since| since.as_millis()).unwrap_or(0);
     (now % period) as f32 / period as f32
 }
 
@@ -116,31 +108,22 @@ impl Element for Shimmer {
         let text = self.text.clone();
         let run = style.to_run(text.len());
 
-        let layout_id = window.request_measured_layout(
-            Default::default(),
-            move |known, available, window, _cx| {
-                let wrap_width = known.width.or(match available.width {
-                    AvailableSpace::Definite(width) => Some(width),
-                    _ => None,
-                });
-                let Ok(lines) = window.text_system().shape_text(
-                    text.clone(),
-                    font_size,
-                    std::slice::from_ref(&run),
-                    wrap_width,
-                    None,
-                ) else {
-                    return size(px(0.), line_height);
-                };
-                let mut measured = size(px(0.), px(0.));
-                for line in &lines {
-                    let line_size = line.size(line_height);
-                    measured.width = measured.width.max(line_size.width).ceil();
-                    measured.height += line_size.height;
-                }
-                measured
-            },
-        );
+        let layout_id = window.request_measured_layout(Default::default(), move |known, available, window, _cx| {
+            let wrap_width = known.width.or(match available.width {
+                AvailableSpace::Definite(width) => Some(width),
+                _ => None,
+            });
+            let Ok(lines) = window.text_system().shape_text(text.clone(), font_size, std::slice::from_ref(&run), wrap_width, None) else {
+                return size(px(0.), line_height);
+            };
+            let mut measured = size(px(0.), px(0.));
+            for line in &lines {
+                let line_size = line.size(line_height);
+                measured.width = measured.width.max(line_size.width).ceil();
+                measured.height += line_size.height;
+            }
+            measured
+        });
         (layout_id, ())
     }
 
@@ -159,18 +142,9 @@ impl Element for Shimmer {
         let run = style.to_run(self.text.len());
         let lines = window
             .text_system()
-            .shape_text(
-                self.text.clone(),
-                font_size,
-                std::slice::from_ref(&run),
-                Some(bounds.size.width + px(0.5)),
-                None,
-            )
+            .shape_text(self.text.clone(), font_size, std::slice::from_ref(&run), Some(bounds.size.width + px(0.5)), None)
             .ok()?;
-        Some(ShimmerLayout {
-            lines: lines.into_iter().collect(),
-            line_height,
-        })
+        Some(ShimmerLayout { lines: lines.into_iter().collect(), line_height })
     }
 
     fn paint(
@@ -198,13 +172,7 @@ impl Element for Shimmer {
             let lines = if color == style.color {
                 layout.lines.clone()
             } else {
-                match window.text_system().shape_text(
-                    self.text.clone(),
-                    font_size,
-                    std::slice::from_ref(&run),
-                    wrap_width,
-                    None,
-                ) {
+                match window.text_system().shape_text(self.text.clone(), font_size, std::slice::from_ref(&run), wrap_width, None) {
                     Ok(lines) => lines.into_iter().collect(),
                     Err(_) => return,
                 }
@@ -217,9 +185,7 @@ impl Element for Shimmer {
                 }
             };
             match clip {
-                Some(clip) => window.with_content_mask(Some(ContentMask { bounds: clip }), |window| {
-                    draw(window, cx)
-                }),
+                Some(clip) => window.with_content_mask(Some(ContentMask { bounds: clip }), |window| draw(window, cx)),
                 None => draw(window, cx),
             }
         };
@@ -237,9 +203,7 @@ impl Element for Shimmer {
         let band_left = bounds.left() + width * (centre - 0.25);
         let band_right = bounds.left() + width * (centre + 0.25);
         let base = full.opacity(0.5);
-        let column = |left: Pixels, right: Pixels| {
-            Bounds::from_corners(point(left, bounds.top()), point(right, bounds.bottom()))
-        };
+        let column = |left: Pixels, right: Pixels| Bounds::from_corners(point(left, bounds.top()), point(right, bounds.bottom()));
 
         if band_left > bounds.left() {
             paint_in(base, Some(column(bounds.left(), band_left.min(bounds.right()))), window);
@@ -257,11 +221,7 @@ impl Element for Shimmer {
             let middle = ((left + right) / 2. - bounds.left()) / width;
             let strength = band_strength(middle, centre);
             let color = full.opacity(0.5 + 0.5 * strength);
-            paint_in(
-                color,
-                Some(column(left.max(bounds.left()), right.min(bounds.right()))),
-                window,
-            );
+            paint_in(color, Some(column(left.max(bounds.left()), right.min(bounds.right()))), window);
         }
 
         // The sweep never settles; frames stop once the label stops drawing.

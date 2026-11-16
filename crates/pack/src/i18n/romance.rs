@@ -93,9 +93,13 @@ pub const FR: Strings = Strings {
     downgrade_button: "Installer quand même",
     close_app: "Fermer et continuer",
     error_close_app: "{name} ne s'est pas fermé. Enregistrez votre travail, fermez-le, puis réessayez.",
+    support_save: "Enregistrer les infos de support",
+    support_saved: "Enregistré sur le Bureau",
+    support_failed: "Impossible d'enregistrer les infos de support",
     requirement_title: "{requirement} est nécessaire",
     requirement_subtitle: "{name} a besoin de {requirement}. Installez-le, puis revenez ici.",
     requirement_button: "Obtenir {requirement}",
+    requirement_skip: "Continuer quand même",
     step_downloading: "Téléchargement de la mise à jour",
     error_download: "Impossible de télécharger la mise à jour. {error}",
     website: "Site web",
@@ -114,6 +118,9 @@ pub const FR: Strings = Strings {
     error_run: "{task} n'a pas pu être configuré (code de sortie {code}). Réessayez.",
     step_migrating: "Suppression de l'ancienne version de {name}",
     error_patch_base: "Cette mise à jour est destinée à une autre version de {name}. Téléchargez plutôt le fichier d'installation complet.",
+    overwrite_title: "Ce dossier contient déjà des fichiers",
+    overwrite_subtitle: "Installer {name} ici remplacerait {files}. Ce ne sont pas des fichiers de {name} et ils seraient perdus définitivement. Choisissez un autre dossier pour les conserver.",
+    error_unsafe_folder: "D'autres utilisateurs peuvent modifier {path}, donc {name} ne peut pas s'y exécuter avec des droits d'administrateur. Supprimez le dossier ou corrigez ses autorisations, puis réessayez.",
 };
 
 pub const ES: Strings = Strings {
@@ -207,9 +214,13 @@ pub const ES: Strings = Strings {
     downgrade_button: "Instalar de todos modos",
     close_app: "Cerrar y continuar",
     error_close_app: "{name} no se cerró. Guarda tu trabajo, ciérralo y vuelve a intentarlo.",
+    support_save: "Guardar información de soporte",
+    support_saved: "Guardado en el escritorio",
+    support_failed: "No se pudo guardar la información de soporte",
     requirement_title: "Se necesita {requirement}",
     requirement_subtitle: "{name} necesita {requirement} para funcionar. Instálalo y vuelve aquí.",
     requirement_button: "Obtener {requirement}",
+    requirement_skip: "Continuar de todos modos",
     step_downloading: "Descargando la actualización",
     error_download: "No se pudo descargar la actualización. {error}",
     website: "Sitio web",
@@ -228,6 +239,9 @@ pub const ES: Strings = Strings {
     error_run: "No se pudo configurar {task} (código de salida {code}). Vuelve a intentarlo.",
     step_migrating: "Quitando la versión anterior de {name}",
     error_patch_base: "Esta actualización es para otra versión de {name}. Descarga el archivo de instalación completo.",
+    overwrite_title: "Esta carpeta ya tiene archivos",
+    overwrite_subtitle: "Instalar {name} aquí reemplazaría {files}. No son archivos de {name} y se perderían para siempre. Elige otra carpeta para conservarlos.",
+    error_unsafe_folder: "Otros usuarios pueden modificar {path}, así que {name} no puede ejecutarse desde allí con derechos de administrador. Elimina la carpeta o corrige sus permisos y vuelve a intentarlo.",
 };
 
 pub const IT: Strings = Strings {
@@ -321,9 +335,13 @@ pub const IT: Strings = Strings {
     downgrade_button: "Installa comunque",
     close_app: "Chiudi e continua",
     error_close_app: "{name} non si è chiuso. Salva il tuo lavoro, chiudilo e riprova.",
+    support_save: "Salva le info per l'assistenza",
+    support_saved: "Salvato sul desktop",
+    support_failed: "Impossibile salvare le info per l'assistenza",
     requirement_title: "Serve {requirement}",
     requirement_subtitle: "{name} ha bisogno di {requirement} per funzionare. Installalo, poi torna qui.",
     requirement_button: "Scarica {requirement}",
+    requirement_skip: "Continua comunque",
     step_downloading: "Download dell'aggiornamento",
     error_download: "Impossibile scaricare l'aggiornamento. {error}",
     website: "Sito web",
@@ -342,6 +360,9 @@ pub const IT: Strings = Strings {
     error_run: "Impossibile configurare {task} (codice di uscita {code}). Riprova.",
     step_migrating: "Rimozione della versione precedente di {name}",
     error_patch_base: "Questo aggiornamento è per un'altra versione di {name}. Scarica invece il file di installazione completo.",
+    overwrite_title: "Questa cartella contiene già dei file",
+    overwrite_subtitle: "Installando {name} qui verrebbero sostituiti {files}. Non sono file di {name} e andrebbero persi per sempre. Scegli un'altra cartella per conservarli.",
+    error_unsafe_folder: "Altri utenti possono modificare {path}, quindi {name} non può essere eseguito da lì con diritti di amministratore. Elimina la cartella o correggi i suoi permessi, poi riprova.",
 };
 
 pub const PT: Strings = Strings {
@@ -435,9 +456,13 @@ pub const PT: Strings = Strings {
     downgrade_button: "Instalar mesmo assim",
     close_app: "Fechar e continuar",
     error_close_app: "O {name} não fechou. Salve seu trabalho, feche-o e tente novamente.",
+    support_save: "Salvar informações de suporte",
+    support_saved: "Salvo na área de trabalho",
+    support_failed: "Não foi possível salvar as informações de suporte",
     requirement_title: "É preciso ter {requirement}",
     requirement_subtitle: "O {name} precisa de {requirement} para funcionar. Instale-o e depois volte aqui.",
     requirement_button: "Obter {requirement}",
+    requirement_skip: "Continuar mesmo assim",
     step_downloading: "Baixando a atualização",
     error_download: "Não foi possível baixar a atualização. {error}",
     website: "Site",
@@ -456,4 +481,7 @@ pub const PT: Strings = Strings {
     error_run: "Não foi possível configurar {task} (código de saída {code}). Tente novamente.",
     step_migrating: "A remover a versão anterior de {name}",
     error_patch_base: "Esta atualização é para outra versão de {name}. Transfira o ficheiro de instalação completo.",
+    overwrite_title: "Esta pasta já tem ficheiros",
+    overwrite_subtitle: "Instalar o {name} aqui substituiria {files}. Não são ficheiros do {name} e perder-se-iam para sempre. Escolha outra pasta para os manter.",
+    error_unsafe_folder: "Outros utilizadores podem alterar {path}, por isso o {name} não pode ser executado a partir daí com direitos de administrador. Elimine a pasta ou corrija as suas permissões e tente novamente.",
 };

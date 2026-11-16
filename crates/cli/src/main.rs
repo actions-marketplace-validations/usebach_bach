@@ -11,11 +11,23 @@
 //! bach sign FILE         sign a setup file the way [signing] in bach.toml says
 //! bach key               make random access keys for a protected app
 //! bach winget FILE --url write winget manifests for a setup file
+//! bach choco FILE --url  write the Chocolatey package for a setup file
 //! bach version [TARGET]  show or raise the version in every file that has one
 //! bach workflow          add the one-click release workflow to a GitHub repository
 //! ```
 
+/// `println!` for what a person reads: silent with `--json`, where the command
+/// ends with one JSON object instead (see `output::finish`).
+macro_rules! say {
+    ($($t:tt)*) => {
+        if !$crate::output::json() {
+            println!($($t)*);
+        }
+    };
+}
+
 mod builder;
+mod choco;
 mod detect;
 mod doctor;
 mod feed;
@@ -36,13 +48,24 @@ mod workflow;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
 #[command(name = "bach", version, about = "Build modern, clean Windows installers from one bach.toml.")]
 struct Cli {
+    /// Print one JSON object with the result (and warnings) instead of text lines.
+    /// Errors are `{"ok": false, "error": "..."}` with a non-zero exit code.
+    #[arg(long, global = true)]
+    json: bool,
     #[command(subcommand)]
     command: Command,
+}
+
+/// `bach workflow --pin`.
+#[derive(Clone, Copy, ValueEnum)]
+enum PinArg {
+    Commit,
+    Float,
 }
 
 #[derive(Subcommand)]
@@ -143,6 +166,12 @@ enum Command {
         /// A setup file (or an installed uninstall.exe).
         file: PathBuf,
     },
+    /// Make the key pair that signs your update feeds (see [updates] public_key).
+    FeedKey {
+        /// Where to write the private key (default: feed-key.private; it must not exist).
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
     /// Write the update feed (latest.json) for a setup file, after signing it.
     Feed {
         /// The setup file.
@@ -190,6 +219,20 @@ enum Command {
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
+    /// Write the Chocolatey package that installs a setup file.
+    Choco {
+        /// The setup file.
+        file: PathBuf,
+        /// The https link it's downloaded from.
+        #[arg(long)]
+        url: String,
+        /// The app's license: a link, or an SPDX name like MIT.
+        #[arg(long)]
+        license: Option<String>,
+        /// Write the package into this folder.
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
     /// Show the version a project carries, or raise it in every file at once.
     Version {
         /// patch, minor, major, current (keep it), or an exact version like
@@ -210,6 +253,10 @@ enum Command {
         /// Replace .github/workflows/bach-release.yml even if Bach didn't write it.
         #[arg(long)]
         force: bool,
+        /// How the workflow names Bach's action: `commit` (default) pins the
+        /// commit of this release, `float` follows the newest 0.x release.
+        #[arg(long, value_enum, default_value = "commit")]
+        pin: PinArg,
     },
     /// Check that everything a build needs is in place.
     Doctor {
@@ -221,6 +268,7 @@ enum Command {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    output::set_json(cli.json);
     let result = match cli.command {
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
         Command::Check { config, app_version } => builder::check(&config, app_version.as_deref()),
@@ -239,28 +287,31 @@ fn main() -> ExitCode {
             .map(|_| ())
         }
         Command::Key { count, out } => key::command(count, out.as_deref()),
+        Command::FeedKey { out } => feed::key_command(out.as_deref()),
         Command::Sign { file, config } => sign::command(sign::Options { file: &file, config: &config }),
         Command::Preview { config, uninstall, theme, lang, runtime } => builder::preview(
             &config,
-            builder::PreviewOptions {
-                uninstall,
-                theme: theme.as_deref(),
-                lang: lang.as_deref(),
-                runtime: runtime.as_deref(),
-            },
+            builder::PreviewOptions { uninstall, theme: theme.as_deref(), lang: lang.as_deref(), runtime: runtime.as_deref() },
         ),
         Command::Inspect { file } => inspect::inspect(&file),
         Command::Doctor { config } => doctor::doctor(&config),
         Command::Version { target, config, dry_run } => {
             version::command(version::Options { config: &config, target: target.as_deref(), dry_run })
         }
-        Command::Workflow { dir, force } => workflow::command(workflow::Options { dir: &dir, force }),
-        Command::Winget { file, url, license, out } => winget::command(winget::Options {
-            setup: &file,
-            url: &url,
-            license: license.as_deref(),
-            out: out.as_deref(),
+        Command::Workflow { dir, force, pin } => workflow::command(workflow::Options {
+            dir: &dir,
+            force,
+            pin: match pin {
+                PinArg::Commit => workflow::Pin::Commit,
+                PinArg::Float => workflow::Pin::Float,
+            },
         }),
+        Command::Winget { file, url, license, out } => {
+            winget::command(winget::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
+        }
+        Command::Choco { file, url, license, out } => {
+            choco::command(choco::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
+        }
         Command::Feed { file, url, config, notes, notes_file, rollout, out, patch, patch_url } => feed::command(feed::Options {
             setup: &file,
             url: url.as_deref(),
@@ -274,9 +325,13 @@ fn main() -> ExitCode {
         }),
     };
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) => {
+            output::finish(None);
+            ExitCode::SUCCESS
+        }
         Err(err) => {
             output::error(&err);
+            output::finish(Some(&err));
             ExitCode::FAILURE
         }
     }

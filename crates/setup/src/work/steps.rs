@@ -18,6 +18,7 @@
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bach_pack::i18n::Key;
@@ -28,7 +29,8 @@ use super::Report;
 use crate::system::elevate::{self, Outcome};
 use crate::texts::Texts;
 
-/// How long one step may take before setup gives up on it.
+/// How long one step may take before setup gives up on it, unless it sets
+/// `timeout_minutes`.
 pub const LIMIT: Duration = Duration::from_secs(15 * 60);
 
 /// The steps that apply to an install or update with these choices.
@@ -103,16 +105,20 @@ pub enum Ended {
     NotStarted(String),
 }
 
-/// Starts `program` in its own folder and waits for it, up to [`LIMIT`]. With
+/// Starts `program` in its own folder and waits for it, up to `limit`. With
 /// `elevated`, Windows asks for administrator rights first (and doesn't when
 /// setup has them already). The arguments are passed as written, and never
 /// through a shell.
-pub fn execute(program: &Path, arguments: Option<&str>, elevated: bool) -> Ended {
+///
+/// What the program prints goes to the log (its last [`OUTPUT_KEPT`] bytes, so
+/// "exit code 1603" comes with the reason), and the programs it starts belong
+/// to a job that ends with it, so a timeout leaves nothing behind holding files.
+pub fn execute(program: &Path, arguments: Option<&str>, elevated: bool, limit: Duration) -> Ended {
     let arguments_text = arguments.unwrap_or("");
     let cwd = program.parent();
     if elevated && !elevate::is_elevated() {
         crate::log::line(&format!("Running {} {arguments_text} with administrator rights", program.display()));
-        return match elevate::run(program, arguments_text, cwd, LIMIT, true) {
+        return match elevate::run(program, arguments_text, cwd, limit, true) {
             Outcome::Exited(code) => {
                 // Exit codes are signed on the command line: 0xC0000005 reads as -1073741819.
                 let code = code as i32;
@@ -134,7 +140,7 @@ pub fn execute(program: &Path, arguments: Option<&str>, elevated: bool) -> Ended
         };
     }
     let mut command = Command::new(program);
-    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
@@ -150,14 +156,22 @@ pub fn execute(program: &Path, arguments: Option<&str>, elevated: bool) -> Ended
             return Ended::NotStarted(err.raw_os_error().map_or_else(|| "-1".to_string(), |code| code.to_string()));
         }
     };
+    let output = Arc::new(Mutex::new(Vec::<u8>::new()));
+    for pipe in [child.stdout.take().map(Pipe::Out), child.stderr.take().map(Pipe::Err)].into_iter().flatten() {
+        let output = output.clone();
+        std::thread::spawn(move || pipe.drain_into(&output));
+    }
+    // Dropping the job ends everything still in it, whichever way this returns.
+    let _job = tree::Job::containing(&child);
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() > LIMIT => {
+            Ok(None) if started.elapsed() > limit => {
                 let _ = child.kill();
                 let _ = child.wait();
-                crate::log::line("It took too long, so setup ended it.");
+                log_output(&output);
+                crate::log::line("It took too long, so setup ended it, and everything it had started.");
                 return Ended::TimedOut;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(150)),
@@ -167,16 +181,114 @@ pub fn execute(program: &Path, arguments: Option<&str>, elevated: bool) -> Ended
             }
         }
     };
+    // The pipes close when the program does; give the readers a moment.
+    std::thread::sleep(Duration::from_millis(100));
+    log_output(&output);
     let code = status.code().unwrap_or(-1);
     crate::log::line(&format!("It ended with code {code}."));
     Ended::Code(code)
+}
+
+/// How much of a program's output the log keeps: the end, which is where the
+/// reason for a failure is.
+pub const OUTPUT_KEPT: usize = 8 * 1024;
+
+/// One of a program's two output streams.
+enum Pipe {
+    Out(std::process::ChildStdout),
+    Err(std::process::ChildStderr),
+}
+
+impl Pipe {
+    /// Reads until the stream closes, keeping only the last [`OUTPUT_KEPT`] bytes.
+    fn drain_into(self, kept: &Mutex<Vec<u8>>) {
+        use std::io::Read;
+        let mut reader: Box<dyn Read> = match self {
+            Pipe::Out(pipe) => Box::new(pipe),
+            Pipe::Err(pipe) => Box::new(pipe),
+        };
+        let mut buffer = [0u8; 4096];
+        while let Ok(count) = reader.read(&mut buffer) {
+            if count == 0 {
+                break;
+            }
+            if let Ok(mut kept) = kept.lock() {
+                kept.extend_from_slice(&buffer[..count]);
+                if kept.len() > OUTPUT_KEPT {
+                    let excess = kept.len() - OUTPUT_KEPT;
+                    kept.drain(..excess);
+                }
+            }
+        }
+    }
+}
+
+/// Writes what the program printed to the log, line by line.
+fn log_output(output: &Mutex<Vec<u8>>) {
+    let Ok(bytes) = output.lock().map(|bytes| bytes.clone()) else {
+        return;
+    };
+    // Programs print in the console's code page or UTF-16; lossy is enough to read a reason.
+    for line in String::from_utf8_lossy(&bytes).replace('\0', "").lines().map(str::trim_end).filter(|line| !line.is_empty()) {
+        crate::log::line(&format!("  | {line}"));
+    }
+}
+
+/// A Windows job object that ends its processes when it is closed.
+mod tree {
+    use std::os::windows::io::AsRawHandle;
+    use std::process::Child;
+
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+
+    pub struct Job(HANDLE);
+
+    impl Job {
+        /// A job holding `child` (and so whatever it starts), or None when
+        /// Windows won't make one; the step then runs as it always did.
+        pub fn containing(child: &Child) -> Option<Job> {
+            // SAFETY: plain handle calls; the job handle is closed in Drop and the
+            // limit structure is fully initialised before it is passed.
+            unsafe {
+                let job = CreateJobObjectW(None, None).ok()?;
+                let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+                limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                let set = SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformation,
+                    &limits as *const _ as *const _,
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                );
+                let assigned = set.is_ok() && AssignProcessToJobObject(job, HANDLE(child.as_raw_handle())).is_ok();
+                if assigned {
+                    Some(Job(job))
+                } else {
+                    let _ = CloseHandle(job);
+                    None
+                }
+            }
+        }
+    }
+
+    impl Drop for Job {
+        fn drop(&mut self) {
+            // SAFETY: the handle came from CreateJobObjectW and is closed once.
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
+        }
+    }
 }
 
 /// Starts the step's program and waits for it.
 pub fn run(step: &RunStep, dir: &Path, texts: &Texts) -> Result<(), String> {
     let failed = |code: String| texts.with(Key::error_run, &[("task", &step.name), ("code", &code)]);
     let program = paths::under(dir, &step.file);
-    match execute(&program, step.arguments.as_deref(), step.elevated) {
+    match execute(&program, step.arguments.as_deref(), step.elevated, step.timeout()) {
         Ended::Code(code) if step.succeeded(code) => Ok(()),
         Ended::Code(code) => Err(failed(code.to_string())),
         // 1223 is ERROR_CANCELLED, what Windows itself reports for it.
@@ -217,7 +329,38 @@ mod tests {
             ignore_errors: false,
             component: None,
             elevated: false,
+            timeout_minutes: None,
         }
+    }
+
+    #[test]
+    fn only_the_end_of_a_long_output_is_kept() {
+        let mut child = Command::new("cmd").args(["/c", "for /L %i in (1,1,3000) do @echo line%i"]).stdout(Stdio::piped()).spawn().unwrap();
+        let kept = Mutex::new(Vec::new());
+        Pipe::Out(child.stdout.take().unwrap()).drain_into(&kept);
+        let _ = child.wait();
+        let text = String::from_utf8_lossy(&kept.lock().unwrap()).to_string();
+        assert!(kept.lock().unwrap().len() <= OUTPUT_KEPT);
+        assert!(text.contains("line3000") && !text.contains("line1\r\n"), "the end stays, the start goes");
+    }
+
+    #[test]
+    fn a_timeout_ends_the_programs_the_step_started_too() {
+        let dir = folder("tree");
+        let cmd = Path::new(&std::env::var_os("SystemRoot").unwrap()).join(r"System32\cmd.exe");
+        std::fs::copy(cmd, dir.join("bin/bachqagrandchild.exe")).unwrap();
+        // tool.exe (a cmd) starts a second, uniquely named cmd, which waits a minute.
+        let ended = execute(
+            &dir.join("bin/tool.exe"),
+            Some(r"/c .\bachqagrandchild.exe /c waitfor /t 60 bachqasignal >nul 2>&1"),
+            false,
+            Duration::from_secs(2),
+        );
+        assert!(matches!(ended, Ended::TimedOut));
+        std::thread::sleep(Duration::from_millis(700));
+        let listing = Command::new("tasklist").args(["/FI", "IMAGENAME eq bachqagrandchild.exe"]).output().unwrap();
+        assert!(!String::from_utf8_lossy(&listing.stdout).to_lowercase().contains("bachqagrandchild"), "the grandchild must be gone");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

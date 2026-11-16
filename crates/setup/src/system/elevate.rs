@@ -16,9 +16,7 @@ use std::time::{Duration, Instant};
 use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, ERROR_CANCELLED, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
-use windows::Win32::System::Threading::{
-    GetCurrentProcess, GetExitCodeProcess, OpenProcessToken, TerminateProcess, WaitForSingleObject,
-};
+use windows::Win32::System::Threading::{GetCurrentProcess, GetExitCodeProcess, OpenProcessToken, TerminateProcess, WaitForSingleObject};
 use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
 use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNORMAL};
 
@@ -96,6 +94,18 @@ pub fn run(program: &Path, parameters: &str, directory: Option<&Path>, limit: Du
                 };
             }
             if started.elapsed() > limit {
+                // ShellExecuteEx can't put the program in a job, so the programs it
+                // started are ended by asking Windows for the whole tree (this
+                // setup is elevated here, as the program is).
+                let pid = windows::Win32::System::Threading::GetProcessId(process);
+                if pid != 0 {
+                    let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+                    let _ = std::process::Command::new(Path::new(&system).join("System32").join("taskkill.exe"))
+                        .args(["/PID", &pid.to_string(), "/T", "/F"])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status();
+                }
                 let _ = TerminateProcess(process, 1);
                 break Outcome::TimedOut;
             }

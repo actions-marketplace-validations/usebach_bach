@@ -171,11 +171,8 @@ fn an_unreachable_feed_fails_the_online_installer_cleanly() {
     assert!(run(&dir, &["build", "--fast"]).status.success());
     let online = dir.join("dist/Hello-Web-Setup.exe");
     let install_dir = dir.join("installed");
-    let out = Command::new(&online)
-        .args(["--silent", "--lang", "en", "--dir"])
-        .arg(&install_dir)
-        .output()
-        .expect("the online installer starts");
+    let out =
+        Command::new(&online).args(["--silent", "--lang", "en", "--dir"]).arg(&install_dir).output().expect("the online installer starts");
     let message = text(&out.stderr);
     assert_eq!(out.status.code(), Some(1), "{message}");
     assert!(message.contains("Couldn't download Hello"), "{message}");
@@ -519,7 +516,8 @@ fn a_patch_carries_only_the_files_that_changed() {
     assert_eq!(feed["delta"]["sha256"].as_str().unwrap().len(), 64);
 
     // Not the right inputs.
-    let out = run(&dir, &["build", "--fast", "--patch-from", "dist/Hello-Setup-1.0.0.exe", "--app-version", "1.2.0", "--out", "dist/x.exe"]);
+    let out =
+        run(&dir, &["build", "--fast", "--patch-from", "dist/Hello-Setup-1.0.0.exe", "--app-version", "1.2.0", "--out", "dist/x.exe"]);
     assert!(out.status.success());
     let out = run(&dir, &["feed", patch.to_str().unwrap()]);
     assert!(text(&out.stderr).contains("update patch"), "{}", text(&out.stderr));
@@ -561,5 +559,246 @@ fn key_files_from_any_shell_work() {
         let out = run(&dir, &["build", "--fast", "--key-file", file]);
         assert!(out.status.success(), "{file}: {}", text(&out.stderr));
     }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_feed_with_a_publisher_key_is_signed_and_refuses_the_wrong_key() {
+    need_runtime!();
+    let dir = project("feedkey", &config(UPDATES));
+    let key_file = dir.join("feed-key.private");
+    let made = run(&dir, &["feed-key", "--out", key_file.to_str().unwrap()]);
+    assert!(made.status.success(), "{}", text(&made.stderr));
+    let shown = text(&made.stdout);
+    let public =
+        shown.lines().find_map(|line| line.strip_prefix("public_key = \"")).and_then(|rest| rest.strip_suffix('"')).unwrap().to_string();
+    let private = std::fs::read_to_string(&key_file).unwrap().trim().to_string();
+    assert!(!run(&dir, &["feed-key", "--out", key_file.to_str().unwrap()]).status.success(), "an existing key file is never overwritten");
+
+    let with_key = format!("{UPDATES}public_key = \"{public}\"\n");
+    let signed_dir = project("feedkey-signed", &config(&with_key));
+    let setup = signed_dir.join("dist/Hello-Setup-1.0.0.exe");
+    // A build without the key still builds, and says that latest.json is unsigned.
+    let mut build = bach();
+    build.current_dir(&signed_dir).args(["build", "--fast"]).env_remove("BACH_FEED_KEY").env_remove("BACH_FEED_KEY_FILE");
+    let built = build.output().unwrap();
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    assert!(text(&built.stderr).contains("is not signed"), "{}", text(&built.stderr));
+    let feed = signed_dir.join("signed.json");
+    let write = |key: Option<&str>| {
+        let mut command = bach();
+        command.current_dir(&signed_dir).args(["feed", setup.to_str().unwrap(), "--out", feed.to_str().unwrap()]);
+        command.env_remove("BACH_FEED_KEY").env_remove("BACH_FEED_KEY_FILE");
+        if let Some(key) = key {
+            command.env("BACH_FEED_KEY", key);
+        }
+        command.output().unwrap()
+    };
+
+    let unsigned = write(None);
+    assert!(!unsigned.status.success());
+    assert!(text(&unsigned.stderr).contains("must be signed"), "{}", text(&unsigned.stderr));
+
+    let (other_private, _) = bach_pack::feedsig::generate().unwrap();
+    let wrong = write(Some(&other_private));
+    assert!(!wrong.status.success());
+    assert!(text(&wrong.stderr).contains("doesn't belong"), "{}", text(&wrong.stderr));
+
+    let good = write(Some(&private));
+    assert!(good.status.success(), "{}", text(&good.stderr));
+    let entry: bach_pack::manifest::FeedEntry = serde_json::from_str(&std::fs::read_to_string(&feed).unwrap()).unwrap();
+    assert!(bach_pack::feedsig::verify(&public, "BachIntegrationTest-Hello", &entry).is_ok());
+    let mut tampered = entry.clone();
+    tampered.sha256 = "00".repeat(32);
+    assert!(bach_pack::feedsig::verify(&public, "BachIntegrationTest-Hello", &tampered).is_err());
+    // The latest.json that `bach build` wrote beside the setup file was signed with the same key.
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&signed_dir).unwrap();
+}
+
+/// What `--json` prints: one object on stdout and nothing else, with the documented fields.
+fn json_of(out: &Output) -> serde_json::Map<String, serde_json::Value> {
+    let stdout = text(&out.stdout);
+    let value: serde_json::Value =
+        serde_json::from_str(stdout.trim()).unwrap_or_else(|err| panic!("stdout isn't one JSON object ({err}): {stdout}"));
+    assert_eq!(stdout.trim().lines().count(), 1, "one line: {stdout}");
+    let object = value.as_object().unwrap().clone();
+    let schema: serde_json::Value = serde_json::from_str(include_str!("../../../schema/bach-output.schema.json")).unwrap();
+    for key in object.keys() {
+        assert!(schema["properties"].get(key).is_some(), "{key} isn't in schema/bach-output.schema.json");
+    }
+    object
+}
+
+#[test]
+fn json_output_is_one_object_with_stable_fields() {
+    need_runtime!();
+    let dir = project("json", &config(UPDATES));
+    let checked = json_of(&run(&dir, &["check", "--json"]));
+    assert_eq!(checked["ok"], true);
+    assert_eq!((checked["name"].as_str(), checked["version"].as_str()), (Some("Hello"), Some("1.0.0")));
+    assert!(checked["files"].as_u64().unwrap() >= 1 && checked["warnings"].is_array());
+
+    let built = run(&dir, &["build", "--fast", "--json"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let built = json_of(&built);
+    let setup = built["setup"].as_str().unwrap();
+    let setup_path = dir.join(setup);
+    assert!(setup_path.is_file() && setup.ends_with("Hello-Setup-1.0.0.exe"), "{setup}");
+    assert_eq!(built["version"], "1.0.0");
+    assert_eq!(built["size"].as_u64().unwrap(), size(&setup_path));
+    assert_eq!(built["sha256"].as_str().unwrap().len(), 64);
+    assert!(built["feed"].as_str().unwrap().ends_with("latest.json"));
+    assert!(built.get("online_setup").is_none() && built.get("patch").is_none(), "only what was made");
+
+    let inspected = json_of(&run(&dir, &["inspect", setup_path.to_str().unwrap(), "--json"]));
+    assert_eq!((inspected["kind"].as_str(), inspected["app_id"].as_str()), (Some("installer"), Some("BachIntegrationTest-Hello")));
+
+    let feed = dir.join("j.json");
+    let fed = json_of(&run(&dir, &["feed", setup_path.to_str().unwrap(), "--out", feed.to_str().unwrap(), "--json"]));
+    assert_eq!((fed["sha256"].clone(), fed["signed"].clone()), (built["sha256"].clone(), serde_json::Value::Bool(false)));
+    assert!(fed["url"].as_str().unwrap().starts_with("https://bach-test.invalid/hello/"));
+
+    let failed = run(&dir, &["check", "--json", "--config-missing-flag"]);
+    assert!(!failed.status.success(), "a mistake in the arguments still fails");
+    let mut missing = bach();
+    missing.current_dir(&dir).args(["check", "nowhere/bach.toml", "--json"]);
+    let missing = missing.output().unwrap();
+    assert!(!missing.status.success());
+    let error = json_of(&missing);
+    assert_eq!(error["ok"], false);
+    assert!(error["error"].as_str().unwrap().len() > 5 && !error.contains_key("setup"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_checksums_in_a_setup_file_are_those_of_the_packed_files() {
+    need_runtime!();
+    let dir = project("sums", &config(""));
+    let built = run(&dir, &["build", "--fast"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+
+    // They are taken while the files are packed, so they must still be the
+    // SHA-256 of what is on disk, for every file.
+    let mut file = std::fs::File::open(&setup).unwrap();
+    let layout = bach_pack::container::locate(&mut file).unwrap().expect("a Bach setup file");
+    let manifest = bach_pack::container::read_manifest(&mut file, &layout).unwrap();
+    assert_eq!(manifest.files.len(), 2);
+    for entry in &manifest.files {
+        let on_disk = std::fs::File::open(dir.join("app").join(&entry.path)).unwrap();
+        let expected = bach_pack::protect::sha256_hex(on_disk).unwrap();
+        assert_eq!(entry.sha256.as_deref(), Some(expected.as_str()), "{}", entry.path);
+    }
+    // And the build is deterministic: the same inputs give the same setup file.
+    let first = std::fs::read(&setup).unwrap();
+    let again = run(&dir, &["build", "--fast"]);
+    assert!(again.status.success(), "{}", text(&again.stderr));
+    assert_eq!(first, std::fs::read(&setup).unwrap(), "two builds of the same files differ");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_same_files_in_another_folder_give_the_same_setup_file() {
+    need_runtime!();
+    // Two checkouts of one project: other folder, other modified times, other
+    // order of creation. Whoever builds from the same sources gets the same
+    // bytes, so anyone can check that a setup file came from them.
+    let first = project("repro-a", &config(""));
+    let built = run(&first, &["build"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+    let second = project("repro-b", &config(""));
+    // The same files, written in the opposite order, and touched later.
+    let (exe, data) = (std::fs::read(second.join("app/hello.exe")).unwrap(), std::fs::read(second.join("app/data.bin")).unwrap());
+    std::fs::remove_file(second.join("app/hello.exe")).unwrap();
+    std::fs::remove_file(second.join("app/data.bin")).unwrap();
+    std::fs::write(second.join("app/data.bin"), data).unwrap();
+    std::fs::write(second.join("app/hello.exe"), exe).unwrap();
+    let built = run(&second, &["build"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let (a, b) = (dir_setup(&first), dir_setup(&second));
+    assert_eq!(a.len(), b.len());
+    assert!(a == b, "the two setup files differ");
+    std::fs::remove_dir_all(&first).unwrap();
+    std::fs::remove_dir_all(&second).unwrap();
+}
+
+fn dir_setup(dir: &Path) -> Vec<u8> {
+    std::fs::read(dir.join("dist/Hello-Setup-1.0.0.exe")).unwrap()
+}
+
+#[test]
+fn a_chocolatey_package_carries_the_checksum_of_the_setup_file() {
+    need_runtime!();
+    let dir = project("choco", &config(""));
+    let built = run(&dir, &["build", "--fast"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+    let made =
+        run(&dir, &["choco", setup.to_str().unwrap(), "--url", "https://bach-test.invalid/Hello-Setup-1.0.0.exe", "--license", "MIT"]);
+    assert!(made.status.success(), "{}", text(&made.stderr));
+    let package = dir.join("dist/choco/bachintegrationtest-hello/1.0.0");
+    let sha = bach_pack::protect::sha256_hex(std::fs::File::open(&setup).unwrap()).unwrap();
+    let install = std::fs::read_to_string(package.join("tools/chocolateyInstall.ps1")).unwrap();
+    assert!(install.contains(&format!("'{sha}'")), "the install script checks the setup file's SHA-256\n{install}");
+    assert!(install.contains("https://bach-test.invalid/Hello-Setup-1.0.0.exe") && install.contains("'--silent'"));
+    assert!(package.join("bachintegrationtest-hello.nuspec").is_file());
+    assert!(package.join("tools/chocolateyUninstall.ps1").is_file());
+    assert!(text(&made.stderr).contains("per-user") || text(&made.stderr).contains("administrator"), "a per-user app gets the warning");
+
+    // Not a setup file with files in it, and not over http.
+    let online = run(&dir, &["choco", setup.to_str().unwrap(), "--url", "http://bach-test.invalid/x.exe"]);
+    assert!(!online.status.success());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_key_file_with_many_keys_gives_each_its_own_slot() {
+    need_runtime!();
+    let dir = secret_project("slots", &config(ACCESS));
+    let keys = ["K7QF-3MWD-9XPA-H2TY-6NBC", "B3RT-9KWM-2XQD-7FHN-4PLC", "C8VH-5NJA-6TRZ-3WQK-2DMB"];
+    // One per line, with a blank line and a comment, as `bach key --count` and people write them.
+    std::fs::write(dir.join("keys.txt"), format!("{}\n\n# the third is for a customer\n{}\n{}\n", keys[0], keys[1], keys[2])).unwrap();
+    let built = run(&dir, &["build", "--fast", "--key-file", "keys.txt"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    assert!(text(&built.stdout).contains("3 access keys"), "{}", text(&built.stdout));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+    assert!(!contains(&setup, SECRET) && keys.iter().all(|key| !contains(&setup, key)));
+
+    let mut file = std::fs::File::open(&setup).unwrap();
+    let layout = bach_pack::container::locate(&mut file).unwrap().expect("a Bach setup file");
+    let manifest = bach_pack::container::read_manifest(&mut file, &layout).unwrap();
+    let encryption = manifest.access.unwrap().encryption.unwrap();
+    assert_eq!(encryption.slots.len(), 3);
+    for key in keys {
+        assert!(encryption.unlock(key).is_ok(), "{key} opens it");
+    }
+    assert!(encryption.unlock("D9XJ-4PQA-7TMN-2KRF-8HWB").is_err(), "a key that isn't in the file does not");
+
+    // Without a file, the environment variable holds one key; an empty key file is refused.
+    std::fs::write(dir.join("empty.txt"), "# nothing here\n\n").unwrap();
+    let empty = run(&dir, &["build", "--fast", "--key-file", "empty.txt"]);
+    assert!(!empty.status.success() && text(&empty.stderr).contains("no access key"), "{}", text(&empty.stderr));
+    std::fs::write(dir.join("twice.txt"), format!("{}\n{}\n", keys[0], keys[0])).unwrap();
+    let twice = run(&dir, &["build", "--fast", "--key-file", "twice.txt"]);
+    assert!(!twice.status.success() && text(&twice.stderr).contains("same as an earlier"), "{}", text(&twice.stderr));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn bach_version_says_its_result_as_json() {
+    need_runtime!();
+    let dir = project("version-json", &config(""));
+    let shown = json_of(&run(&dir, &["version", "--json"]));
+    assert_eq!(shown["version"], "1.0.0");
+    assert_eq!(shown["files"], serde_json::json!(["bach.toml"]));
+    let dry = json_of(&run(&dir, &["version", "minor", "--dry-run", "--json"]));
+    assert_eq!((dry["version"].as_str(), dry["dry_run"].as_bool()), (Some("1.1.0"), Some(true)));
+    assert_eq!(dry["changed"], serde_json::json!(["bach.toml"]));
+    assert!(std::fs::read_to_string(dir.join("bach.toml")).unwrap().contains("1.0.0"), "a dry run writes nothing");
+    let raised = json_of(&run(&dir, &["version", "patch", "--json"]));
+    assert_eq!(raised["version"], "1.0.1");
+    assert!(std::fs::read_to_string(dir.join("bach.toml")).unwrap().contains("1.0.1"));
     std::fs::remove_dir_all(&dir).unwrap();
 }

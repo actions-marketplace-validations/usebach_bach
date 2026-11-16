@@ -23,12 +23,15 @@ mod scope;
 pub mod system;
 mod validate;
 
-pub use access::{Access, Encryption};
-pub use choices::{auto_update_setting as choices_auto_update, Choice, Choices, OPTION_AUTO_UPDATE, OPTION_AUTOSTART, OPTION_DESKTOP, OPTION_PATH, OPTION_START_MENU};
+pub use access::{Access, Encryption, Slot};
+pub use choices::{
+    auto_update_setting as choices_auto_update, Choice, Choices, OPTION_AUTOSTART, OPTION_AUTO_UPDATE, OPTION_DESKTOP, OPTION_PATH,
+    OPTION_START_MENU,
+};
 pub use extras::{Check, DeltaEntry, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
 pub use features::{Component, FileType, Protocol};
 pub use scope::Scope;
-pub use system::{ContextMenuEntry, ContextTarget, EnvVar, Migrate, RegistryData, RegistryValue, SystemChanges};
+pub use system::{ContextMenuEntry, ContextTarget, EnvVar, Migrate, RegistryData, RegistryValue, RegistryView, SystemChanges};
 pub use validate::MAX_LICENSE;
 
 /// The uninstaller's file name in every install folder.
@@ -260,10 +263,7 @@ impl Manifest {
     /// The bytes the user's choices install, for the progress bar, the
     /// free-space check and Settings › Apps.
     pub fn selected_size(&self, choices: &Choices) -> u64 {
-        self.files
-            .iter()
-            .filter(|file| choices.installs(file))
-            .fold(0u64, |sum, file| sum.saturating_add(file.size))
+        self.files.iter().filter(|file| choices.installs(file)).fold(0u64, |sum, file| sum.saturating_add(file.size))
     }
 
     /// The program inside an install folder.
@@ -298,11 +298,7 @@ impl Manifest {
 
     /// The developer's text for `key` in `language`, if they replaced it.
     pub fn custom_text(&self, key: Key, language: &str) -> Option<&str> {
-        let custom = self
-            .locale
-            .text
-            .get(key.name())
-            .and_then(|text| i18n::resolve(text, language, &self.locale.languages));
+        let custom = self.locale.text.get(key.name()).and_then(|text| i18n::resolve(text, language, &self.locale.languages));
         match (custom, key) {
             (None, Key::delete_data_description) => self.uninstall.data_description.as_deref(),
             (custom, _) => custom,
@@ -349,11 +345,7 @@ pub(crate) fn sample() -> Manifest {
             website_button: false,
             scope: Scope::User,
         },
-        uninstall: Uninstall {
-            data: vec![r"%APPDATA%\Hello".into()],
-            data_description: Some("Settings.".into()),
-            feedback_url: None,
-        },
+        uninstall: Uninstall { data: vec![r"%APPDATA%\Hello".into()], data_description: Some("Settings.".into()), feedback_url: None },
         look: Look::default(),
         files: vec![
             FileEntry::new("hello.exe", 10),
@@ -371,7 +363,12 @@ pub(crate) fn sample() -> Manifest {
         locale: Locale::default(),
         chosen: None,
         requirements: Vec::new(),
-        shortcuts: vec![Shortcut { name: "Hello Docs".into(), target: "hello.exe".into(), arguments: Some("--docs".into()), description: None }],
+        shortcuts: vec![Shortcut {
+            name: "Hello Docs".into(),
+            target: "hello.exe".into(),
+            arguments: Some("--docs".into()),
+            description: None,
+        }],
         run: Vec::new(),
         system: SystemChanges::default(),
         updates: None,
@@ -423,6 +420,18 @@ mod tests {
         let mut manifest = sample();
         manifest.files.push(FileEntry::new("../evil.dll", 1));
         assert!(manifest.validate().is_err());
+    }
+
+    #[test]
+    fn a_setup_file_with_a_personal_data_folder_is_rejected() {
+        for folder in [r"%USERPROFILE%\Documents", r"%APPDATA%\Microsoft", r"%USERPROFILE%\.ssh"] {
+            let mut manifest = sample();
+            manifest.uninstall.data.push(folder.to_string());
+            assert!(manifest.validate().is_err(), "{folder} should be rejected");
+        }
+        let mut manifest = sample();
+        manifest.uninstall.data.push(r"%APPDATA%\Hello".to_string());
+        assert!(manifest.validate().is_ok());
     }
 
     #[test]

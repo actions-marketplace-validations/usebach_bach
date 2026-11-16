@@ -34,4 +34,20 @@ pub struct Encryption {
     pub passes: u32,
     /// A hash that tells a right key from a wrong one.
     pub check: String,
+    /// With the slot scheme: one slot per access key, each holding the files'
+    /// key locked with that access key. Empty for the single-key scheme.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slots: Vec<Slot>,
+}
+
+/// One access key's slot (see `protect.rs`): the files' key, sealed with a key
+/// made from the access key. All lowercase hex.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Slot {
+    /// One byte of a hash of the access key: enough to skip most slots without
+    /// the slow key derivation, little enough to tell an attacker nothing.
+    pub id: String,
+    pub salt: String,
+    /// A nonce, the sealed files' key and its tag.
+    pub wrapped: String,
 }

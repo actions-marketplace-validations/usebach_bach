@@ -27,7 +27,7 @@ use bach_pack::protect::{KeyError, Unlocked};
 
 use super::patch::patch_base;
 use super::place::{self, Transaction};
-use super::{describe, failed, is_disk_full, is_in_use, plain, remove_empty_parents, remove_file_if_present, Report};
+use super::{describe, failed, is_disk_full, is_in_use, is_in_use_at, plain, remove_empty_parents, remove_file_if_present, Report};
 use crate::package::Package;
 use crate::system::{self, changes, env_path, host, integration, task};
 use crate::texts::{self, Texts};
@@ -49,6 +49,7 @@ pub struct InstallPlan {
 /// Installs or updates. An online installer first downloads the newest
 /// setup file and installs from that; everything after is the same.
 pub fn install(plan: &InstallPlan, report: Report) -> Result<(), String> {
+    super::cancel::reset();
     if !plan.package.manifest.online {
         return install_files(plan, report);
     }
@@ -83,6 +84,7 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
         return Err(texts.with(Key::error_no_access, &[("path", &dir.display().to_string())]));
     }
     create_install_dir(dir, texts)?;
+    check_elevated_folder(manifest, dir, texts)?;
     // An update that was cut short earlier is undone first.
     place::recover(dir);
     let program = manifest.executable_in(dir);
@@ -91,10 +93,25 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     let needed = manifest.selected_size(&choices);
     // An update patch carries only what changed; the rest is in the folder.
     let matching = patch_base(manifest, &choices, dir);
+    if previous.is_some() {
+        // What an update or a repair is about to write again: missing, or not what the manifest records.
+        let rewritten: Vec<&str> = manifest
+            .files
+            .iter()
+            .filter(|file| choices.installs(file) && !matching.contains(&file.path))
+            .map(|file| file.path.as_str())
+            .collect();
+        let shown: Vec<&str> = rewritten.iter().take(20).copied().collect();
+        crate::log::line(&format!(
+            "{} file(s) are written: {}{}",
+            rewritten.len(),
+            shown.join(", "),
+            if rewritten.len() > 20 { ", ..." } else { "" }
+        ));
+    }
     let unchanged: u64 = manifest.files.iter().filter(|file| matching.contains(&file.path)).map(|file| file.size).sum();
     let to_copy = needed.saturating_sub(unchanged);
     check_free_space(dir, to_copy, texts)?;
-    verify_archive(package, layout.archive, texts)?;
 
     // An older install of this app by another installer goes first, so its
     // uninstaller can't take away what this one puts in place.
@@ -103,30 +120,72 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
         super::migrate::run(manifest);
     }
 
-    unpack(plan, &choices, layout.archive, to_copy, &matching, unlocked.as_ref(), report)?;
-
-    report(0.86, &texts.get(Key::step_tidying));
+    // The files are in place but still undoable: everything below can fail,
+    // and then the earlier version comes back whole.
+    let committed = unpack(plan, &choices, layout.archive, to_copy, &matching, unlocked.as_ref(), report)?;
     let installed = manifest.as_installed(&choices);
+    let uninstaller_before = keep_uninstaller(dir);
+    let later = (|| -> Result<(), String> {
+        super::steps::run_install_steps(manifest, dir, previous.is_none(), &choices, texts, (0.895, 0.915), report)?;
+
+        report(0.92, &texts.get(Key::step_shortcuts));
+        shortcuts(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
+        integrate(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
+
+        report(0.95, &texts.get(Key::step_uninstaller));
+        write_uninstaller(package, &installed, dir, texts)?;
+
+        report(0.97, &texts.get(Key::step_registering));
+        system::register(manifest, dir, needed).map_err(|err| format!("{} {}", texts.get(Key::error_register), plain(&err)))
+    })();
+    if let Err(problem) = later {
+        crate::log::line("A step after the files were placed failed, so the earlier version is being put back.");
+        let staged = committed.rollback();
+        remove_empty_parents(dir, staged.iter().filter_map(|path| path.strip_prefix(dir).ok()).filter_map(|path| path.to_str()));
+        restore_uninstaller(dir, uninstaller_before);
+        if let Some(previous) = &previous {
+            // What the failed update changed around the files goes back too.
+            let before = previous.chosen.clone().unwrap_or_default();
+            let old_program = previous.executable_in(dir);
+            let _ = shortcuts(previous, Some(&installed), &before, dir, &old_program, texts);
+            let _ = integrate(previous, Some(&installed), &before, dir, &old_program, texts);
+        }
+        return Err(problem);
+    }
+    report(0.86, &texts.get(Key::step_tidying));
+    committed.finish();
+    if let Some(uninstaller) = uninstaller_before {
+        let _ = fs::remove_file(uninstaller);
+    }
     if let Some(previous) = &previous {
         remove_stale(dir, previous, &installed);
     }
-
-    report(0.89, &texts.get(Key::step_uninstaller));
-    write_uninstaller(package, &installed, dir, texts)?;
-
-    super::steps::run_install_steps(manifest, dir, previous.is_none(), &choices, texts, (0.895, 0.915), report)?;
-
-    report(0.92, &texts.get(Key::step_shortcuts));
-    shortcuts(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
-    integrate(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
-
-    report(0.97, &texts.get(Key::step_registering));
-    system::register(manifest, dir, needed)
-        .map_err(|err| format!("{} {}", texts.get(Key::error_register), plain(&err)))?;
     keep_key(plan);
     system::notify_shell();
     report(1.0, &texts.get(Key::step_done));
     Ok(())
+}
+
+/// The installed uninstaller, copied aside while an update runs, so a failed
+/// update can put it back. None for a first install.
+fn keep_uninstaller(dir: &Path) -> Option<PathBuf> {
+    let current = dir.join(UNINSTALLER);
+    let kept = place::with_suffix(&current, ".bach-prev");
+    (current.is_file() && fs::copy(&current, &kept).is_ok()).then_some(kept)
+}
+
+/// Puts the uninstaller kept by [`keep_uninstaller`] back; on a first install
+/// (nothing kept) the new one is removed.
+fn restore_uninstaller(dir: &Path, kept: Option<PathBuf>) {
+    let current = dir.join(UNINSTALLER);
+    match kept {
+        Some(kept) => {
+            let _ = place::replace_file(&kept, &current);
+        }
+        None => {
+            let _ = fs::remove_file(&current);
+        }
+    }
 }
 
 /// Opens the files with the access key, when they are locked. A missing or
@@ -179,6 +238,25 @@ fn create_install_dir(dir: &Path, texts: &Texts) -> Result<(), String> {
     })
 }
 
+/// A machine-wide app runs elevated from its folder, so the folder must not
+/// be one that ordinary users can change (an old installer or a script may
+/// have left such a folder in Program Files). Checked before anything is
+/// written, and again before an elevated update or removal.
+pub(super) fn check_elevated_folder(manifest: &Manifest, dir: &Path, texts: &Texts) -> Result<(), String> {
+    if !manifest.install.scope.is_machine() {
+        return Ok(());
+    }
+    let unsafe_folder = |why: &str| {
+        crate::log::line(&format!("{} isn't safe to run elevated: {why}.", dir.display()));
+        texts.with(Key::error_unsafe_folder, &[("path", &dir.display().to_string())])
+    };
+    match crate::system::acl::tree_weakness(dir) {
+        Ok(None) => Ok(()),
+        Ok(Some(why)) => Err(unsafe_folder(&why)),
+        Err(why) => Err(unsafe_folder(&why)),
+    }
+}
+
 /// Fails with a readable sentence when the app is running from `program`.
 fn ensure_closed(program: &Path, texts: &Texts) -> Result<(), String> {
     if is_running(program) {
@@ -202,10 +280,10 @@ pub fn recover_interrupted(dir: &Path) -> usize {
 
 fn check_free_space(dir: &Path, needed: u64, texts: &Texts) -> Result<(), String> {
     match host::free_space(dir) {
-        Some(free) if free < needed.saturating_add(SPARE_BYTES) => Err(texts.with(
-            Key::error_disk_full,
-            &[("size", &texts::size(needed.saturating_add(SPARE_BYTES))), ("free", &texts::size(free))],
-        )),
+        Some(free) if free < needed.saturating_add(SPARE_BYTES) => {
+            Err(texts
+                .with(Key::error_disk_full, &[("size", &texts::size(needed.saturating_add(SPARE_BYTES))), ("free", &texts::size(free))]))
+        }
         _ => Ok(()),
     }
 }
@@ -221,13 +299,12 @@ fn unpack(
     matching: &HashSet<String>,
     unlocked: Option<&Unlocked>,
     report: Report,
-) -> Result<(), String> {
+) -> Result<place::Committed, String> {
     let texts = &plan.texts;
     let manifest = &plan.package.manifest;
     let dir = &plan.dir;
     let read_failed = |err: std::io::Error| format!("{} {}", texts.get(Key::error_read_setup), describe(&err));
-    let wanted: HashSet<&str> =
-        manifest.files.iter().filter(|file| choices.installs(file)).map(|file| file.path.as_str()).collect();
+    let wanted: HashSet<&str> = manifest.files.iter().filter(|file| choices.installs(file)).map(|file| file.path.as_str()).collect();
     for file in &manifest.files {
         place::clear_leftovers(&paths::under(dir, &file.path));
     }
@@ -238,23 +315,36 @@ fn unpack(
     let mut done = 0u64;
     let mut source = File::open(&plan.package.exe).map_err(read_failed)?;
     source.seek(SeekFrom::Start(archive_section.offset)).map_err(read_failed)?;
-    let reader = BufReader::new(source.take(archive_section.len));
+    // The archive is checked against the builder's SHA-256 as it is read (and
+    // before the commit below), not in a pass of its own beforehand.
+    let (section, verdict) = super::section::hashing(source.take(archive_section.len));
+    let reader = BufReader::new(section);
     let mut transaction = Transaction::default();
     let mut write_error: Option<String> = None;
     let mut present: HashSet<String> = HashSet::new();
     let mut visit = |packaged: &str, _size: u64, body: &mut dyn Read| {
+        if super::cancel::requested() {
+            write_error = Some(super::cancel::CANCELLED.to_string());
+            return Err(anyhow::anyhow!("cancelled"));
+        }
         if !wanted.contains(packaged) {
             return Ok(());
         }
         present.insert(packaged.to_string());
+        if matching.contains(packaged) {
+            // Already here exactly as packaged: nothing to write.
+            return Ok(());
+        }
         let target = paths::under(dir, packaged);
         transaction
-            .stage(&target, body, &mut |chunk| {
+            .stage(&target, &mut super::cancel::Cancellable(body), &mut |chunk| {
                 done = done.saturating_add(chunk);
                 report(0.04 + UNPACK_SHARE * (done as f32 / total as f32).min(1.0), &copying);
             })
             .map_err(|err| {
-                write_error = Some(if is_disk_full(&err) {
+                write_error = Some(if super::cancel::requested() {
+                    super::cancel::CANCELLED.to_string()
+                } else if is_disk_full(&err) {
                     texts.with(Key::error_disk_full, &[("size", &texts::size(needed)), ("free", "0 KB")])
                 } else {
                     failed(texts, Key::error_write, &target, &err)
@@ -264,9 +354,9 @@ fn unpack(
     };
     let encryption = manifest.access.as_ref().and_then(|access| access.encryption.as_ref());
     let unpacked = match (encryption, unlocked) {
-        (Some(encryption), Some(unlocked)) => encryption
-            .reader(reader, unlocked)
-            .and_then(|decrypted| archive::read(decrypted, &mut visit)),
+        (Some(encryption), Some(unlocked)) => {
+            encryption.reader(reader, unlocked).and_then(|decrypted| archive::read(decrypted, &mut visit))
+        }
         _ => archive::read(reader, &mut visit),
     };
     if let Err(err) = unpacked {
@@ -274,19 +364,44 @@ fn unpack(
         remove_empty_parents(dir, wanted.iter().copied());
         return Err(write_error.unwrap_or_else(|| format!("{} {}", texts.get(Key::error_damaged), plain(&err))));
     }
+    if let Some(expected) = &manifest.archive_sha256 {
+        let intact = match verdict.matches(expected) {
+            Ok(intact) => intact,
+            Err(err) => {
+                transaction.discard();
+                remove_empty_parents(dir, wanted.iter().copied());
+                return Err(read_failed(err));
+            }
+        };
+        if !intact {
+            crate::log::line("The archive doesn't match the SHA-256 recorded when the setup file was built.");
+            transaction.discard();
+            remove_empty_parents(dir, wanted.iter().copied());
+            return Err(texts.get(Key::error_damaged));
+        }
+    }
+    // A cancel that came as the last file was written: nothing is moved yet.
+    if super::cancel::requested() {
+        transaction.discard();
+        remove_empty_parents(dir, wanted.iter().copied());
+        return Err(super::cancel::CANCELLED.to_string());
+    }
     // A patch is only good on the version it was made for: every file it
     // leaves out has to be there, unchanged.
     if manifest.patch_from.is_some() {
         let missing = wanted.iter().find(|path| !present.contains(**path) && !matching.contains(**path));
         if let Some(missing) = missing {
-            crate::log::line(&format!("The update patch needs {missing} as it was in version {}, and it isn't.", manifest.patch_from.as_deref().unwrap_or("?")));
+            crate::log::line(&format!(
+                "The update patch needs {missing} as it was in version {}, and it isn't.",
+                manifest.patch_from.as_deref().unwrap_or("?")
+            ));
             transaction.discard();
             remove_empty_parents(dir, wanted.iter().copied());
             return Err(texts.get(Key::error_patch_base));
         }
     }
-    transaction.commit(&place::journal_path(dir)).map_err(|failure| {
-        if is_in_use(&failure.error) {
+    transaction.commit_open(&place::journal_path(dir)).map_err(|failure| {
+        if is_in_use_at(&failure.error, &failure.target) {
             texts.with(Key::error_in_use, &[("path", &failure.target.display().to_string())])
         } else {
             failed(texts, Key::error_write, &failure.target, &failure.error)
@@ -308,12 +423,8 @@ pub fn previous_install(dir: &Path, manifest: &Manifest) -> Option<Manifest> {
 /// Removes what the old install put there and the new one doesn't.
 fn remove_stale(dir: &Path, previous: &Manifest, installed: &Manifest) {
     let keep: HashSet<String> = installed.files.iter().map(|file| file.path.to_lowercase()).collect();
-    let stale: Vec<&str> = previous
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .filter(|path| !keep.contains(&path.to_lowercase()))
-        .collect();
+    let stale: Vec<&str> =
+        previous.files.iter().map(|file| file.path.as_str()).filter(|path| !keep.contains(&path.to_lowercase())).collect();
     for path in &stale {
         // A stale file that won't go is left behind, not a failed update.
         let _ = remove_file_if_present(&paths::under(dir, path));
@@ -346,7 +457,7 @@ fn write_uninstaller(package: &Package, installed: &Manifest, dir: &Path, texts:
     // lets be renamed, not overwritten.
     place::replace_file(&partial, &target).map_err(|err| {
         let _ = fs::remove_file(&partial);
-        if is_in_use(&err) {
+        if is_in_use_at(&err, &target) {
             texts.with(Key::error_in_use, &[("path", &target.display().to_string())])
         } else {
             fail(describe(&err))
@@ -386,6 +497,7 @@ fn shortcuts(
             }
         }
     }
+    let app_id = system::app_user_model_id(manifest);
     let wanted = [
         (system::start_menu_shortcut(manifest), choices.start_menu_shortcut),
         (system::desktop_shortcut(manifest), choices.desktop_shortcut),
@@ -395,7 +507,7 @@ fn shortcuts(
             continue;
         };
         if wanted {
-            system::create_shortcut(&link, program, &description).map_err(|err| failed(&link, err))?;
+            system::create_shortcut(&link, program, &description, &app_id).map_err(|err| failed(&link, err))?;
         } else {
             let _ = remove_file_if_present(&link);
         }
@@ -405,7 +517,7 @@ fn shortcuts(
         let installed = manifest.files.iter().any(|file| file.path == shortcut.target && choices.installs(file));
         if choices.start_menu_shortcut && installed {
             let description = shortcut.description.clone().unwrap_or_else(|| shortcut.name.clone());
-            system::create_shortcut_with(&link, &target, shortcut.arguments.as_deref(), &description)
+            system::create_shortcut_with(&link, &target, shortcut.arguments.as_deref(), &description, &app_id)
                 .map_err(|err| failed(&link, err))?;
         } else {
             let _ = remove_file_if_present(&link);
@@ -415,23 +527,6 @@ fn shortcuts(
         if let Ok(folder) = system::start_menu_folder(manifest) {
             let _ = fs::remove_dir(folder);
         }
-    }
-    Ok(())
-}
-
-/// Checks the archive against the SHA-256 the builder recorded, before a
-/// single file is unpacked, so a damaged download fails right away.
-fn verify_archive(package: &Package, section: container::Section, texts: &Texts) -> Result<(), String> {
-    let Some(expected) = &package.manifest.archive_sha256 else {
-        return Ok(());
-    };
-    let damaged = || texts.get(Key::error_damaged);
-    let mut file = File::open(&package.exe).map_err(|_| texts.get(Key::error_read_setup))?;
-    file.seek(SeekFrom::Start(section.offset)).map_err(|_| texts.get(Key::error_read_setup))?;
-    let mut reader = file.take(section.len);
-    let actual = bach_pack::protect::sha256_hex(&mut reader).map_err(|_| texts.get(Key::error_read_setup))?;
-    if reader.limit() != 0 || actual != expected.to_ascii_lowercase() {
-        return Err(damaged());
     }
     Ok(())
 }
@@ -456,11 +551,7 @@ fn integrate(
     // Automatic updates are a per-user scheduled task. A PC that won't allow
     // one just doesn't update by itself; that never fails the install.
     if manifest.updates.is_some() {
-        let result = if choices.auto_update {
-            task::register(manifest, &dir.join(UNINSTALLER))
-        } else {
-            task::unregister(manifest)
-        };
+        let result = if choices.auto_update { task::register(manifest, &dir.join(UNINSTALLER)) } else { task::unregister(manifest) };
         if let Err(err) = result {
             crate::log::line(&format!("Automatic updates: {err:#}"));
         }

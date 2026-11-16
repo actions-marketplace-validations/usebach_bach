@@ -13,13 +13,7 @@ impl SetupView {
     pub(super) fn requirement_page(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let texts = self.texts.clone();
-        let name = self
-            .package
-            .manifest
-            .requirements
-            .get(index)
-            .map(|requirement| requirement.name.clone())
-            .unwrap_or_default();
+        let name = self.package.manifest.requirements.get(index).map(|requirement| requirement.name.clone()).unwrap_or_default();
         let values = [("requirement", name.as_str())];
         let buttons = vec![
             FormButton::new("setup-cancel", texts.get(Key::cancel))
@@ -31,6 +25,11 @@ impl SetupView {
                 .outline()
                 .focused(self.is_focused(Target::Secondary))
                 .on_click(cx.listener(|this, _, _, cx| this.recheck_requirements(cx)))
+                .into_any_element(),
+            FormButton::new("setup-skip", texts.get(Key::requirement_skip))
+                .outline()
+                .focused(self.is_focused(Target::Skip))
+                .on_click(cx.listener(|this, _, _, cx| this.skip_requirements(cx)))
                 .into_any_element(),
             FormButton::new("setup-get", texts.with(Key::requirement_button, &values))
                 .focused(self.is_focused(Target::Primary))

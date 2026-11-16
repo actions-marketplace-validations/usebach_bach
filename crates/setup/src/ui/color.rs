@@ -23,13 +23,7 @@ pub fn mix(a: Hsla, b: Hsla, t: f32) -> Hsla {
             0.0
         }
     };
-    Rgba {
-        r: channel(a.r, a.a, b.r, b.a),
-        g: channel(a.g, a.a, b.g, b.a),
-        b: channel(a.b, a.a, b.b, b.a),
-        a: alpha,
-    }
-    .into()
+    Rgba { r: channel(a.r, a.a, b.r, b.a), g: channel(a.g, a.a, b.g, b.a), b: channel(a.b, a.a, b.b, b.a), a: alpha }.into()
 }
 
 /// `color` mixed `amount` of the way toward `toward` — CSS

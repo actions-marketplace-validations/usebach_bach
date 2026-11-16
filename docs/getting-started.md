@@ -42,9 +42,17 @@ Prefer doing it by hand? Download `bach-<version>-windows-x64.zip` from the
 somewhere permanent and keep the two files together. On macOS or Linux (for
 CI), run
 `curl -fsSL https://raw.githubusercontent.com/usebach/bach/main/install.sh | sh`;
-`bach` downloads `bach-setup.exe` itself the first time it builds.
+`bach` downloads `bach-setup.exe` itself the first time it builds. `bach init`
+reads the name, version and publisher from `package.json`, `Cargo.toml`,
+`tauri.conf.json` or the `.csproj` and tidies the name so the config passes
+`bach check`: an npm scope is dropped (`@scope/my-app` becomes "My App" and the
+program `my-app.exe`), and characters an app name can't hold are replaced. A
+name with nothing usable left falls back to the folder's name.
 
 Run `bach doctor` to see that everything is in place.
+
+Setup files run on Windows 10 version 1809 (build 17763) and newer, and on
+Windows 11, on x64 and ARM64.
 
 ## 2. Build your app into a folder
 
@@ -101,7 +109,7 @@ icon = "assets/app.ico"    # the setup file's icon, and the logo if it has a PNG
 logo = "assets/logo.svg"   # or a .png, or "none"
 accent = "#2563eb"         # buttons, the progress bar, ticked boxes
 theme = "system"           # or "light" / "dark"
-languages = ["en", "de"]   # leave out to speak all 13, following Windows
+languages = ["en", "de"]   # leave out to speak all 19, following Windows
 license = "LICENSE.txt"    # an accept page before installing
 start_with_windows = false # offered, unticked
 add_to_path = "always"     # for command-line tools
@@ -172,5 +180,11 @@ your app can do to update on quit and for a workflow of your own.
 - **Leave out build leftovers** with `[files] exclude = ["*.pdb", "*.log"]`.
 - **CI.** `bach build` exits with a non-zero code and a readable message on
   any problem, so it fits in a pipeline as is, on Windows, macOS or Linux.
+- **Scripts and agents.** `bach check`, `build`, `inspect`, `feed`, `doctor` and `version` take
+  `--json`: stdout is then one JSON object, nothing else, with `ok`, what the
+  command made (`setup`, `online_setup`, `patch`, `feed`, `version`, `sha256`,
+  `size`) and `warnings`. After an error it is `{"ok": false, "error": "…"}` and
+  the exit code is non-zero. The fields are listed in
+  `schema/bach-output.schema.json`; read them instead of cutting up text lines.
 - **IT departments.** Every setup file installs without a window with
   `--silent` (or `/S`); see [silent installs](config.md#silent-installs).

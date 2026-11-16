@@ -18,7 +18,7 @@ For security problems, don't open an issue; follow the
   [feature request](https://github.com/usebach/bach/issues/new?template=feature_request.yml)
   that starts from what you're trying to do, not from the setting you'd
   like. For anything big, talk to us before you write code.
-- **Fix a translation.** Every text in the window exists in 13 languages in
+- **Fix a translation.** Every text in the window exists in 19 languages in
   `crates/pack/src/i18n`. A native speaker's correction is worth a lot.
 - **Improve the docs.** If something in [docs](docs) confused you, it
   confuses others.
@@ -67,9 +67,39 @@ useful for people.
 Both of these must pass; CI runs them too:
 
 ```bash
+cargo fmt --all -- --check   # `cargo fmt --all` fixes it; the style is in rustfmt.toml
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+The release profile (`Cargo.toml`) is tuned for size, because the setup runtime is inside every setup file: fat LTO and
+`opt-level = "s"` (zstd's C code stays at full speed). That took `bach-setup.exe` from 11.2 MB to 9.1 MB with the same
+install speed; panics still unwind. CI fails when it passes 9.5 MiB, so a heavy new dependency has to be a decision.
+
+`cargo test` also reads every example in the docs: each ```` ```toml ```` block must be TOML,
+each whole `bach.toml` must pass the config check, and every relative link and
+heading anchor in `README.md`, `CONTRIBUTING.md` and `docs/` must land
+(`crates/pack/tests/docs.rs`). Links to other sites are not followed.
+
+`install.ps1` and `install.sh` are tested too (`scripts/test-install.ps1` on Windows, `scripts/test-install.sh` on
+Linux and macOS): they install from a release made on the spot (`BACH_INSTALL_FROM`), twice, and refuse a
+damaged or wrong archive with one sentence. `test-install.ps1 -TouchPath` also checks the PATH entry; use it only
+on a throwaway machine.
+
+The setup window's logic is tested without drawing it: `keyboard::page_targets` is the Tab order of every
+page (`cargo test -p bach-setup keyboard`) and `view::can_close` says when the window may be closed. Drawing
+itself is still checked by eye with `bach preview` in light and dark.
+
+CI runs the full build and test, with the real install/update/remove run
+(`scripts/e2e.ps1`), on `windows-latest`, `windows-11-arm` (the ARM64 runtime,
+natively) and `windows-2022`. GitHub has no Windows 10 image, so Windows 10 is
+not tested.
+
+CI also runs `cargo test` and clippy for `bach-pack` and `bach-cli` on Linux and
+macOS, and `cargo deny check advisories licenses sources` (the rules are in
+`deny.toml`; `cargo install cargo-deny --locked` to run it yourself). A new
+dependency with a license that isn't on the list, or a known vulnerability,
+fails that job.
 
 Also:
 
@@ -85,8 +115,12 @@ Also:
   `skills/bach/SKILL.md` if agents need to know.
 - **Texts** the window shows are `bach_pack::i18n::Key`s with a translation
   in every language, never a literal in `crates/setup`. Adding a key means
-  adding it to all 13 languages and to `docs/config.md`.
-- **Use `bun`** for JavaScript, never npm, pnpm or yarn.
+  adding it to all 19 languages and to `docs/config.md`.
+- **Use `bun`** for JavaScript tooling in this repository (`bun install`,
+  `bun scripts/…`), never npm, pnpm or yarn. The one exception is the published
+  npm package in `npm/cli`: it is a plain Node package, tested with
+  `node --test npm/cli/test/resolve.test.js` and published with `npm publish` by
+  the release workflow, because that is what its users install it with.
 
 ## Code style
 

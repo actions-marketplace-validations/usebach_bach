@@ -11,25 +11,36 @@ use std::path::Path;
 use bach_pack::manifest::{Choices, FileEntry, Manifest};
 use bach_pack::paths;
 
-/// For an update patch: the chosen files already in the install folder with
-/// exactly the content the patch expects, which the patch leaves out. Empty
-/// for a full setup file.
+/// The chosen files already in the install folder with exactly the content
+/// the manifest records (same size and SHA-256). An update patch leaves them
+/// out of its archive and relies on them; a full setup file has them, but
+/// they are not unpacked again: an update then writes only what changed, and
+/// a program that is running and unchanged is no obstacle.
 pub(super) fn patch_base(manifest: &Manifest, choices: &Choices, dir: &Path) -> HashSet<String> {
-    if manifest.patch_from.is_none() {
-        return HashSet::new();
-    }
-    manifest
-        .files
-        .iter()
-        .filter(|file| choices.installs(file))
-        .filter(|file| matches_on_disk(&paths::under(dir, &file.path), file))
-        .map(|file| file.path.clone())
-        .collect()
+    let candidates: Vec<&FileEntry> = manifest.files.iter().filter(|file| choices.installs(file)).collect();
+    // Hashing is disk-bound but not serial: a few readers at once are much
+    // faster on an install of thousands of files.
+    let threads = std::thread::available_parallelism().map_or(4, |count| count.get()).clamp(1, 8);
+    let chunk = candidates.len().div_ceil(threads).max(1);
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = candidates
+            .chunks(chunk)
+            .map(|part| {
+                scope.spawn(move || {
+                    part.iter()
+                        .filter(|file| matches_on_disk(&paths::under(dir, &file.path), file))
+                        .map(|file| file.path.clone())
+                        .collect::<Vec<String>>()
+                })
+            })
+            .collect();
+        workers.into_iter().flat_map(|worker| worker.join().unwrap_or_default()).collect()
+    })
 }
 
 /// Whether the file at `path` is exactly what `file` records: same size and
 /// SHA-256. A file that is missing, unreadable or unrecorded doesn't match.
-fn matches_on_disk(path: &Path, file: &FileEntry) -> bool {
+pub(super) fn matches_on_disk(path: &Path, file: &FileEntry) -> bool {
     let Some(expected) = &file.sha256 else {
         return false;
     };

@@ -13,8 +13,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, px, AnyElement, App, ClickEvent, CursorStyle, ElementId, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px, AnyElement, App, ClickEvent, CursorStyle, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    SharedString, StatefulInteractiveElement, Styled, Window,
 };
 
 use super::color::{clear, mix};
@@ -27,11 +27,7 @@ type Handler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
 /// A bordered card; rows divide themselves with hairlines.
 pub fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> impl IntoElement {
-    div()
-        .rounded(RADIUS)
-        .border_1()
-        .border_color(cx.theme().border)
-        .children(rows)
+    div().rounded(RADIUS).border_1().border_color(cx.theme().border).children(rows)
 }
 
 #[derive(IntoElement)]
@@ -48,16 +44,7 @@ pub struct Row {
 
 impl Row {
     pub fn new(title: impl Into<SharedString>) -> Self {
-        Self {
-            title: title.into(),
-            description: None,
-            icon: None,
-            control: None,
-            divided: false,
-            last: false,
-            focused: false,
-            click: None,
-        }
+        Self { title: title.into(), description: None, icon: None, control: None, divided: false, last: false, focused: false, click: None }
     }
 
     pub fn description(mut self, text: impl Into<SharedString>) -> Self {
@@ -97,11 +84,7 @@ impl Row {
 
     /// Makes the whole row clickable. The control's own click stops there,
     /// so a click on the box doesn't count twice.
-    pub fn on_click(
-        mut self,
-        id: impl Into<ElementId>,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_click(mut self, id: impl Into<ElementId>, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.click = Some((id.into(), Rc::new(handler)));
         self
     }
@@ -109,15 +92,9 @@ impl Row {
 
 impl RenderOnce for Row {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let hover = self
-            .click
-            .as_ref()
-            .map(|(id, _)| use_interaction(id.clone(), window, cx));
+        let hover = self.click.as_ref().map(|(id, _)| use_interaction(id.clone(), window, cx));
         let theme = cx.theme();
-        let wash = hover
-            .as_ref()
-            .map(|state| state.read(cx).hover())
-            .unwrap_or(0.0);
+        let wash = hover.as_ref().map(|state| state.read(cx).hover()).unwrap_or(0.0);
         let icon = self.icon.map(|name| {
             div()
                 .relative()
@@ -133,31 +110,13 @@ impl RenderOnce for Row {
         let copy = div()
             .flex_1()
             .min_w_0()
-            .child(
-                div()
-                    .text_size(px(14.))
-                    .line_height(px(20.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(self.title),
-            )
-            .children(self.description.map(|text| {
-                div()
-                    .mt(px(2.))
-                    .text_size(px(13.))
-                    .line_height(px(18.))
-                    .text_color(theme.muted_foreground)
-                    .child(text)
-            }));
+            .child(div().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::MEDIUM).child(self.title))
+            .children(
+                self.description
+                    .map(|text| div().mt(px(2.)).text_size(px(13.)).line_height(px(18.)).text_color(theme.muted_foreground).child(text)),
+            );
         let ring = self.focused.then(|| {
-            div()
-                .absolute()
-                .top(px(2.))
-                .left(px(2.))
-                .right(px(2.))
-                .bottom(px(2.))
-                .rounded(px(9.))
-                .border_2()
-                .border_color(theme.ring)
+            div().absolute().top(px(2.)).left(px(2.)).right(px(2.)).bottom(px(2.)).rounded(px(9.)).border_2().border_color(theme.ring)
         });
         let mut row = div()
             .relative()
@@ -186,10 +145,7 @@ impl RenderOnce for Row {
         }
         match (self.click, hover) {
             (Some((id, handler)), Some(state)) => {
-                let row = row
-                    .id(id)
-                    .cursor(CursorStyle::PointingHand)
-                    .on_click(move |event, window, cx| handler(event, window, cx));
+                let row = row.id(id).cursor(CursorStyle::PointingHand).on_click(move |event, window, cx| handler(event, window, cx));
                 Interaction::track(&state, row).into_any_element()
             }
             _ => row.into_any_element(),

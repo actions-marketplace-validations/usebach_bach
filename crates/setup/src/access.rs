@@ -24,8 +24,7 @@ impl SetupView {
         }
         let keystroke = &event.keystroke;
         let modifiers = &keystroke.modifiers;
-        let paste = ((modifiers.control || modifiers.platform) && keystroke.key == "v")
-            || (modifiers.shift && keystroke.key == "insert");
+        let paste = ((modifiers.control || modifiers.platform) && keystroke.key == "v") || (modifiers.shift && keystroke.key == "insert");
         if paste {
             self.paste_key(cx);
             return true;

@@ -10,10 +10,10 @@
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
+use bach_pack::manifest::Scope;
 use windows::core::w;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE};
-use bach_pack::manifest::Scope;
 use windows_registry::{Key, Type, CURRENT_USER, LOCAL_MACHINE};
 
 const ENVIRONMENT: &str = "Environment";
@@ -51,13 +51,7 @@ pub fn remove(scope: Scope, folder: &Path) -> Result<()> {
 }
 
 /// Applies `change` to the value; true when it wrote something.
-fn edit(
-    hive: &Key,
-    key_path: &str,
-    value_name: &str,
-    folder: &Path,
-    change: fn(&[u16], &[u16]) -> Option<Vec<u16>>,
-) -> Result<bool> {
+fn edit(hive: &Key, key_path: &str, value_name: &str, folder: &Path, change: fn(&[u16], &[u16]) -> Option<Vec<u16>>) -> Result<bool> {
     let entry: Vec<u16> = folder.as_os_str().encode_wide_vec();
     if entry.contains(&u16::from(b';')) {
         bail!("{} contains a semicolon, which PATH can't hold", folder.display());

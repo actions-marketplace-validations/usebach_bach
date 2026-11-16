@@ -14,6 +14,11 @@ appends your app to its end:
 - **logo**: the bytes of `[installer] logo` (or the PNG inside `app.icon`), if any.
 - **manifest**: JSON describing the app: name, version, publisher, the files
   and their sizes, the options, components, texts and license, the look.
+
+The build reads every file once. Each file's SHA-256 is taken from the same
+bytes that go into the archive, and the manifest, which sits behind the archive,
+is written last with those checksums in it. A build of unchanged files gives
+the same setup file, byte for byte.
 - **trailer**: 40 bytes: `BACHPACK`, the format version, the padding length
   and the length of each section.
 
@@ -27,13 +32,19 @@ so a newer setup file still reads the uninstaller an older one installed.
 
 1. Checks before anything changes: what the app needs (requirements) is
    there, no other setup for the same app is running, the app isn't open,
-   the drive has room for every file, and the archive matches the SHA-256
-   recorded when it was built.
+   and the drive has room for every file.
 2. Every chosen file is unpacked next to its target as `<name>.bach-new`.
-   Only when all of them are on disk are they swapped into place, each old
+   The setup file is read once: while it is unpacked, its archive is checked
+   against the SHA-256 recorded when it was built, so the progress bar moves
+   from the first byte. If the archive doesn't match, everything unpacked is
+   deleted and nothing is replaced. Only when all of them are on disk and the
+   check has passed are the files swapped into place, each old
    file stepping aside as `<name>.bach-old` first. If one can't be moved (a
    file in use), every move is undone: an update either completes or leaves
    the earlier version exactly as it was.
+   While the files are only being unpacked, the window offers "Cancel" (Esc
+   too): setup deletes what it unpacked and ends, and nothing of the earlier
+   version was touched. After the first move there is no cancel.
 3. If an earlier version is installed, the files it installed and this one
    doesn't (including components the user unticked) are removed. The earlier
    file list comes from its uninstaller.
@@ -64,8 +75,10 @@ it will install, so it never shows the "older version" page.
 ## Access keys
 
 An app with `[access]` carries encryption settings in its manifest (salt, nonce,
-Argon2id costs and a hash that tells a right key from a wrong one), and its
-archive is encrypted in authenticated chunks (see
+Argon2id costs and a hash that tells a right key from a wrong one) and one
+"slot" per access key: the files' random key, locked with a key made from that
+access key, so every access key opens the setup file on its own and taking one
+away is a build without it. Its archive is encrypted in authenticated chunks (see
 [`[access]`](config.md#access)). Setup derives the key on a background thread,
 checks it against the manifest before touching the disk, and decrypts while
 unpacking, so the all-or-nothing install is unchanged. A manifest that asks for
@@ -106,7 +119,7 @@ old copies go. A journal can only act on paths inside the install folder.
 
 ## Logs
 
-Every run writes `%TEMP%\<app id>-setup.log` (or `--log FILE`): the steps
+Every run writes `%TEMP%\<app id>-setup.log` (a space in the id is written `%20` there and in the staging and download folders, so `My App` and `My-App` never share one; or `--log FILE`): the steps
 and, when something fails, why. Logging never holds setup up.
 
 ## Languages
@@ -140,9 +153,20 @@ started it can wait for its exit code.
 - Packaged paths are relative and can never contain `..`, so a setup file
   can't write outside its install folder.
 - Data folders must sit inside the user's profile (`%APPDATA%`,
-  `%LOCALAPPDATA%`, `%USERPROFILE%`) and name a folder of their own.
+  `%LOCALAPPDATA%`, `%USERPROFILE%`) and name a folder of their own: never
+  `Documents`, `Desktop`, `AppData`, anything in `.ssh` or `Microsoft`, and
+  never the install folder or a folder that contains it.
 - The uninstaller refuses a folder that doesn't hold the app, and an update
   only cleans up after an earlier install of the same app id.
+- A machine-wide install reads the install folder's access list before it
+  writes and before an elevated update or removal, and refuses a folder that
+  ordinary users can change or that Administrators, SYSTEM or TrustedInstaller
+  don't own.
+- A first install into a folder that already holds files of the same names
+  (and no earlier install of this app) warns in the window, naming them, and
+  is refused by a silent run unless it gets `--overwrite`.
+- The uninstaller keeps a file whose SHA-256 no longer matches the manifest,
+  because someone changed it after setup wrote it, and says so in the log.
 - The manifest is checked again when a setup file starts, so a damaged or
   edited file fails with a sentence instead of misbehaving.
 - `PATH` is edited as raw text: exactly one entry is added or removed, the
@@ -176,6 +200,84 @@ started it can wait for its exit code.
 the user unless a step says `elevated = true`, which makes Windows ask for
 administrator rights for that program alone. Steps that run before removal can
 fail without stopping the removal.
+
+## An update writes only what changed
+
+The manifest records each file's size and SHA-256. Before unpacking, setup
+checks the files already in the install folder against it, and a file that
+matches is not written again, also when the setup file is a full one. That
+shortens updates and means an unchanged program that is running is no obstacle.
+The free-space check counts only what is written. Setup files built before
+Bach recorded hashes write every file as before.
+
+## Removal is all or nothing
+
+The uninstaller first looks that the app is closed. Then it renames every file
+the manifest lists to `<name>.bach-old`, which is quick and can be undone. If
+one can't move (a locked DLL, security software, a cloud folder), the ones
+already moved go back, the message names the file, and the app keeps working and
+stays registered. Only when all have moved does it remove shortcuts and
+integration; if that fails before the app is unregistered, the files go back
+too. Then the Settings > Apps entry goes, and the renamed files are deleted. A
+file whose content changed after setup wrote it is not touched (see above), and
+a locked file counts as unchanged, so it stops the removal instead of being
+kept silently.
+
+## When a step after the files fails
+
+An update (or first install) puts its files in place first, then runs the
+`[[run]]` steps, shortcuts, `PATH`, link schemes and file types, writes the new
+`uninstall.exe` and registers the version. The old copies of the files and the
+journal stay until the last of those has worked. If one fails, the files go back
+to the earlier version, the earlier `uninstall.exe` is restored, shortcuts and
+integration are written again from the earlier manifest, and the version under
+Settings > Apps never changed. Files the earlier version had and this one drops
+are removed only after that. A first install that fails this way leaves no files
+behind. What a run step already did on its own (a database it set up, say)
+can't be undone by setup. A power cut between the file swap and the end is
+rolled back by the journal the next time setup runs; the earlier
+`uninstall.exe` is restored only when setup itself sees the failure.
+
+## Where the runtime comes from
+
+Every setup file contains the runtime, so `bach` is strict about it:
+
+- A released `bach` has the SHA-256 of its version's `bach-setup.exe` built in
+  (the release workflow sets `BACH_RUNTIME_SHA256` while building it). A
+  download, and a copy in the cache, must match it. A `bach` built from source
+  has none and checks a download against the `.sha256` published next to it,
+  which only guards against a damaged transfer. `bach doctor` shows the
+  runtime's SHA-256 and which of the two applies.
+- Downloads use https only, redirects included. `BACH_RELEASES`, which points
+  at a mirror of the release downloads, must start with `https://`.
+- The cache is `%LOCALAPPDATA%\bach\runtime\<version>` on Windows and
+  `$XDG_CACHE_HOME/bach/runtime/<version>` (or `~/.cache/bach/...`) elsewhere.
+  It is created for its owner only, and a cached runtime is hashed again
+  before every use. Without `LOCALAPPDATA`, or `HOME` and `XDG_CACHE_HOME`,
+  there is no cache and no fallback to the shared temp folder: `bach build`
+  says so and asks for `--runtime` or `BACH_RUNTIME`.
+- `BACH_NO_DOWNLOAD` forbids the download altogether.
+
+## Reproducible builds
+
+The same files, the same `bach.toml` and the same `bach` version give the same
+setup file, byte for byte, on any computer: files are packed in sorted order,
+nothing in the file records a time or a path, and the compressed archive does
+not depend on how many processor cores made it. A test builds one project in
+two folders, with different file times, and compares the two setup files.
+
+That lets anyone check that a setup file comes from its sources: build it
+again and compare the SHA-256.
+
+```powershell
+bach build bach.toml --out check\Setup.exe
+(Get-FileHash check\Setup.exe).Hash   # the same as the published file's
+```
+
+Three things make a build differ on purpose: an `[access]` key (its salt and
+nonce are random), signing (a signature carries the time it was made, and a
+signed file is the unsigned one plus the signature), and another version of
+`bach` or of its `bach-setup.exe` runtime.
 
 ## Windows on ARM
 

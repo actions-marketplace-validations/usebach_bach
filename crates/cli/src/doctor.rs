@@ -9,23 +9,25 @@ use crate::output::field;
 use crate::runtime::{self, Found};
 
 pub fn doctor(config: &Path) -> Result<()> {
-    println!(
-        "Bach {} on {} ({})",
-        env!("CARGO_PKG_VERSION"),
-        std::env::consts::OS,
-        std::env::consts::ARCH
-    );
+    say!("Bach {} on {} ({})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
     let mut problems = 0;
     let mut signing_program = None;
     match runtime::locate(None) {
         Ok(Found::Here(path)) => match runtime::read(&path) {
-            Ok(_) => field("Runtime", path.display()),
+            Ok(_) => {
+                let hash = runtime::hash_of(&path).unwrap_or_default();
+                field("Runtime", format!("{} (SHA-256 {hash})", path.display()));
+                field("Runtime trust", runtime::trust_note());
+            }
             Err(err) => {
                 problems += 1;
                 field("Runtime", format!("{} is unusable: {err:#}", path.display()));
             }
         },
-        Ok(Found::Downloadable(url)) => field("Runtime", format!("not here yet; the first build downloads it from {url}")),
+        Ok(Found::Downloadable(url)) => {
+            field("Runtime", format!("not here yet; the first build downloads it from {url}"));
+            field("Runtime trust", runtime::trust_note());
+        }
         Err(err) => {
             problems += 1;
             field("Runtime", format!("{err:#}"));
@@ -58,14 +60,20 @@ pub fn doctor(config: &Path) -> Result<()> {
         Some(program) => field("Signing", format!("[signing] runs {program} when you build with --sign (or BACH_SIGN=1)")),
         None => field(
             "Signing",
-            if has_signtool() { "off, signtool found (add [signing] and build with --sign)" } else { "off (optional: [signing] in bach.toml, see docs/signing.md)" },
+            if has_signtool() {
+                "off, signtool found (add [signing] and build with --sign)"
+            } else {
+                "off (optional: [signing] in bach.toml, see docs/signing.md)"
+            },
         ),
     }
-    println!();
+    say!();
+    crate::output::result("ready", problems == 0);
+    crate::output::result("problems", problems);
     if problems == 0 {
-        println!("Ready to build.");
+        say!("Ready to build.");
     } else {
-        println!("Fix the {} above, then run bach doctor again.", if problems == 1 { "problem" } else { "problems" });
+        say!("Fix the {} above, then run bach doctor again.", if problems == 1 { "problem" } else { "problems" });
     }
     Ok(())
 }

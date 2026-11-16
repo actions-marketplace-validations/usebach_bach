@@ -117,10 +117,7 @@ pub fn command(options: Options) -> Result<()> {
     };
     let found = version_files::read_all(dir)?;
     if found.is_empty() {
-        bail!(
-            "found no version in {} (looked for bach.toml, package.json, Cargo.toml, tauri.conf.json and .csproj files)",
-            dir.display()
-        );
+        bail!("found no version in {} (looked for bach.toml, package.json, Cargo.toml, tauri.conf.json and .csproj files)", dir.display());
     }
     match options.target {
         None => show(&found),
@@ -135,14 +132,22 @@ fn show(found: &[Found]) -> Result<()> {
     for item in found {
         if !shown.contains(&item) {
             shown.push(item);
-            println!("  {:<28} {}", item.file, item.version);
+            say!("  {:<28} {}", item.file, item.version);
         }
     }
     let first = &found[0].version;
     if let Some(other) = found.iter().find(|item| &item.version != first) {
-        bail!("{} says {}, but {} says {}. Run `bach version current` to bring them together.", other.file, other.version, found[0].file, first);
+        bail!(
+            "{} says {}, but {} says {}. Run `bach version current` to bring them together.",
+            other.file,
+            other.version,
+            found[0].file,
+            first
+        );
     }
     eprintln!("Everything agrees on {first}.");
+    crate::output::result("version", first.clone());
+    crate::output::result("files", shown.iter().map(|item| item.file.to_string()).collect::<Vec<_>>());
     Ok(())
 }
 
@@ -160,7 +165,10 @@ fn raise(dir: &Path, found: &[Found], target: &str, dry_run: bool) -> Result<()>
     if changes.is_empty() {
         eprintln!("Every file already says {new}.");
     }
-    println!("{new}");
+    say!("{new}");
+    crate::output::result("version", new.clone());
+    crate::output::result("dry_run", dry_run);
+    crate::output::result("changed", changes.iter().map(|change| change.file.to_string()).collect::<Vec<_>>());
     Ok(())
 }
 
@@ -210,7 +218,10 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.join("package.json")).unwrap(), "{\"version\":\"1.1.0\"}", "bach.toml is the base");
         let empty = dir.join("nothing").join("bach.toml");
         std::fs::create_dir_all(empty.parent().unwrap()).unwrap();
-        assert!(command(Options { config: &empty, target: Some("patch"), dry_run: false }).unwrap_err().to_string().contains("found no version"));
+        assert!(command(Options { config: &empty, target: Some("patch"), dry_run: false })
+            .unwrap_err()
+            .to_string()
+            .contains("found no version"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

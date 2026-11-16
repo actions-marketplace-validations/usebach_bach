@@ -9,6 +9,7 @@ mod extras;
 mod gather;
 mod icon;
 mod options;
+mod secrets;
 mod system;
 mod text;
 
@@ -29,9 +30,17 @@ pub const DEFAULT_OUTPUT: &str = "dist/{name}-Setup-{version}.exe";
 /// one download link keeps pointing at the newest.
 pub const DEFAULT_ONLINE_OUTPUT: &str = "dist/{name}-Web-Setup.exe";
 
+/// The version of the `bach.toml` format this Bach reads. A file may say
+/// `config_version = 1`; a format change that would break old files gets a new
+/// number, and the error for an unknown one names it.
+pub const CONFIG_VERSION: u32 = 1;
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
+    /// The version of the config format this file is written for. Left out
+    /// means the current one.
+    config_version: Option<u32>,
     app: AppSection,
     files: FilesSection,
     #[serde(default)]
@@ -84,6 +93,9 @@ struct FilesSection {
     source: String,
     #[serde(default)]
     exclude: Vec<String>,
+    /// Patterns for files that look like secrets but are meant to ship.
+    #[serde(default)]
+    allow_secrets: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -115,6 +127,8 @@ struct InstallerSection {
     accent: Option<String>,
     logo: Option<String>,
     compression: Option<String>,
+    compression_threads: Option<u32>,
+    compression_memory: Option<u32>,
     languages: Option<Vec<String>>,
     license: Option<toml::Value>,
     desktop_shortcut: Option<toml::Value>,
@@ -158,6 +172,11 @@ pub struct Project {
     /// Where the online installer goes; only written when [`Self::online`].
     pub online_output: PathBuf,
     pub compression: Compression,
+    /// `installer.compression_threads`: how many threads to compress with
+    /// (None: as many as the memory budget allows).
+    pub compression_threads: Option<u32>,
+    /// `installer.compression_memory`: the memory budget for compressing, in MiB.
+    pub compression_memory_mib: u32,
     /// Whether the files are encrypted (`[access] encrypt`): the build then
     /// needs the key, from the environment variable [`Self::key_env`].
     pub encrypt: bool,
@@ -208,6 +227,12 @@ pub fn parse(text: &str, root: &Path) -> Result<Project> {
 pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Project> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut file: File = toml::from_str(text).map_err(|err| anyhow::anyhow!("{}", err.to_string().trim()))?;
+    if let Some(version) = file.config_version.filter(|version| *version != CONFIG_VERSION) {
+        bail!(
+            "config_version is {version}, but this Bach reads version {CONFIG_VERSION}; {}",
+            if version > CONFIG_VERSION { "update Bach to build this file" } else { "see the changelog for what changed in the format" }
+        );
+    }
     if let Some(version) = &overrides.version {
         let version = version.trim();
         let version = match version.strip_prefix(['v', 'V']) {
@@ -248,6 +273,13 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         Some(value) => Compression::parse(value)
             .with_context(|| format!("installer.compression is \"{value}\"; use \"best\", \"normal\" or \"fast\""))?,
     };
+    if file.installer.compression_threads.is_some_and(|threads| !(1..=256).contains(&threads)) {
+        bail!("installer.compression_threads is {}; use a number from 1 to 256", file.installer.compression_threads.unwrap_or(0));
+    }
+    let compression_memory_mib = file.installer.compression_memory.unwrap_or(crate::archive::DEFAULT_MEMORY_MIB);
+    if !(64..=65_536).contains(&compression_memory_mib) {
+        bail!("installer.compression_memory is {compression_memory_mib}; give the memory in MiB, from 64 to 65536");
+    }
 
     let icon = match &file.app.icon {
         None => None,
@@ -281,11 +313,9 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         );
     }
     let (updates, update_download_url, update_github) = match update_settings {
-        Some(settings) => (
-            Some(settings.updates),
-            settings.download_url.map(|url| url.replace("{version}", &app.version)),
-            settings.github,
-        ),
+        Some(settings) => {
+            (Some(settings.updates), settings.download_url.map(|url| url.replace("{version}", &app.version)), settings.github)
+        }
         None => (None, None, None),
     };
     let feedback_url = extras::https(&file.uninstall.feedback_url, "uninstall.feedback_url")?;
@@ -335,26 +365,55 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
             bail!("files.exclude has an empty pattern");
         }
     }
+    for pattern in &file.files.allow_secrets {
+        if pattern.trim().is_empty() {
+            bail!("files.allow_secrets has an empty pattern");
+        }
+    }
     let sources = gather::gather(&source_dir, &file.files.exclude, &output)?;
+    secrets::check(&sources, &file.files.allow_secrets, &mut warnings)?;
+    let requirements = extras::requirements(&file.requirements)?;
+    for requirement in &requirements {
+        if let manifest::extras::Check::Windows { build } = requirement.check {
+            if build < manifest::extras::MIN_WINDOWS_BUILD {
+                warnings.push(format!(
+                    "requirements: Windows build {build} is older than the oldest Bach supports (Windows 10 version 1809, build {});                      the setup window may not run there, so the requirement is no help to those users",
+                    manifest::extras::MIN_WINDOWS_BUILD
+                ));
+            }
+        }
+    }
     if sources.is_empty() {
         bail!("{} has no files to install", source_dir.display());
     }
     if let Some(clash) = sources.iter().find(|source| source.packaged.eq_ignore_ascii_case(manifest::UNINSTALLER)) {
-        bail!(
-            "{} would replace the uninstaller Bach adds; rename it or add it to files.exclude",
-            clash.path.display()
-        );
+        bail!("{} would replace the uninstaller Bach adds; rename it or add it to files.exclude", clash.path.display());
     }
     if !sources.iter().any(|source| source.packaged.eq_ignore_ascii_case(&app.executable)) {
-        bail!(
-            "app.executable is \"{}\", but there's no such file in {} (or it's excluded)",
-            app.executable,
-            source_dir.display()
-        );
+        bail!("app.executable is \"{}\", but there's no such file in {} (or it's excluded)", app.executable, source_dir.display());
     }
 
     let mut files: Vec<FileEntry> = sources.iter().map(|source| FileEntry::new(&source.packaged, source.size)).collect();
     let components = options::components(&file.components, &mut files, &app, &languages)?;
+    let system_changes = system::changes(
+        &file.registry,
+        &file.env,
+        &file.context_menu,
+        &file.migrate,
+        &system::Owner { id: &app.id, name: &app.name, publisher: &app.publisher },
+        &mut warnings,
+    )?;
+    // A 32-bit program reads HKLM\Software\Vendor from WOW6432Node.
+    if install.scope.is_machine() && system::registry_leaves_view_open(&file.registry) {
+        let program = sources.iter().find(|source| source.packaged.eq_ignore_ascii_case(&app.executable));
+        if program.and_then(|source| system::pe_machine(&source.path)) == Some(0x014C) {
+            warnings.push(
+                "app.executable is a 32-bit program and installer.scope is \"machine\": it reads HKLM\\Software\\... from the 32-bit \
+                 view (WOW6432Node), so give the [[registry]] values it reads view = \"32\" (or \"both\")"
+                    .to_string(),
+            );
+        }
+    }
     let manifest = Manifest {
         format: crate::FORMAT_VERSION,
         builder: crate::VERSION.into(),
@@ -368,10 +427,10 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         file_types: options::file_types(&file.file_types)?,
         locale,
         chosen: None,
-        requirements: extras::requirements(&file.requirements)?,
+        requirements,
         shortcuts: Vec::new(),
         run: Vec::new(),
-        system: system::changes(&file.registry, &file.env, &file.context_menu, &file.migrate)?,
+        system: system_changes,
         updates,
         access: access.as_ref().map(|access| access.manifest.clone()),
         online: false,
@@ -400,6 +459,8 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         online,
         online_output,
         compression,
+        compression_threads: file.installer.compression_threads,
+        compression_memory_mib,
         encrypt: access.as_ref().is_some_and(|access| access.encrypt),
         key_env: access.as_ref().map_or_else(|| extras::DEFAULT_KEY_ENV.to_string(), |access| access.key_env.clone()),
         warnings,
@@ -551,10 +612,7 @@ fn has_extension(path: &Path, extension: &str) -> bool {
 /// `{name}`, `{version}` and `{id}` in the output path.
 pub fn fill_template(template: &str, app: &manifest::App) -> String {
     let clean = |value: &str| value.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) { '-' } else { c }).collect::<String>();
-    template
-        .replace("{name}", &clean(&app.name))
-        .replace("{version}", &clean(&app.version))
-        .replace("{id}", &clean(&app.id))
+    template.replace("{name}", &clean(&app.name)).replace("{version}", &clean(&app.version)).replace("{id}", &clean(&app.id))
 }
 
 /// `#rrggbb` (or `rrggbb`) as a number.

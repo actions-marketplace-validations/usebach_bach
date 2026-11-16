@@ -94,7 +94,16 @@ impl Transaction {
 
     /// Moves every unpacked file into place, or none. `journal` is where the
     /// list of moves is kept until they're done and on disk.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn commit(self, journal: &Path) -> Result<(), CommitError> {
+        self.commit_open(journal).map(Committed::finish)
+    }
+
+    /// Like [`commit`](Self::commit), but the files stay undoable: the old
+    /// copies and the journal are kept until [`Committed::finish`], so a later
+    /// step that fails can still bring the earlier version back with
+    /// [`Committed::rollback`], and a crash in between is undone by [`recover`].
+    pub fn commit_open(self, journal: &Path) -> Result<Committed, CommitError> {
         if let Err(error) = write_journal(journal, &self.staged) {
             self.discard();
             let _ = fs::remove_file(journal);
@@ -114,17 +123,40 @@ impl Transaction {
                 }
             }
         }
+        Ok(Committed { staged: self.staged, done, journal: journal.to_path_buf() })
+    }
+}
+
+/// Files that are in place, with the old versions still beside them.
+pub struct Committed {
+    staged: Vec<PathBuf>,
+    done: Vec<(PathBuf, Option<PathBuf>)>,
+    journal: PathBuf,
+}
+
+impl Committed {
+    /// Makes the new files final: they are flushed to disk, then the journal
+    /// and the old copies go.
+    pub fn finish(self) {
         // The new files must be on disk before the old copies and the
         // journal go: after a power cut, the journal is what undoes this.
         flush(&self.staged);
-        let _ = fs::remove_file(journal);
+        let _ = fs::remove_file(&self.journal);
         // Old copies a running program still holds stay until next time.
-        for (_, backup) in done {
+        for (_, backup) in self.done {
             if let Some(backup) = backup {
                 let _ = fs::remove_file(backup);
             }
         }
-        Ok(())
+    }
+
+    /// Puts the earlier version back: new files go, old ones return, and the
+    /// paths of the files that were new are handed back so their empty
+    /// folders can be removed.
+    pub fn rollback(self) -> Vec<PathBuf> {
+        undo(&self.done);
+        let _ = fs::remove_file(&self.journal);
+        self.staged
     }
 }
 
@@ -176,8 +208,7 @@ pub fn recover(dir: &Path) -> usize {
         let target = PathBuf::from(path);
         // The journal is a plain file in the install folder: only ever act
         // on paths inside it.
-        let inside = target.starts_with(dir)
-            && target.components().all(|part| !matches!(part, std::path::Component::ParentDir));
+        let inside = target.starts_with(dir) && target.components().all(|part| !matches!(part, std::path::Component::ParentDir));
         if path.is_empty() || !inside {
             continue;
         }
@@ -397,5 +428,38 @@ mod tests {
             let _ = child.wait();
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cancelled_unpack_leaves_nothing_and_the_old_files_alone() {
+        let dir = temp("cancel");
+        let old = dir.join("old.txt");
+        std::fs::write(&old, "the earlier version").unwrap();
+        let mut transaction = Transaction::default();
+
+        // The first file is unpacked fine...
+        super::super::cancel::reset();
+        let mut first: &[u8] = &vec![1u8; 700_000];
+        transaction.stage(&dir.join("one.bin"), &mut super::super::cancel::Cancellable(&mut first), &mut |_| {}).unwrap();
+        // ...then Cancel is pressed while the second one is in the middle.
+        let mut body = std::io::Cursor::new(vec![2u8; 3_000_000]);
+        let mut chunks = 0;
+        let result = transaction.stage(&dir.join("two.bin"), &mut super::super::cancel::Cancellable(&mut body), &mut |_| {
+            chunks += 1;
+            if chunks == 2 {
+                super::super::cancel::request();
+            }
+        });
+        let err = result.unwrap_err();
+        assert_eq!(err.to_string(), "cancelled");
+        assert!(super::super::cancel::requested());
+        assert!(!with_suffix(&dir.join("two.bin"), NEW).exists(), "the half-written file is gone");
+        transaction.discard();
+        super::super::cancel::reset();
+
+        let left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(left, ["old.txt"], "nothing else is left: {left:?}");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "the earlier version");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

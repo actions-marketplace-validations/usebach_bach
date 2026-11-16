@@ -11,7 +11,6 @@ use anyhow::{bail, Context, Result};
 use bach_pack::config::{self, Overrides, Project};
 use bach_pack::container;
 use bach_pack::manifest::{DeltaEntry, FeedEntry};
-use sha2::{Digest, Sha256};
 
 use crate::output::field;
 
@@ -36,8 +35,11 @@ pub fn after_build(project: &Project, setup: &Path, patch: Option<(&Path, &str)>
                 }
                 None => None,
             };
-            let written = write(setup, &download_url(template, setup), None, None, delta, None)?;
+            // A build without the private key (a developer's own machine) still writes the
+            // feed, unsigned, with a warning; `bach feed` is where signing is required.
+            let written = write(setup, &download_url(template, setup), None, None, delta, None, false)?;
             field("Update feed", written.display());
+            crate::output::result("feed", written.display().to_string());
         }
         None => crate::output::warnings(&["[updates] has no download_url, so no latest.json was written; \
              after uploading the setup file, run `bach feed SETUP --url URL`"
@@ -85,13 +87,12 @@ pub fn command(options: Options) -> Result<()> {
     };
     let notes = match (options.notes, options.notes_file) {
         (Some(notes), _) => Some(notes.to_string()),
-        (None, Some(file)) => {
-            Some(bach_pack::textfile::read(file).with_context(|| format!("couldn't read {}", file.display()))?)
-        }
+        (None, Some(file)) => Some(bach_pack::textfile::read(file).with_context(|| format!("couldn't read {}", file.display()))?),
         (None, None) => None,
     };
-    let written = write(options.setup, &url, notes.as_deref(), options.rollout, delta.clone(), options.out)?;
-    println!("Wrote {}", written.display());
+    let written = write(options.setup, &url, notes.as_deref(), options.rollout, delta.clone(), options.out, true)?;
+    crate::output::result("feed", written.display().to_string());
+    say!("Wrote {}", written.display());
     field("Download", &url);
     if let Some(delta) = &delta {
         field("Patch", format!("from {}, {}", delta.from, delta.url));
@@ -99,6 +100,48 @@ pub fn command(options: Options) -> Result<()> {
     if let Some(percent) = options.rollout {
         field("Rollout", format!("{percent}% of computers take it by themselves"));
     }
+    Ok(())
+}
+
+/// The publisher's private feed key: `BACH_FEED_KEY`, or the first line of the
+/// file `BACH_FEED_KEY_FILE` names.
+fn private_key() -> Result<String> {
+    use bach_pack::feedsig::{KEY_ENV, KEY_FILE_ENV};
+    if let Ok(key) = std::env::var(KEY_ENV) {
+        return Ok(key.trim().to_string());
+    }
+    if let Some(file) = std::env::var_os(KEY_FILE_ENV) {
+        let text =
+            std::fs::read_to_string(&file).with_context(|| format!("couldn't read the feed key file {}", Path::new(&file).display()))?;
+        return Ok(text.lines().next().unwrap_or_default().trim().to_string());
+    }
+    bail!(
+        "[updates] has a public_key, so the feed must be signed: set {KEY_ENV} (or {KEY_FILE_ENV}) to the private key `bach feed-key` made"
+    )
+}
+
+/// `bach feed-key`: a new publisher key pair for signed update feeds.
+pub fn key_command(out: Option<&Path>) -> Result<()> {
+    let (private, public) = bach_pack::feedsig::generate()?;
+    let file = out.map_or_else(|| PathBuf::from("feed-key.private"), Path::to_path_buf);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    // Owner only from the moment it exists (not chmod-ed afterwards). On Windows the file gets the
+    // rights of its folder: keep it somewhere only you can read.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut handle = options.open(&file).with_context(|| format!("couldn't create {} (it must not exist yet)", file.display()))?;
+    std::io::Write::write_all(&mut handle, format!("{private}\n").as_bytes())?;
+    say!("Wrote the private key to {}. Keep it secret and out of Git; it signs your update feeds.", file.display());
+    say!("Put this in bach.toml:\n\n[updates]\npublic_key = \"{public}\"\n");
+    say!(
+        "Sign with it by setting {} to the file's content (or {} to its path) when you run `bach build` or `bach feed`.",
+        bach_pack::feedsig::KEY_ENV,
+        bach_pack::feedsig::KEY_FILE_ENV
+    );
     Ok(())
 }
 
@@ -118,10 +161,9 @@ fn url_from_config(setup: &Path, file: &Path, config: Option<&Path>) -> Result<S
     let project = config::load_with(&path, &Overrides { version: Some(version) })?;
     match project.update_download_url {
         Some(template) => Ok(download_url(&template, file)),
-        None => bail!(
-            "{} has no [updates] download link; give github = \"owner/repo\" or download_url there, or pass --url",
-            path.display()
-        ),
+        None => {
+            bail!("{} has no [updates] download link; give github = \"owner/repo\" or download_url there, or pass --url", path.display())
+        }
     }
 }
 
@@ -179,11 +221,29 @@ fn delta_entry(patch: &Path, url: &str) -> Result<DeltaEntry> {
     let Some(from) = manifest.patch_from else {
         bail!("{} isn't an update patch; make one with bach build --patch-from OLD-SETUP.exe", patch.display());
     };
-    let bytes = std::fs::read(patch).with_context(|| format!("couldn't read {}", patch.display()))?;
-    Ok(DeltaEntry { from, url: url.to_string(), sha256: bach_pack::protect::hex(&Sha256::digest(&bytes)), size: Some(bytes.len() as u64) })
+    let (sha256, size) = digest_of(patch)?;
+    Ok(DeltaEntry { from, url: url.to_string(), sha256, size: Some(size) })
 }
 
-fn write(setup: &Path, url: &str, notes: Option<&str>, rollout: Option<u8>, delta: Option<DeltaEntry>, out: Option<&Path>) -> Result<PathBuf> {
+/// A file's SHA-256 and size, read in pieces: a setup file can be gigabytes,
+/// and must not be held in memory to be hashed.
+pub fn digest_of(path: &Path) -> Result<(String, u64)> {
+    let file = std::fs::File::open(path).with_context(|| format!("couldn't read {}", path.display()))?;
+    let size = file.metadata().with_context(|| format!("couldn't read {}", path.display()))?.len();
+    let sha256 = bach_pack::protect::sha256_hex(std::io::BufReader::with_capacity(1 << 20, file))
+        .with_context(|| format!("couldn't read {}", path.display()))?;
+    Ok((sha256, size))
+}
+
+fn write(
+    setup: &Path,
+    url: &str,
+    notes: Option<&str>,
+    rollout: Option<u8>,
+    delta: Option<DeltaEntry>,
+    out: Option<&Path>,
+    key_required: bool,
+) -> Result<PathBuf> {
     if rollout.is_some_and(|percent| percent > 100) {
         bail!("--rollout is a percentage, from 0 to 100");
     }
@@ -202,17 +262,41 @@ fn write(setup: &Path, url: &str, notes: Option<&str>, rollout: Option<u8>, delt
         let what = if manifest.online { "an online installer, which carries no files" } else { "an uninstaller" };
         bail!("{} is {what}; point bach feed at the full setup file", setup.display());
     }
-    let bytes = std::fs::read(setup).with_context(|| format!("couldn't read {}", setup.display()))?;
+    let (sha256, size) = digest_of(setup)?;
     let notes = notes.map(str::trim).filter(|notes| !notes.is_empty()).map(|notes| notes.chars().take(MAX_NOTES).collect());
-    let entry = FeedEntry {
+    let mut entry = FeedEntry {
         version: manifest.app.version.clone(),
         url: url.to_string(),
-        sha256: bach_pack::protect::hex(&Sha256::digest(&bytes)),
+        sha256,
         notes,
-        size: Some(bytes.len() as u64),
+        size: Some(size),
         rollout,
         delta,
+        signature: None,
     };
+    // An app that has a publisher key accepts only signed feeds, so an unsigned
+    // one would silently stop every installed copy from updating.
+    if let Some(updates) = manifest.updates.as_ref().filter(|updates| updates.public_key.is_some()) {
+        match private_key() {
+            Ok(private) => {
+                let mine = bach_pack::feedsig::public_of(&private)?;
+                let trusted = [updates.public_key.as_deref(), updates.next_public_key.as_deref()];
+                if !trusted.iter().flatten().any(|key| key.eq_ignore_ascii_case(&mine)) {
+                    bail!("the feed signing key doesn't belong to [updates] public_key (or next_public_key) in this setup file; use the private key that `bach feed-key` made with it");
+                }
+                entry.signature = Some(bach_pack::feedsig::sign(&private, &manifest.app.id, &entry)?);
+            }
+            Err(err) if key_required => return Err(err),
+            Err(err) => crate::output::warnings(&[format!(
+                "{FILE_NAME} is not signed: {err:#}. Run `bach feed` with the key before you publish it"
+            )]),
+        }
+    }
+    crate::output::result("version", entry.version.clone());
+    crate::output::result("url", entry.url.clone());
+    crate::output::result("sha256", entry.sha256.clone());
+    crate::output::result("size", size);
+    crate::output::result("signed", entry.signature.is_some());
     let target = match out {
         Some(out) => out.to_path_buf(),
         None => setup.parent().unwrap_or(Path::new(".")).join(FILE_NAME),
@@ -224,6 +308,21 @@ fn write(setup: &Path, url: &str, notes: Option<&str>, rollout: Option<u8>, delt
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_file_is_hashed_in_pieces_with_its_size() {
+        let path = std::env::temp_dir().join(format!("bach-digest-{}", std::process::id()));
+        std::fs::write(&path, b"abc").unwrap();
+        let (sha256, size) = super::digest_of(&path).unwrap();
+        assert_eq!(sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(size, 3);
+        // Bigger than the 1 MiB read buffer, to cross a piece boundary.
+        std::fs::write(&path, vec![7u8; 3 << 20]).unwrap();
+        let (_, size) = super::digest_of(&path).unwrap();
+        assert_eq!(size, 3 << 20);
+        std::fs::remove_file(&path).unwrap();
+        assert!(super::digest_of(&path).is_err());
+    }
+
     use super::*;
 
     #[test]

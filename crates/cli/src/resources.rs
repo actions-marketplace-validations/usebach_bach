@@ -63,7 +63,14 @@ pub fn apply(exe: &Path, icon: Option<&[u8]>, app: &App, file_name: &str) -> Res
                     icon.group.len() as u32,
                 )?;
             }
-            UpdateResourceW(update, RT_VERSION, int_resource(ID_ONE), version_language, Some(version.as_ptr() as *const c_void), version.len() as u32)?;
+            UpdateResourceW(
+                update,
+                RT_VERSION,
+                int_resource(ID_ONE),
+                version_language,
+                Some(version.as_ptr() as *const c_void),
+                version.len() as u32,
+            )?;
             Ok(())
         })();
         match result {

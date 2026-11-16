@@ -22,5 +22,14 @@ opt-level = 1
 opt-level = 3
 
 [profile.release]
-lto = "thin"
+# Smaller programs: the setup runtime is part of every setup file, so each
+# megabyte here is a megabyte in every download. Measured on bach-setup.exe:
+# thin LTO 11.2 MB, fat LTO 10.8 MB, fat LTO and opt-level "s" 9.0 MB, with
+# the same install speed (see docs/config.md). Panics still unwind.
+lto = "fat"
 codegen-units = 1
+opt-level = "s"
+
+# zstd's C code compresses and decompresses, so it keeps full speed.
+[profile.release.package.zstd-sys]
+opt-level = 3

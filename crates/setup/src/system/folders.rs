@@ -8,8 +8,7 @@ use std::path::{Path, PathBuf};
 
 use windows::core::GUID;
 use windows::Win32::UI::Shell::{
-    FOLDERID_ProgramData, FOLDERID_ProgramFiles, FOLDERID_ProgramFilesCommon, FOLDERID_ProgramFilesX86, FOLDERID_System,
-    FOLDERID_Windows,
+    FOLDERID_ProgramData, FOLDERID_ProgramFiles, FOLDERID_ProgramFilesCommon, FOLDERID_ProgramFilesX86, FOLDERID_System, FOLDERID_Windows,
 };
 
 fn folder(id: &GUID) -> Option<PathBuf> {
@@ -54,9 +53,8 @@ fn starts_with_folder(path: &Path, root: &Path) -> bool {
     if path.components().any(|part| matches!(part, Component::ParentDir | Component::CurDir)) {
         return false;
     }
-    let lower = |path: &Path| -> Vec<String> {
-        path.components().map(|part| part.as_os_str().to_string_lossy().to_ascii_lowercase()).collect()
-    };
+    let lower =
+        |path: &Path| -> Vec<String> { path.components().map(|part| part.as_os_str().to_string_lossy().to_ascii_lowercase()).collect() };
     let (path, root) = (lower(path), lower(root));
     path.len() > root.len() && path[..root.len()] == root[..]
 }

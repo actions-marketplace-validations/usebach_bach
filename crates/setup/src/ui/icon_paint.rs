@@ -4,9 +4,8 @@
 //! what the web's `currentColor` does.
 
 use gpui::{
-    point, px, size, App, Bounds, Element, ElementId, GlobalElementId, Hsla,
-    InspectorElementId, IntoElement, LayoutId, Pixels, Point, Radians, SharedString, Style,
-    TransformationMatrix, Window,
+    point, px, size, App, Bounds, Element, ElementId, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, Pixels, Point,
+    Radians, SharedString, Style, TransformationMatrix, Window,
 };
 
 pub struct IconPaint {
@@ -19,22 +18,8 @@ pub struct IconPaint {
 }
 
 impl IconPaint {
-    pub fn new(
-        path: SharedString,
-        size: Pixels,
-        color: Option<Hsla>,
-        scale: f32,
-        rotate: Radians,
-        offset: Point<Pixels>,
-    ) -> Self {
-        Self {
-            path,
-            size,
-            color,
-            scale,
-            rotate,
-            offset,
-        }
+    pub fn new(path: SharedString, size: Pixels, color: Option<Hsla>, scale: f32, rotate: Radians, offset: Point<Pixels>) -> Self {
+        Self { path, size, color, scale, rotate, offset }
     }
 
     /// Scale and rotate about the centre, then offset; the same order
@@ -77,12 +62,7 @@ impl Element for IconPaint {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        let style = Style {
-            size: size(self.size.into(), self.size.into()),
-            flex_grow: 0.,
-            flex_shrink: 0.,
-            ..Style::default()
-        };
+        let style = Style { size: size(self.size.into(), self.size.into()), flex_grow: 0., flex_shrink: 0., ..Style::default() };
         (window.request_layout(style, None, cx), ())
     }
 

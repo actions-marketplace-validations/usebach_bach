@@ -24,10 +24,24 @@ function Check([bool]$ok, [string]$what) {
     if ($ok) { Write-Host "  ok    $what" } else { Write-Host "  FAIL  $what" -ForegroundColor Red; $script:failures++ }
 }
 
-function Build([string]$version, [string[]]$extra) {
+# Windows Defender sometimes takes a freshly built setup file for malware (a
+# machine-learning guess, KAN-84) and refuses to let anything open it. That is
+# a finding about the file, not a failure of the code under test, so say so
+# plainly instead of letting a later step fail with a confusing error.
+function Assert-Readable([string]$file) {
+    try {
+        $stream = [IO.File]::OpenRead($file)
+        $stream.Close()
+    } catch {
+        throw "Windows blocked $file ($($_.Exception.Message.Trim())). If it names a virus or unwanted software, Defender flagged the file Bach just built (KAN-84): restore it in Windows Security > Protection history, or exclude the folder $work while testing, then run this script again."
+    }
+}
+
+function Build([string]$version, [string[]]$extra, [string]$run = '') {
     $app = Join-Path $work "app-$version"
     New-Item -ItemType Directory -Force -Path $app | Out-Null
     Copy-Item $hello (Join-Path $app 'hello.exe')
+    if ($run) { Copy-Item (Join-Path $env:SystemRoot 'System32\cmd.exe') (Join-Path $app 'fail.exe') }
     foreach ($name in $extra) { Set-Content -Path (Join-Path $app $name) -Value "$name $version" }
     @"
 [app]
@@ -42,9 +56,11 @@ source = "app-$version"
 output = "out/E2E-Setup-$version.exe"
 desktop_shortcut = false
 compression = "fast"
+$run
 "@ | Set-Content -Encoding utf8 (Join-Path $work "bach-$version.toml")
     & $bach build (Join-Path $work "bach-$version.toml") | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "bach build $version failed." }
+    Assert-Readable (Join-Path $work "out\E2E-Setup-$version.exe")
     return Join-Path $work "out\E2E-Setup-$version.exe"
 }
 
@@ -69,11 +85,96 @@ try {
     $v1 = Build '1.0.0' @('readme.txt', 'old.txt')
     $v2 = Build '2.0.0' @('readme.txt', 'new.txt')
 
+    Write-Host 'Install into a folder that holds someone else''s files'
+    New-Item -ItemType Directory -Force -Path $install | Out-Null
+    Set-Content -Path (Join-Path $install 'readme.txt') -Value 'USER OWN SETTINGS'
+    Set-Content -Path (Join-Path $install 'other-app.dll') -Value 'another app'
+    Check ((Run $v1 @('--silent', '--dir', "`"$install`"")) -eq 1) 'refused: readme.txt is not from this app'
+    Check ((Get-Content (Join-Path $install 'readme.txt')) -eq 'USER OWN SETTINGS') 'the foreign file is untouched'
+    Check (-not (Installed-Version)) 'nothing was registered'
+    Check ((Run $v1 @('--silent', '--overwrite', '--dir', "`"$install`"")) -eq 0) '--overwrite installs anyway'
+    Set-Content -Path (Join-Path $install 'readme.txt') -Value 'edited after install'
+    Check ((Run (Join-Path $install 'uninstall.exe') @('--silent')) -eq 0) 'uninstall exits 0'
+    Check ((Get-Content (Join-Path $install 'readme.txt')) -eq 'edited after install') 'a file changed after install is kept'
+    Check (Test-Path (Join-Path $install 'other-app.dll')) 'the other app''s file stays'
+    Check (-not (Test-Path (Join-Path $install 'hello.exe'))) 'unchanged app files are removed'
+    Remove-Item -Recurse -Force $install
+
+    Write-Host 'Command line mistakes and --flag=value'
+    Check ((Run $v1 @('--silent', '--no-such-flag-qa')) -eq 2) 'an unknown flag exits 2'
+    Check ((Run $v1 @('--silnet')) -eq 2) 'a typo of --silent exits 2 instead of opening a window'
+    Check ((Run $v1 @('--silent', '--dir', '--allow-downgrade')) -eq 2) '--dir never swallows the next flag'
+    Check (-not (Installed-Version)) 'none of them installed anything'
+    $equals = Join-Path $work 'Installed\Equals'
+    Check ((Run $v1 @('--silent', "--dir=`"$equals`"")) -eq 0) '--dir=folder installs'
+    Check (Test-Path (Join-Path $equals 'hello.exe')) 'into the folder it names'
+    Check ((Run (Join-Path $equals 'uninstall.exe') @('--silent')) -eq 0) 'and uninstalls'
+    Remove-Item -Recurse -Force $equals -ErrorAction SilentlyContinue
+
+    Write-Host 'A requirement that is not detected'
+    $needs = Build '0.8.0' @() "[[requirements]]`nkind = 'file'`npath = '%SystemRoot%\bach-no-such-file.dll'`nname = 'Bach QA runtime'`nurl = 'https://example.invalid/runtime'"
+    $needsDir = Join-Path $work 'Installed\Needs'
+    Check ((Run $needs @('--silent', '--dir', "`"$needsDir`"")) -eq 1) 'stops with exit 1'
+    Check (-not (Test-Path $needsDir)) 'and installs nothing'
+    Check ((Run $needs @('--silent', '--skip-requirements', '--dir', "`"$needsDir`"")) -eq 0) '--skip-requirements goes on'
+    Check ((Run (Join-Path $needsDir 'uninstall.exe') @('--silent')) -eq 0) 'and uninstalls'
+    Remove-Item -Recurse -Force $needsDir -ErrorAction SilentlyContinue
+
+    Write-Host 'Right-click entry with a Chinese text'
+    $open = -join ([char]0x6253, [char]0x5f00)
+    $menu = Build '0.9.0' @() "[[context_menu]]`nname = '$open'`non = 'files'"
+    $menuDir = Join-Path $work 'Installed\Menu'
+    $menuKeys = { (& reg.exe query 'HKCU\Software\Classes' /s /f 'Bach.BachE2E.' /k 2>$null | Where-Object { $_ -match 'Bach\.BachE2E\.' }) }
+    Check ((Run $menu @('--silent', '--dir', "`"$menuDir`"")) -eq 0) 'installs'
+    Check (@(& $menuKeys).Count -ge 1) 'the entry has a key'
+    Check ((Run (Join-Path $menuDir 'uninstall.exe') @('--silent')) -eq 0) 'uninstalls'
+    Check (@(& $menuKeys).Count -eq 0) 'and leaves no key behind'
+    Remove-Item -Recurse -Force $menuDir -ErrorAction SilentlyContinue
+
+    Write-Host 'Registry, variable, file type, PATH and data folder, in a folder with Unicode characters'
+    $unicode = -join ([char]0xDC, 'n', [char]0xEF, ' ', [char]0x65E5, [char]0x672C)
+    $extras = "add_to_path = 'always'`n[[registry]]`nkey = 'Software\BachE2E'`nname = 'InstallPath'`nvalue = '{app}'`n[[env]]`nname = 'BACHE2E_HOME'`nvalue = '{app}'`n[[file_types]]`nextension = '.bachqa'`ndescription = 'Bach QA file'`n[uninstall]`ndata = ['%LOCALAPPDATA%\BachE2E']"
+    $wide = Build '0.7.0' @() $extras
+    $wideDir = Join-Path $work "Installed\$unicode"
+    $dataDir = Join-Path $env:LOCALAPPDATA 'BachE2E'
+    $userPath = { (Get-ItemProperty 'HKCU:\Environment' -Name Path -ErrorAction SilentlyContinue).Path }
+    Check ((Run $wide @('--silent', '--dir', "`"$wideDir`"")) -eq 0) 'installs into the Unicode folder'
+    Check (Test-Path (Join-Path $wideDir 'hello.exe')) 'with its files'
+    Check ((Get-ItemProperty 'HKCU:\Software\BachE2E' -ErrorAction SilentlyContinue).InstallPath -eq $wideDir) '[[registry]] wrote the install folder'
+    Check ((Get-ItemProperty 'HKCU:\Environment' -Name BACHE2E_HOME -ErrorAction SilentlyContinue).BACHE2E_HOME -eq $wideDir) '[[env]] set the variable'
+    Check (Test-Path 'HKCU:\Software\Classes\.bachqa') '[[file_types]] registered the extension'
+    Check (((& $userPath) -split ';') -contains $wideDir) 'the install folder is on PATH'
+    New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+    Set-Content -Path (Join-Path $dataDir 'settings.txt') -Value 'user data'
+    Check ((Run (Join-Path $wideDir 'uninstall.exe') @('--silent')) -eq 0) 'removes without --delete-data'
+    Check (Test-Path (Join-Path $dataDir 'settings.txt')) 'and keeps the user data'
+    Check (-not (Test-Path 'HKCU:\Software\BachE2E')) 'the registry value and its key are gone'
+    Check (-not (Get-ItemProperty 'HKCU:\Environment' -Name BACHE2E_HOME -ErrorAction SilentlyContinue)) 'the variable is gone'
+    Check (-not (Test-Path 'HKCU:\Software\Classes\.bachqa')) 'the file type is gone, extension key included'
+    Check (-not (((& $userPath) -split ';') -contains $wideDir)) 'PATH is as it was'
+    Check ((Run $wide @('--silent', '--dir', "`"$wideDir`"")) -eq 0) 'installs again'
+    Check ((Run (Join-Path $wideDir 'uninstall.exe') @('--silent', '--delete-data')) -eq 0) 'removes with --delete-data'
+    Check (-not (Test-Path $dataDir)) 'and the data folder goes'
+    Remove-Item -Recurse -Force $wideDir -ErrorAction SilentlyContinue
+
     Write-Host 'Install 1.0.0'
     Check ((Run $v1 @('--silent', '--dir', "`"$install`"")) -eq 0) 'exits 0'
     Check ((Installed-Version) -eq '1.0.0') 'listed in Settings > Apps as 1.0.0'
     Check (Test-Path (Join-Path $install 'uninstall.exe')) 'uninstaller written'
     Check (Test-Path (Join-Path $install 'old.txt')) 'files installed'
+
+    Write-Host 'Repair'
+    Remove-Item (Join-Path $install 'readme.txt')
+    Set-Content -Path (Join-Path $install 'old.txt') -Value 'damaged'
+    Set-Content -Path (Join-Path $install 'mine.txt') -Value 'user file'
+    Check ((Run $v2 @('--silent', '--repair')) -eq 1) 'refuses a setup file of another version'
+    Check (-not (Test-Path (Join-Path $install 'readme.txt'))) 'and changes nothing'
+    Check ((Run $v1 @('--silent', '--repair')) -eq 0) 'repairs with the installed version'
+    Check ((Get-Content (Join-Path $install 'readme.txt')) -eq 'readme.txt 1.0.0') 'the deleted file is back'
+    Check ((Get-Content (Join-Path $install 'old.txt')) -eq 'old.txt 1.0.0') 'the damaged file is as packaged'
+    Check ((Get-Content (Join-Path $install 'mine.txt')) -eq 'user file') "the user's own file is untouched"
+    Check ((Installed-Version) -eq '1.0.0') 'still 1.0.0'
+    Remove-Item (Join-Path $install 'mine.txt')
 
     Write-Host 'Update while a file is locked'
     $lock = [IO.File]::Open((Join-Path $install 'readme.txt'), 'Open', 'Read', 'None')
@@ -85,10 +186,24 @@ try {
     Check (-not (Get-ChildItem $install -Recurse -Filter '*.bach-*')) 'no .bach-new or .bach-old left'
 
     Write-Host 'Update to 2.0.0'
+    $helloBefore = (Get-Item (Join-Path $install 'hello.exe')).LastWriteTimeUtc
+    Start-Sleep -Milliseconds 1200
     Check ((Run $v2 @('--silent')) -eq 0) 'exits 0'
     Check ((Installed-Version) -eq '2.0.0') 'listed as 2.0.0'
     Check (-not (Test-Path (Join-Path $install 'old.txt'))) 'file 2.0.0 dropped is gone'
     Check (Test-Path (Join-Path $install 'new.txt')) 'new file installed'
+    Check ((Get-Item (Join-Path $install 'hello.exe')).LastWriteTimeUtc -eq $helloBefore) 'a file that did not change is not written again'
+
+    Write-Host 'Update whose run step fails after the files were placed'
+    $v3 = Build '3.0.0' @('readme.txt', 'three.txt') "[[run]]`nfile = 'fail.exe'`narguments = '/c exit 1'"
+    $before = (Get-FileHash (Join-Path $install 'uninstall.exe')).Hash
+    Check ((Run $v3 @('--silent')) -eq 1) 'exits 1'
+    Check ((Installed-Version) -eq '2.0.0') 'still registered as 2.0.0'
+    Check ((Get-Content (Join-Path $install 'readme.txt')) -eq 'readme.txt 2.0.0') 'files are the 2.0.0 ones'
+    Check (-not (Test-Path (Join-Path $install 'three.txt'))) 'no file of 3.0.0 is left'
+    Check (-not (Test-Path (Join-Path $install 'fail.exe'))) 'and not the step program'
+    Check ((Get-FileHash (Join-Path $install 'uninstall.exe')).Hash -eq $before) 'the uninstaller is the old one'
+    Check (-not (Get-ChildItem $install -Recurse -Force | Where-Object { $_.Name -match '\.bach-' })) 'no .bach-* leftovers'
 
     Write-Host 'Downgrade'
     Check ((Run $v1 @('--silent')) -eq 1) 'refused without --allow-downgrade'
@@ -108,6 +223,15 @@ try {
     [IO.File]::WriteAllBytes($damaged, $bytes)
     Check ((Run $damaged @('--silent', '--allow-downgrade')) -eq 1) 'refused'
     Check ((Installed-Version) -eq '2.0.0') 'install untouched'
+
+    Write-Host 'Uninstall while a file is locked (all or nothing)'
+    $lock = [IO.File]::Open((Join-Path $install 'readme.txt'), 'Open', 'Read', 'None')
+    try { $code = Run (Join-Path $install 'uninstall.exe') @('--silent') } finally { $lock.Close() }
+    Check ($code -eq 1) 'exits 1'
+    Check ((Installed-Version) -eq '2.0.0') 'still registered'
+    Check (Test-Path (Join-Path $install 'hello.exe')) 'the program is still there'
+    Check (Test-Path (Join-Path $install 'new.txt')) 'and every other file'
+    Check (-not (Get-ChildItem $install -Recurse -Force | Where-Object { $_.Name -match '\.bach-' })) 'nothing left set aside'
 
     Write-Host 'Uninstall'
     Set-Content -Path (Join-Path $install 'mine.txt') -Value 'a file the user made'
@@ -160,6 +284,7 @@ $toml
 "@ | Set-Content -Encoding utf8 (Join-Path $work "bach-$appId-$version.toml")
     & $bach build (Join-Path $work "bach-$appId-$version.toml") | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "bach build $appId $version failed." }
+    Assert-Readable (Join-Path $work "out\$appId-Setup-$version.exe")
     return Join-Path $work "out\$appId-Setup-$version.exe"
 }
 
@@ -263,12 +388,29 @@ try {
     Check ((Run $u4 @('--silent', '--with', 'auto-update', '--allow-downgrade')) -eq 0) 'ticked again'
     Check (Task-Exists) 'the update task is back'
 
+    Write-Host 'The beta channel is the choice of the person using the app'
+    $channelKey = 'HKCU:\Software\Bach\Channel'
+    $channelOf = { (Get-ItemProperty -Path $channelKey -Name $id -ErrorAction SilentlyContinue).$id }
+    Check ((Run $uninstaller @('--channel', 'beta')) -eq 1) 'an app without [updates] beta_feed has no beta channel'
+    Check ($null -eq (& $channelOf)) 'and nothing is kept'
+    $u5 = BuildU '5.0.0' $id 'beta_feed = "https://example.invalid/bach-e2e/latest-beta.json"'
+    Check ((Run $u5 @('--silent')) -eq 0) 'installs a version with a beta feed'
+    Check ((Run $uninstaller @('--channel', 'beta')) -eq 0) 'following beta works'
+    Check ((& $channelOf) -eq 'beta') 'and is kept for this user'
+    Check ((Run $u5 @('--silent', '--allow-downgrade')) -eq 0) 'a reinstall'
+    Check ((& $channelOf) -eq 'beta') 'leaves the choice alone'
+    Check ((Run $uninstaller @('--channel', 'nightly')) -eq 2) 'another channel name is a command-line mistake'
+    Check ((Run $uninstaller @('--channel', 'stable')) -eq 0) 'going back to stable works'
+    Check ($null -eq (& $channelOf)) 'and the choice is gone'
+    Check ((Run $uninstaller @('--channel', 'beta')) -eq 0) 'beta again, to see the uninstall take it away'
+
     Write-Host 'Uninstall removes the task and any waiting download'
     Stage $u3 '5.0.0'
     Check ((Run $uninstaller @('--silent')) -eq 0) 'exits 0'
     Check (-not (Test-Path $updatesKey)) 'gone from Settings > Apps'
     Check (-not (Task-Exists)) 'the update task is gone'
     Check (-not (Test-Path $staging)) 'the waiting download is gone'
+    Check ($null -eq (& $channelOf)) 'the chosen channel is forgotten'
 } finally {
     cmd /c "schtasks /Delete /TN ""Bach\$id"" /F >nul 2>&1"
     Get-Process -Name hello -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$updatesInstall*" } | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -364,6 +506,18 @@ try {
     [IO.File]::WriteAllBytes($tampered, $bytes)
     Check ((Run $tampered @('--silent', '--key-file', (Join-Path $protDir 'good.txt'))) -eq 1) 'refused, even with the right key'
     Check ((Get-Content (Join-Path $protInstall 'notes.txt')) -eq $secret) 'the install is untouched'
+
+    Write-Host '  several access keys, one per line of a key file'
+    $secondKey = (& $bach key).Trim()
+    Set-Content -NoNewline -Path (Join-Path $protDir 'second.txt') -Value $secondKey
+    Set-Content -Path (Join-Path $protDir 'keys.txt') -Value @($goodKey, '', '# a comment', $secondKey)
+    $many = Join-Path $protDir 'many.exe'
+    & $bach build (Join-Path $protDir 'bach.toml') --key-file (Join-Path $protDir 'keys.txt') --out $many | Out-Null
+    Check ($LASTEXITCODE -eq 0) 'builds with a key file of two keys'
+    Check ((Run $many @('--silent', '--key-file', (Join-Path $protDir 'bad.txt'))) -eq 1) 'a key that is not in the file fails'
+    Check ((Run $many @('--silent', '--key-file', (Join-Path $protDir 'second.txt'))) -eq 0) 'the second key opens it'
+    Check ((Run $many @('--silent', '--key-file', (Join-Path $protDir 'good.txt'))) -eq 0) 'and so does the first'
+    Check ((Get-Content (Join-Path $protInstall 'notes.txt')) -eq $secret) 'the file is intact after either'
 
     Write-Host '  uninstall'
     Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:TEMP 'bach-e2e-removal.txt')
