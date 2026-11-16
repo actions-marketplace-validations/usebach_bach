@@ -752,3 +752,36 @@ fn a_chocolatey_package_carries_the_checksum_of_the_setup_file() {
     assert!(!online.status.success());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_key_file_with_many_keys_gives_each_its_own_slot() {
+    need_runtime!();
+    let dir = secret_project("slots", &config(ACCESS));
+    let keys = ["K7QF-3MWD-9XPA-H2TY-6NBC", "B3RT-9KWM-2XQD-7FHN-4PLC", "C8VH-5NJA-6TRZ-3WQK-2DMB"];
+    // One per line, with a blank line and a comment, as `bach key --count` and people write them.
+    std::fs::write(dir.join("keys.txt"), format!("{}\n\n# the third is for a customer\n{}\n{}\n", keys[0], keys[1], keys[2])).unwrap();
+    let built = run(&dir, &["build", "--fast", "--key-file", "keys.txt"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    assert!(text(&built.stdout).contains("3 access keys"), "{}", text(&built.stdout));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+    assert!(!contains(&setup, SECRET) && keys.iter().all(|key| !contains(&setup, key)));
+
+    let mut file = std::fs::File::open(&setup).unwrap();
+    let layout = bach_pack::container::locate(&mut file).unwrap().expect("a Bach setup file");
+    let manifest = bach_pack::container::read_manifest(&mut file, &layout).unwrap();
+    let encryption = manifest.access.unwrap().encryption.unwrap();
+    assert_eq!(encryption.slots.len(), 3);
+    for key in keys {
+        assert!(encryption.unlock(key).is_ok(), "{key} opens it");
+    }
+    assert!(encryption.unlock("D9XJ-4PQA-7TMN-2KRF-8HWB").is_err(), "a key that isn't in the file does not");
+
+    // Without a file, the environment variable holds one key; an empty key file is refused.
+    std::fs::write(dir.join("empty.txt"), "# nothing here\n\n").unwrap();
+    let empty = run(&dir, &["build", "--fast", "--key-file", "empty.txt"]);
+    assert!(!empty.status.success() && text(&empty.stderr).contains("no access key"), "{}", text(&empty.stderr));
+    std::fs::write(dir.join("twice.txt"), format!("{}\n{}\n", keys[0], keys[0])).unwrap();
+    let twice = run(&dir, &["build", "--fast", "--key-file", "twice.txt"]);
+    assert!(!twice.status.success() && text(&twice.stderr).contains("same as an earlier"), "{}", text(&twice.stderr));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -72,18 +72,24 @@ fn seal(project: &mut Project, key_file: Option<&Path>, key: Option<&str>) -> Re
     if !project.encrypt {
         return Ok(None);
     }
-    let key = match key {
-        Some(key) => key.to_string(),
-        None => read_key(&project.key_env, key_file)?,
+    let keys = match key {
+        Some(key) => vec![key.to_string()],
+        None => read_keys(&project.key_env, key_file)?,
     };
-    let (encryption, unlocked) = Encryption::create(&key)?;
+    if keys.len() > 1 {
+        say!("{} access keys: each one opens the setup file on its own.", keys.len());
+    }
+    let (encryption, unlocked) = Encryption::create_slots(&keys)?;
     if let Some(access) = &mut project.manifest.access {
         access.encryption = Some(encryption.clone());
     }
     Ok(Some(Sealing { encryption, unlocked }))
 }
 
-fn read_key(env: &str, key_file: Option<&Path>) -> Result<String> {
+/// The access keys: from a key file, one per line (`bach key --count 50` makes
+/// such a file; blank lines and lines starting with # are skipped), or the one
+/// key in the environment variable.
+fn read_keys(env: &str, key_file: Option<&Path>) -> Result<Vec<String>> {
     let key = match key_file {
         Some(file) => bach_pack::textfile::read(file).with_context(|| format!("couldn't read the key file {}", file.display()))?,
         None => std::env::var(env).map_err(|_| {
@@ -93,8 +99,15 @@ fn read_key(env: &str, key_file: Option<&Path>) -> Result<String> {
             )
         })?,
     };
-    // The first line: a file from `bach key --count 50` holds many keys.
-    Ok(bach_pack::textfile::first_line(&key).unwrap_or_default())
+    let keys: Vec<String> = match key_file {
+        Some(_) => key.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).map(str::to_string).collect(),
+        // An environment variable holds one key.
+        None => vec![bach_pack::textfile::first_line(&key).unwrap_or_default()],
+    };
+    if keys.is_empty() {
+        bail!("the key file has no access key in it; put one key on each line");
+    }
+    Ok(keys)
 }
 
 pub fn build(options: BuildOptions) -> Result<PathBuf> {

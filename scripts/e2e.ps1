@@ -490,6 +490,18 @@ try {
     Check ((Run $tampered @('--silent', '--key-file', (Join-Path $protDir 'good.txt'))) -eq 1) 'refused, even with the right key'
     Check ((Get-Content (Join-Path $protInstall 'notes.txt')) -eq $secret) 'the install is untouched'
 
+    Write-Host '  several access keys, one per line of a key file'
+    $secondKey = (& $bach key).Trim()
+    Set-Content -NoNewline -Path (Join-Path $protDir 'second.txt') -Value $secondKey
+    Set-Content -Path (Join-Path $protDir 'keys.txt') -Value @($goodKey, '', '# a comment', $secondKey)
+    $many = Join-Path $protDir 'many.exe'
+    & $bach build (Join-Path $protDir 'bach.toml') --key-file (Join-Path $protDir 'keys.txt') --out $many | Out-Null
+    Check ($LASTEXITCODE -eq 0) 'builds with a key file of two keys'
+    Check ((Run $many @('--silent', '--key-file', (Join-Path $protDir 'bad.txt'))) -eq 1) 'a key that is not in the file fails'
+    Check ((Run $many @('--silent', '--key-file', (Join-Path $protDir 'second.txt'))) -eq 0) 'the second key opens it'
+    Check ((Run $many @('--silent', '--key-file', (Join-Path $protDir 'good.txt'))) -eq 0) 'and so does the first'
+    Check ((Get-Content (Join-Path $protInstall 'notes.txt')) -eq $secret) 'the file is intact after either'
+
     Write-Host '  uninstall'
     Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:TEMP 'bach-e2e-removal.txt')
     Check ((Run (Join-Path $protInstall 'uninstall.exe') @('--silent')) -eq 0) 'exits 0'

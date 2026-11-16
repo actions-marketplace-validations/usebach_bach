@@ -23,7 +23,7 @@ mod scope;
 pub mod system;
 mod validate;
 
-pub use access::{Access, Encryption};
+pub use access::{Access, Encryption, Slot};
 pub use choices::{
     auto_update_setting as choices_auto_update, Choice, Choices, OPTION_AUTOSTART, OPTION_AUTO_UPDATE, OPTION_DESKTOP, OPTION_PATH,
     OPTION_START_MENU,

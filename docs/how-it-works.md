@@ -72,8 +72,10 @@ it will install, so it never shows the "older version" page.
 ## Access keys
 
 An app with `[access]` carries encryption settings in its manifest (salt, nonce,
-Argon2id costs and a hash that tells a right key from a wrong one), and its
-archive is encrypted in authenticated chunks (see
+Argon2id costs and a hash that tells a right key from a wrong one) and one
+"slot" per access key: the files' random key, locked with a key made from that
+access key, so every access key opens the setup file on its own and taking one
+away is a build without it. Its archive is encrypted in authenticated chunks (see
 [`[access]`](config.md#access)). Setup derives the key on a background thread,
 checks it against the manifest before touching the disk, and decrypts while
 unpacking, so the all-or-nothing install is unchanged. A manifest that asks for

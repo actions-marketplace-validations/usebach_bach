@@ -21,13 +21,21 @@ use anyhow::{bail, Result};
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::generic_array::GenericArray;
 use chacha20poly1305::aead::stream::{DecryptorBE32, EncryptorBE32};
+use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use sha2::{Digest, Sha256};
 
-use crate::manifest::Encryption;
+use crate::manifest::{Encryption, Slot};
 
-/// The one scheme this version writes and reads.
+/// The scheme with one key for the whole setup file (older setup files).
 pub const SCHEME: &str = "argon2id-chacha20poly1305-v1";
+/// The scheme with a slot per access key: each key opens the files on its
+/// own, and a key is taken away by building without it. What new setup files use.
+pub const SCHEME_SLOTS: &str = "argon2id-slots-chacha20poly1305-v2";
+/// The most access keys one setup file can hold.
+pub const MAX_SLOTS: usize = 1000;
+const SLOT_NONCE_LEN: usize = 12;
+const FILE_KEY_LEN: usize = 32;
 /// Plain bytes per encrypted chunk.
 pub const CHUNK: usize = 64 * 1024;
 const TAG: usize = 16;
@@ -141,6 +149,58 @@ impl Encryption {
             memory_kib: MEMORY_KIB,
             passes: PASSES,
             check: check_value(&unlocked),
+            slots: Vec::new(),
+        };
+        Ok((encryption, unlocked))
+    }
+
+    /// Protection for a new setup file that any one of `keys` opens: a random
+    /// key for the files, locked once per access key. Taking a key away is a
+    /// new build without it.
+    pub fn create_slots(keys: &[String]) -> Result<(Self, Unlocked)> {
+        if keys.is_empty() {
+            bail!("there is no access key to lock the files with");
+        }
+        if keys.len() > MAX_SLOTS {
+            bail!("{} access keys are too many; a setup file holds at most {MAX_SLOTS}", keys.len());
+        }
+        for (index, key) in keys.iter().enumerate() {
+            if let Err(why) = check_key(key) {
+                bail!("access key {} {why}", index + 1);
+            }
+            if keys[..index].contains(key) {
+                bail!("access key {} is the same as an earlier one", index + 1);
+            }
+        }
+        let mut salt = [0u8; SALT_LEN];
+        let mut nonce = [0u8; NONCE_LEN];
+        let mut file_key = [0u8; FILE_KEY_LEN];
+        fill_random(&mut salt)?;
+        fill_random(&mut nonce)?;
+        fill_random(&mut file_key)?;
+        let unlocked = Unlocked { key: file_key };
+        let mut slots = Vec::with_capacity(keys.len());
+        for key in keys {
+            let mut slot_salt = [0u8; SALT_LEN];
+            let mut slot_nonce = [0u8; SLOT_NONCE_LEN];
+            fill_random(&mut slot_salt)?;
+            fill_random(&mut slot_nonce)?;
+            let lock = derive(key, &slot_salt, MEMORY_KIB, PASSES).map_err(|why| anyhow::anyhow!("{why}"))?;
+            let sealed = cipher(&lock)
+                .encrypt(GenericArray::from_slice(&slot_nonce), Payload { msg: &file_key, aad: &slot_aad(&salt, &nonce) })
+                .map_err(|_| anyhow::anyhow!("couldn't lock the files with an access key"))?;
+            let mut wrapped = slot_nonce.to_vec();
+            wrapped.extend_from_slice(&sealed);
+            slots.push(Slot { id: hex(&[slot_id(key, &salt)]), salt: hex(&slot_salt), wrapped: hex(&wrapped) });
+        }
+        let encryption = Self {
+            scheme: SCHEME_SLOTS.into(),
+            salt: hex(&salt),
+            nonce: hex(&nonce),
+            memory_kib: MEMORY_KIB,
+            passes: PASSES,
+            check: check_value(&unlocked),
+            slots,
         };
         Ok((encryption, unlocked))
     }
@@ -148,7 +208,19 @@ impl Encryption {
     /// Whether these settings are ones this version can use, without
     /// deriving anything. A setup file is untrusted input.
     pub fn validate(&self) -> Result<()> {
-        if self.scheme != SCHEME {
+        if self.scheme == SCHEME_SLOTS {
+            if self.slots.is_empty() || self.slots.len() > MAX_SLOTS {
+                bail!("the setup file's protection data is damaged");
+            }
+            let damaged = self.slots.iter().any(|slot| {
+                unhex::<1>(&slot.id).is_none()
+                    || unhex::<SALT_LEN>(&slot.salt).is_none()
+                    || unhex_vec(&slot.wrapped).is_none_or(|bytes| bytes.len() != SLOT_NONCE_LEN + FILE_KEY_LEN + TAG)
+            });
+            if damaged {
+                bail!("the setup file's protection data is damaged");
+            }
+        } else if self.scheme != SCHEME {
             bail!("this setup file is protected in a way (\"{}\") this version of setup doesn't know", self.scheme);
         }
         if unhex::<SALT_LEN>(&self.salt).is_none() || unhex::<NONCE_LEN>(&self.nonce).is_none() {
@@ -172,12 +244,38 @@ impl Encryption {
         if check_key(key).is_err() {
             return Err(KeyError::Wrong);
         }
+        if self.scheme == SCHEME_SLOTS {
+            return self.unlock_slots(key, &salt);
+        }
         let unlocked = derive(key, &salt, self.memory_kib, self.passes).map_err(KeyError::Damaged)?;
         if same(check_value(&unlocked).as_bytes(), self.check.to_ascii_lowercase().as_bytes()) {
             Ok(unlocked)
         } else {
             Err(KeyError::Wrong)
         }
+    }
+
+    /// Tries the slots that could belong to `key` (the one-byte id rules most
+    /// out without the slow part), until one opens.
+    fn unlock_slots(&self, key: &str, file_salt: &[u8; SALT_LEN]) -> Result<Unlocked, KeyError> {
+        let id = hex(&[slot_id(key, file_salt)]);
+        let nonce = self.nonce().map_err(|err| KeyError::Damaged(err.to_string()))?;
+        for slot in self.slots.iter().filter(|slot| slot.id.eq_ignore_ascii_case(&id)) {
+            let slot_salt = unhex::<SALT_LEN>(&slot.salt).ok_or_else(|| KeyError::Damaged("slot".into()))?;
+            let wrapped = unhex_vec(&slot.wrapped).ok_or_else(|| KeyError::Damaged("slot".into()))?;
+            let lock = derive(key, &slot_salt, self.memory_kib, self.passes).map_err(KeyError::Damaged)?;
+            let (slot_nonce, sealed) = wrapped.split_at(SLOT_NONCE_LEN);
+            let opened =
+                cipher(&lock).decrypt(GenericArray::from_slice(slot_nonce), Payload { msg: sealed, aad: &slot_aad(file_salt, &nonce) });
+            let Ok(opened) = opened else { continue };
+            let Ok(file_key) = <[u8; FILE_KEY_LEN]>::try_from(opened.as_slice()) else { continue };
+            let unlocked = Unlocked { key: file_key };
+            // The slot opened, so it is genuine; the check ties it to these files.
+            if same(check_value(&unlocked).as_bytes(), self.check.to_ascii_lowercase().as_bytes()) {
+                return Ok(unlocked);
+            }
+        }
+        Err(KeyError::Wrong)
     }
 
     /// The STREAM nonce prefix the chunks were sealed with.
@@ -194,6 +292,32 @@ impl Encryption {
     pub fn reader<R: Read>(&self, input: R, unlocked: &Unlocked) -> Result<DecryptReader<R>> {
         Ok(DecryptReader::new(input, unlocked, &self.nonce()?))
     }
+}
+
+/// What a slot is bound to, so it can't be moved to another setup file.
+fn slot_aad(file_salt: &[u8; SALT_LEN], nonce: &[u8; NONCE_LEN]) -> Vec<u8> {
+    let mut aad = b"bach access slot v2".to_vec();
+    aad.extend_from_slice(file_salt);
+    aad.extend_from_slice(nonce);
+    aad
+}
+
+/// One byte of a hash of the key, to pick the slots worth trying. It is a
+/// fast hash: the byte tells somebody who guesses keys offline 1 in 256, which
+/// only matters for keys that are easy to guess (`bach key` makes 100-bit ones).
+fn slot_id(key: &str, file_salt: &[u8; SALT_LEN]) -> u8 {
+    let mut hasher = Sha256::new();
+    hasher.update(b"bach access slot id v2");
+    hasher.update(file_salt);
+    hasher.update(key.as_bytes());
+    hasher.finalize()[0]
+}
+
+fn unhex_vec(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) || !text.is_ascii() || text.len() > 4096 {
+        return None;
+    }
+    (0..text.len() / 2).map(|index| u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).ok()).collect()
 }
 
 fn derive(key: &str, salt: &[u8], memory_kib: u32, passes: u32) -> Result<Unlocked, String> {
@@ -395,6 +519,7 @@ mod tests {
             memory_kib: 8,
             passes: 1,
             check: check_value(&unlocked),
+            slots: Vec::new(),
         };
         (encryption, unlocked)
     }
@@ -579,5 +704,107 @@ mod tests {
     fn key_derivation_matches_setups_already_released() {
         let unlocked = derive("correct horse", b"0123456789abcdef", 64, 2).unwrap();
         assert_eq!(check_value(&unlocked), "8cf3737dbfe980985526c929c7c8298f3e4ab2e08b4df5d926923a71e54db2dc");
+    }
+
+    const KEY_A: &str = "K7QF-3MWD-9XPA-H2TY-6NBC";
+    const KEY_B: &str = "B3RT-9KWM-2XQD-7FHN-4PLC";
+    const KEY_C: &str = "C8VH-5NJA-6TRZ-3WQK-2DMB";
+
+    fn keys(list: &[&str]) -> Vec<String> {
+        list.iter().map(|key| key.to_string()).collect()
+    }
+
+    #[test]
+    fn each_access_key_opens_the_files_on_its_own() {
+        let (encryption, unlocked) = Encryption::create_slots(&keys(&[KEY_A, KEY_B])).unwrap();
+        encryption.validate().unwrap();
+        assert_eq!((encryption.scheme.as_str(), encryption.slots.len()), (SCHEME_SLOTS, 2));
+        // The same file key from either slot, and the data it seals opens with it.
+        let mut writer = encryption.writer(Vec::new(), &unlocked).unwrap();
+        writer.write_all(b"the files").unwrap();
+        let sealed = writer.finish().unwrap();
+        for key in [KEY_A, KEY_B] {
+            let opened = encryption.unlock(key).unwrap_or_else(|err| panic!("{key}: {err}"));
+            let mut text = String::new();
+            encryption.reader(sealed.as_slice(), &opened).unwrap().read_to_string(&mut text).unwrap();
+            assert_eq!(text, "the files");
+        }
+        // A key that isn't one of them, and one that couldn't be.
+        assert_eq!(encryption.unlock(KEY_C).unwrap_err(), KeyError::Wrong);
+        assert_eq!(encryption.unlock("short").unwrap_err(), KeyError::Wrong);
+        // The slots don't reveal which key is which beyond a byte, and the
+        // wrapped file keys differ though they hold the same key.
+        assert_ne!(encryption.slots[0].wrapped, encryption.slots[1].wrapped);
+        assert!(!encryption.salt.is_empty() && encryption.slots.iter().all(|slot| slot.id.len() == 2));
+    }
+
+    #[test]
+    fn taking_a_key_away_is_a_build_without_it() {
+        let (before, _) = Encryption::create_slots(&keys(&[KEY_A, KEY_B])).unwrap();
+        let (after, _) = Encryption::create_slots(&keys(&[KEY_A])).unwrap();
+        assert!(before.unlock(KEY_B).is_ok());
+        assert_eq!(after.unlock(KEY_B).unwrap_err(), KeyError::Wrong, "the new build doesn't know B");
+        assert!(after.unlock(KEY_A).is_ok());
+    }
+
+    #[test]
+    fn a_tampered_or_moved_slot_is_not_trusted() {
+        let (encryption, _) = Encryption::create_slots(&keys(&[KEY_A, KEY_B])).unwrap();
+        // One flipped bit in A's slot: A no longer opens, B still does.
+        let mut broken = encryption.clone();
+        let wrapped = &broken.slots[0].wrapped;
+        let flipped = format!("{}{}", if wrapped.starts_with('0') { "1" } else { "0" }, &wrapped[1..]);
+        broken.slots[0].wrapped = flipped;
+        assert_eq!(broken.unlock(KEY_A).unwrap_err(), KeyError::Wrong);
+        assert!(broken.unlock(KEY_B).is_ok());
+        // A's slot copied into another setup file doesn't open it (it is bound to its file).
+        let (other, _) = Encryption::create_slots(&keys(&[KEY_C])).unwrap();
+        let mut moved = other.clone();
+        moved.slots = vec![encryption.slots[0].clone()];
+        assert_eq!(moved.unlock(KEY_A).unwrap_err(), KeyError::Wrong);
+        // And so is a changed check value.
+        let mut forged = encryption.clone();
+        forged.check = "0".repeat(64);
+        assert_eq!(forged.unlock(KEY_A).unwrap_err(), KeyError::Wrong);
+    }
+
+    #[test]
+    fn slot_data_that_is_damaged_is_refused_not_trusted() {
+        let (encryption, _) = Encryption::create_slots(&keys(&[KEY_A])).unwrap();
+        let mut none = encryption.clone();
+        none.slots.clear();
+        assert!(none.validate().is_err());
+        let mut short = encryption.clone();
+        short.slots[0].wrapped.truncate(20);
+        assert!(short.validate().is_err());
+        let mut odd = encryption.clone();
+        odd.slots[0].salt = "zz".repeat(16);
+        assert!(odd.validate().is_err());
+        let mut many = encryption.clone();
+        many.slots = vec![encryption.slots[0].clone(); MAX_SLOTS + 1];
+        assert!(many.validate().is_err());
+        assert!(matches!(none.unlock(KEY_A), Err(KeyError::Damaged(_))));
+    }
+
+    #[test]
+    fn keys_for_slots_are_checked() {
+        assert!(Encryption::create_slots(&[]).is_err());
+        assert!(format!("{:#}", Encryption::create_slots(&keys(&[KEY_A, KEY_A])).unwrap_err()).contains("same as an earlier"));
+        assert!(format!("{:#}", Encryption::create_slots(&keys(&[KEY_A, "short"])).unwrap_err()).contains("access key 2"));
+        let many: Vec<String> = (0..=MAX_SLOTS).map(|n| format!("key-number-{n:05}")).collect();
+        assert!(format!("{:#}", Encryption::create_slots(&many).unwrap_err()).contains("too many"));
+    }
+
+    #[test]
+    fn a_setup_file_from_before_the_slots_still_opens() {
+        // The single-key scheme stays readable: setup files in the wild must keep working.
+        let (old, _) = Encryption::create(KEY_A).unwrap();
+        assert_eq!(old.scheme, SCHEME);
+        assert!(old.slots.is_empty() && old.unlock(KEY_A).is_ok());
+        assert_eq!(old.unlock(KEY_B).unwrap_err(), KeyError::Wrong);
+        // Its manifest JSON has no "slots" field at all.
+        let json = serde_json::to_string(&old).unwrap();
+        assert!(!json.contains("slots"));
+        assert_eq!(serde_json::from_str::<Encryption>(&json).unwrap(), old);
     }
 }

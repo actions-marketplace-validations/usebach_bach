@@ -161,6 +161,7 @@ success_codes = [0, 3010]
 
 [access]                                  # private app: asks for a key, encrypts the files with it
 # The key is never written here: `bach key --out key.txt`, then `bach build --key-file key.txt`
+# (a key file with many lines = one setup file that each key opens; remove a line to revoke on the next build)
 # get_key_url = "https://example.com/buy"
 
 [updates]                                 # the installed app can update itself

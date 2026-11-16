@@ -615,7 +615,7 @@ get_key_url = "https://example.com/buy"   # optional: the key page gets a "Get a
 
 ```powershell
 bach key --out key.txt                     # writes one key (try --count 100 for a batch)
-bach build --key-file key.txt              # uses the first line of the file
+bach build --key-file key.txt              # every line of the file is a key that opens the setup file
 ```
 
 `--key-file` works in every shell. The build can also read the key from the
@@ -639,14 +639,23 @@ UTF-16 and Bach reads that, a byte order mark and plain UTF-8 alike.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `encrypt` | `true` | Encrypt the packaged files with the key. |
-| `key_env` | `BACH_ACCESS_KEY` | The environment variable the build reads the key from. `bach build --key-file FILE` reads its first line instead. |
+| `key_env` | `BACH_ACCESS_KEY` | The environment variable the build reads the key from (one key). `bach build --key-file FILE` reads every line of the file instead: each is a key, blank lines and lines starting with `#` are skipped, at most 1000. |
 | `get_key_url` | none | An `https` page where people get a key. |
 | `send_key` | `true` with `[updates]` | Send the key as `Authorization: Bearer <key>` with every request to the host of `[updates] feed` (the feed, and a download on that same host, redirects from it included), so a private server can refuse anyone without one. Mirrors and downloads on other hosts never get it. |
 
 A key is 8 to 128 characters: letters, digits and `- _ . ~ + / = :`.
 `bach key` makes 100-bit random ones (`--count 100` for a batch, say one per
-customer). Build one setup file per key to hand each customer their own, or
-share one key.
+customer). A key file with many keys makes one setup file that every one of
+them opens on its own: the files are locked with a random key of their own,
+and the manifest holds that key once per access key, each locked with it (a
+"slot"; the file is stored once, not once per key). To take a customer's key
+away, build again without their line and distribute that file: copies already
+handed out keep working with the keys they were built with, so pair this with
+`send_key` and a server that refuses the revoked key for updates. Opening takes
+a third of a second for each slot tried, and a one-byte tag in each slot cuts
+that to about one try. That tag is a fast hash of the key, so keys that are
+easy to guess are easier to guess offline: use `bach key`'s 100-bit keys. Setup
+files made before slots (one key for the whole file) still open.
 
 Setup asks for the key on its own page before the license (typed or pasted),
 and a wrong key stops before anything on the computer is touched. A silent
