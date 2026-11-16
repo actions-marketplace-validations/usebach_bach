@@ -18,6 +18,12 @@ pub struct Requirement {
 }
 
 /// How setup tells whether a requirement is there.
+/// The oldest Windows Bach supports: Windows 10 version 1809 (build 17763) and
+/// Windows 11. Setup files are tested on Windows 11 (and Windows Server 2022,
+/// which shares Windows 10 1809's kernel generation), and the update feature
+/// needs the `curl.exe` that Windows 10 has had since 1803.
+pub const MIN_WINDOWS_BUILD: u32 = 17_763;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Check {

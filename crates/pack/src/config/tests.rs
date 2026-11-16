@@ -1020,3 +1020,22 @@ fn the_config_version_is_optional_and_checked() {
     assert!(older.contains("config_version is 0") && older.contains("changelog"), "{older}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_windows_requirement_below_the_supported_minimum_warns() {
+    let dir = project_dir("minwindows");
+    let with = |build: u32| format!("{MINIMAL}\n[[requirements]]\nkind = \"windows\"\nbuild = {build}\n");
+    // 1809 itself and Windows 11 are fine.
+    for build in [17_763, 19_041, 22_000] {
+        let project = parse(&with(build), &dir).unwrap();
+        assert!(project.warnings.is_empty(), "{build}: {:?}", project.warnings);
+    }
+    // The first Windows 10 is older than what Bach supports: said at build time.
+    let project = parse(&with(10_240), &dir).unwrap();
+    assert!(
+        project.warnings.iter().any(|warning| warning.contains("10240") && warning.contains("1809") && warning.contains("17763")),
+        "{:?}",
+        project.warnings
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}

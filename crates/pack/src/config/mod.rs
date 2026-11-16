@@ -358,6 +358,17 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     }
     let sources = gather::gather(&source_dir, &file.files.exclude, &output)?;
     secrets::check(&sources, &file.files.allow_secrets, &mut warnings)?;
+    let requirements = extras::requirements(&file.requirements)?;
+    for requirement in &requirements {
+        if let manifest::extras::Check::Windows { build } = requirement.check {
+            if build < manifest::extras::MIN_WINDOWS_BUILD {
+                warnings.push(format!(
+                    "requirements: Windows build {build} is older than the oldest Bach supports (Windows 10 version 1809, build {});                      the setup window may not run there, so the requirement is no help to those users",
+                    manifest::extras::MIN_WINDOWS_BUILD
+                ));
+            }
+        }
+    }
     if sources.is_empty() {
         bail!("{} has no files to install", source_dir.display());
     }
@@ -391,7 +402,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         file_types: options::file_types(&file.file_types)?,
         locale,
         chosen: None,
-        requirements: extras::requirements(&file.requirements)?,
+        requirements,
         shortcuts: Vec::new(),
         run: Vec::new(),
         system: system_changes,

@@ -51,6 +51,9 @@ name with nothing usable left falls back to the folder's name.
 
 Run `bach doctor` to see that everything is in place.
 
+Setup files run on Windows 10 version 1809 (build 17763) and newer, and on
+Windows 11, on x64 and ARM64.
+
 ## 2. Build your app into a folder
 
 Bach installs the contents of one folder. Build or copy your app into it,

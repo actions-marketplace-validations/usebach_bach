@@ -306,6 +306,12 @@ kind = "windows"             # this Windows build number or newer
 build = 19041                # 10240 Windows 10, 17763 1809, 19041 2004, 22000 Windows 11
 ```
 
+Bach supports Windows 10 version 1809 (build 17763) and newer, and Windows 11.
+They are tested on Windows 11, Windows on ARM and Windows Server 2022; Windows
+10 itself is not in the automated tests (GitHub has no Windows 10 image). A
+`windows` requirement with a `build` below 17763 makes `bach check` and
+`bach build` warn, because the setup window may not run there.
+
 `webview2`, `dotnet`, `vcredist` and `windows` know their name and download
 page (`windows` points at microsoft.com/windows); `file` and `registry` need
 `name` and an `https` `url`. `windows` reads the build number from
