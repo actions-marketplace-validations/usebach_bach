@@ -1113,3 +1113,23 @@ fn the_registry_view_is_read_and_a_32_bit_program_in_a_machine_install_is_warned
     assert!(!warned(&with("")));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn the_publisher_of_updates_is_read_and_checked() {
+    let dir = project_dir("signer");
+    let with = |line: &str| format!("{MINIMAL}\n[updates]\nfeed = \"https://x.example/latest.json\"\n{line}\n");
+    let signer = |line: &str| parse(&with(line), &dir).map(|project| project.manifest.updates.unwrap().signer);
+    assert_eq!(signer("signer = \"Example Inc.\"").unwrap().as_deref(), Some("Example Inc."));
+    assert_eq!(signer("").unwrap(), None);
+    assert_eq!(signer("signer = \"  \"").unwrap(), None, "blank means none");
+    for bad in ["signer = \"CN=Example Inc.\"", &format!("signer = \"{}\"", "x".repeat(201))] {
+        let message = format!("{:#}", signer(bad).unwrap_err());
+        assert!(message.contains("updates.signer"), "{bad}: {message}");
+    }
+    use crate::manifest::extras::subject_names;
+    let subject = "CN=\"Example, Inc.\", O=Example Holding, L=Berlin, C=DE";
+    assert!(subject_names(subject, "Example, Inc.") && subject_names(subject, "example holding"));
+    assert!(!subject_names(subject, "Example") && !subject_names(subject, "Berlin") && !subject_names(subject, ""));
+    assert!(!subject_names("", "Example Inc."));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

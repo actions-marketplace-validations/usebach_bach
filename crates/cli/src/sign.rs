@@ -30,13 +30,14 @@ pub fn command(options: Options) -> Result<()> {
     let Some(signing) = &project.signing else {
         bail!("{} has no [signing] section, so Bach doesn't know how to sign; see docs/signing.md", options.config.display());
     };
-    sign(signing, options.file)?;
+    sign(signing, options.file, project.manifest.updates.as_ref().and_then(|updates| updates.signer.as_deref()))?;
     say!("Signed {}", options.file.display());
     Ok(())
 }
 
 /// Signs `file` with the program and arguments of `signing`.
-pub fn sign(signing: &Signing, file: &Path) -> Result<()> {
+/// `publisher` is `[updates] signer`: when it is set, the file has to be signed by that publisher.
+pub fn sign(signing: &Signing, file: &Path, publisher: Option<&str>) -> Result<()> {
     let arguments = arguments(signing, file, |name| std::env::var(name).ok())?;
     // The command as it will run, with secrets shown as the variable's name,
     // so a log never holds them and nobody is surprised by what bach.toml runs.
@@ -63,7 +64,7 @@ pub fn sign(signing: &Signing, file: &Path) -> Result<()> {
     // signtool is the tool whose job is known: a file it didn't sign is a failure. Another
     // program (a cloud signer, a script) may sign differently or not at all on purpose.
     if is_signtool(&signing.program) {
-        check_signature(file)?;
+        check_signature(file, publisher)?;
     } else {
         say!("Signature not checked: {} isn't signtool", signing.program);
     }
@@ -96,14 +97,14 @@ fn judge(status: &str, timestamped: bool) -> Signed {
 /// what it finds. A file with no (or a broken) signature is an error: the build
 /// would otherwise publish an unsigned setup file believing it signed. No
 /// timestamp, or a signature Windows doesn't trust yet, is a warning.
-fn check_signature(file: &Path) -> Result<()> {
+fn check_signature(file: &Path, publisher: Option<&str>) -> Result<()> {
     let output = Command::new("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",
             "-Command",
             "$s = Get-AuthenticodeSignature -LiteralPath $env:BACH_VERIFY_FILE; \
-             \"$($s.Status)\"; \"$($null -ne $s.TimeStamperCertificate)\"",
+             \"$($s.Status)\"; \"$($null -ne $s.TimeStamperCertificate)\"; \"$($s.SignerCertificate.Subject)\"",
         ])
         .env("BACH_VERIFY_FILE", file)
         .output();
@@ -114,6 +115,16 @@ fn check_signature(file: &Path) -> Result<()> {
     let text = String::from_utf8_lossy(&output.stdout);
     let mut lines = text.lines().map(str::trim);
     let (status, timestamped) = (lines.next().unwrap_or(""), lines.next() == Some("True"));
+    let subject = lines.next().unwrap_or("");
+    // The update check of every installed copy will look for this publisher: say so now, not after the release.
+    if let Some(publisher) = publisher.filter(|_| !subject.is_empty()) {
+        if !bach_pack::manifest::extras::subject_names(subject, publisher) {
+            bail!(
+                "{} is signed by \"{subject}\", but [updates] signer says {publisher}; installed apps would refuse every update.                  Sign with that publisher's certificate, or change [updates] signer",
+                file.display()
+            );
+        }
+    }
     match judge(status, timestamped) {
         Signed::Fine => say!("Signature checked: valid and timestamped"),
         Signed::NoTimestamp => say!(
@@ -266,7 +277,7 @@ mod tests {
         let file = std::env::temp_dir().join(format!("bach-unsigned-{}.exe", std::process::id()));
         // A real program that nobody signed: this test's own executable.
         std::fs::copy(std::env::current_exe().unwrap(), &file).unwrap();
-        let err = check_signature(&file).unwrap_err().to_string();
+        let err = check_signature(&file, None).unwrap_err().to_string();
         std::fs::remove_file(&file).unwrap();
         assert!(err.contains("isn't signed"), "{err}");
     }

@@ -38,7 +38,7 @@ pub fn wait_for_app(ctx: &Context) -> Result<(), String> {
 /// again), Err for a staged file that must not run (it is deleted).
 pub fn install(ctx: &Context, staged: &Staged) -> Result<i32, String> {
     let app_id = &ctx.manifest().app.id;
-    if let Err(problem) = stage::verify(staged, app_id) {
+    if let Err(problem) = stage::verify(staged, app_id).and_then(|()| super::authenticode::check(ctx.manifest(), &staged.file)) {
         stage::clear(app_id);
         return Err(problem);
     }

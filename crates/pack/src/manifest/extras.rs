@@ -172,6 +172,38 @@ pub struct Updates {
     /// key here, still signed with the old one, then switch (see docs/signing.md).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_public_key: Option<String>,
+    /// The name of the publisher a downloaded update has to be signed by
+    /// (Authenticode): the common name or organisation of the signing
+    /// certificate, as Windows shows it. An update that is unsigned, not valid
+    /// for Windows, or signed by anyone else is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signer: Option<String>,
+}
+
+/// Whether a certificate subject like `CN=Example Inc., O=Example, C=DE` names
+/// `wanted`: its common name or its organisation is that text (any case).
+pub fn subject_names(subject: &str, wanted: &str) -> bool {
+    let wanted = wanted.trim();
+    if wanted.is_empty() {
+        return false;
+    }
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    // A distinguished name is `key=value` pairs split by commas, where a value
+    // may be quoted and then holds commas of its own.
+    for c in subject.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            ',' if !quoted => parts.push(std::mem::take(&mut current)),
+            _ => current.push(c),
+        }
+    }
+    parts.push(current);
+    parts
+        .iter()
+        .filter_map(|part| part.trim().split_once('='))
+        .any(|(key, value)| matches!(key.trim().to_ascii_uppercase().as_str(), "CN" | "O") && value.trim().eq_ignore_ascii_case(wanted))
 }
 
 impl Updates {

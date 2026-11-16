@@ -280,6 +280,32 @@ and receives an unsigned feed stops updating, so run `bach feed` with the key
 before you publish. An app only trusts the keys its own setup file carries, so
 keep the private key safe, and change it in two steps (below) if you must.
 
+### Signed updates (Authenticode)
+
+`public_key` signs the feed. `signer` checks the *file*: with
+
+```toml bach.toml
+[updates]
+signer = "Example Inc."     # as the signing certificate shows it
+```
+
+the installed app runs a downloaded update only when Windows says its
+Authenticode signature is valid and the certificate's common name or
+organisation is that text (case ignored, the whole name). It asks Windows'
+own PowerShell (`Get-AuthenticodeSignature`) right before it installs, and
+again before it opens an update's window. An unsigned file, a signature Windows
+doesn't trust or a file signed by anyone else is deleted from the download
+folder and not run, with the reason in the log. This also protects against a
+feed host that was taken over: it can name any file, but not sign as you.
+
+`bach build --sign` and `bach sign` check the same thing after signing: if the
+signed file's certificate isn't the `signer`, the build stops, because every
+installed copy would refuse the update. Use it together with `[signing]` and sign
+every setup file you publish, patches too. A build without `--sign` still
+works; its update would be refused by apps that have a `signer`. The first
+version with `signer` has to be installed by hand (older copies don't know the
+setting).
+
 ### Changing the key
 
 A key has to be replaced when it leaks, or is lost. Because installed copies only

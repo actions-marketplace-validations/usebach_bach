@@ -151,8 +151,9 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     output::result("version", project.manifest.app.version.clone());
     // Signing is optional: it needs [signing] and a --sign from whoever runs the build.
     let signing = project.signing.as_ref().filter(|_| sign);
+    let publisher = project.manifest.updates.as_ref().and_then(|updates| updates.signer.as_deref());
     if let Some(signing) = signing {
-        crate::sign::sign(signing, &output)?;
+        crate::sign::sign(signing, &output, publisher)?;
     }
     if project.online {
         let online_output = tidy(&project.online_output);
@@ -161,14 +162,14 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
         say!("Wrote {} ({}), the online installer", online_output.display(), output::size(size));
         output::result("online_setup", online_output.display().to_string());
         if let Some(signing) = signing {
-            crate::sign::sign(signing, &online_output)?;
+            crate::sign::sign(signing, &online_output, publisher)?;
         }
     }
     let patch = match patch_from {
         Some(old) => {
             let (patch, from) = write_patch(&project, old, &runtime, &output, key_file)?;
             if let Some(signing) = signing {
-                crate::sign::sign(signing, &patch)?;
+                crate::sign::sign(signing, &patch, publisher)?;
             }
             output::result("patch", patch.display().to_string());
             Some((patch, from))

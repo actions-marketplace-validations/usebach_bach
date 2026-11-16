@@ -290,6 +290,7 @@ mod tests {
             mirrors: Vec::new(),
             public_key: None,
             next_public_key: None,
+            signer: None,
         });
         let mut choices = Choices::defaults(&manifest);
         assert!(choices.auto_update, "offered and ticked");
@@ -306,6 +307,7 @@ mod tests {
             mirrors: Vec::new(),
             public_key: None,
             next_public_key: None,
+            signer: None,
         });
         assert!(Choices::for_update(&manifest, &previous).auto_update);
         manifest.updates = Some(Updates {
@@ -314,6 +316,7 @@ mod tests {
             mirrors: Vec::new(),
             public_key: None,
             next_public_key: None,
+            signer: None,
         });
         assert!(!Choices { auto_update: true, ..Choices::default() }.settle(&manifest).auto_update);
     }

@@ -74,6 +74,8 @@ pub struct UpdatesSection {
     public_key: Option<String>,
     /// A second key to trust as well, for handing over to a new key.
     next_public_key: Option<String>,
+    /// The publisher a downloaded update must be signed by (Authenticode).
+    signer: Option<String>,
 }
 
 /// The environment variable the access key is read from unless `key_env`
@@ -349,7 +351,18 @@ pub fn updates(section: Option<&UpdatesSection>, machine: bool) -> Result<Option
             Some(key)
         }
     };
-    Ok(Some(UpdateSettings { updates: Updates { feed, auto, mirrors, public_key, next_public_key }, download_url: download, github }))
+    let signer = match section.signer.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(name) if name.chars().count() > 200 || name.chars().any(char::is_control) || name.contains('=') => {
+            bail!("updates.signer is \"{name}\"; give the publisher's name as the signing certificate shows it, like \"Example Inc.\" (no CN= and no more than 200 characters)")
+        }
+        Some(name) => Some(name.to_string()),
+    };
+    Ok(Some(UpdateSettings {
+        updates: Updates { feed, auto, mirrors, public_key, next_public_key, signer },
+        download_url: download,
+        github,
+    }))
 }
 
 /// `[access]`: an access key the installer asks for.

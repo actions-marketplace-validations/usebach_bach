@@ -17,6 +17,7 @@
 //! why an update that is cut short can't leave a half-updated app.
 
 mod apply;
+mod authenticode;
 mod auto;
 pub(crate) mod curl;
 pub(crate) mod feed;
@@ -296,6 +297,11 @@ fn update(ctx: &Context) -> Result<i32, String> {
     }
     eprintln!("{}", ctx.texts.get(Key::step_downloading));
     let staged = stage_entry(ctx, &entry, ctx.args.silent)?;
+    // A publisher that signs its updates gets only updates it signed.
+    if let Err(problem) = authenticode::check(ctx.manifest(), &staged.file) {
+        stage::clear(&ctx.manifest().app.id);
+        return Err(problem);
+    }
     // The download is done before the app is asked to close, so waiting for
     // it never delays the user twice.
     apply::wait_for_app(ctx)?;
