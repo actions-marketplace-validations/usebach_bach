@@ -18,10 +18,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The setup window and the installer run on three kinds of Windows: the
+  # newest x64 image, Windows on ARM (where the ARM64 runtime is built and
+  # tested natively, not only in the release) and the previous Windows Server
+  # image. GitHub offers no Windows 10 image any more; windows-2022 is the
+  # oldest one, so Windows 10 itself is not tested here.
   check:
-    name: Test and build
-    runs-on: windows-latest
+    name: Test and build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm, windows-2022]
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -64,7 +73,10 @@ jobs:
         shell: pwsh
         run: ./scripts/e2e.ps1 -Profile release
 
+      # The action and its checks need nothing that depends on the Windows
+      # version, so they run once.
       - name: Prepare the action test
+        if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           # The action runs against the bach just built, as a pinned release would.
@@ -73,6 +85,7 @@ jobs:
           "$PWD\target\release" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: Build with the action
+        if: matrix.os == 'windows-latest'
         id: bach
         uses: ./
         with:
@@ -82,6 +95,7 @@ jobs:
           notes: CI check of the action
 
       - name: Check what the action made
+        if: matrix.os == 'windows-latest'
         shell: pwsh
         env:
           SETUP: ${{ steps.bach.outputs.setup }}

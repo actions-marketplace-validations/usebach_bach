@@ -72,6 +72,11 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+CI runs the full build and test, with the real install/update/remove run
+(`scripts/e2e.ps1`), on `windows-latest`, `windows-11-arm` (the ARM64 runtime,
+natively) and `windows-2022`. GitHub has no Windows 10 image, so Windows 10 is
+not tested.
+
 CI also runs `cargo test` and clippy for `bach-pack` and `bach-cli` on Linux and
 macOS, and `cargo deny check advisories licenses sources` (the rules are in
 `deny.toml`; `cargo install cargo-deny --locked` to run it yourself). A new
