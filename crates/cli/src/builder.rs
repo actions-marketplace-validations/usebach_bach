@@ -125,8 +125,10 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
         say!("The files are encrypted with the access key.");
     }
     let output = tidy(&output);
-    record_hashes(&mut project)?;
-    let packed = write_setup(&project, &runtime, &output, sealing.as_ref())?;
+    // The checksums come out of the packing pass itself: each file is read once.
+    let written = write_setup(&project, &runtime, &output, sealing.as_ref())?;
+    let packed = written.packed;
+    record_hashes(&mut project.manifest, &project.sources, &written.hashes)?;
 
     let size = fs::metadata(&output).map(|meta| meta.len()).unwrap_or(0);
     let installed = project.manifest.total_size().max(1);
@@ -188,21 +190,27 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     Ok(output)
 }
 
+/// What writing a setup file gives back: the archive's packed size and the
+/// SHA-256 of each packaged file (in the order of `project.sources`).
+struct Written {
+    packed: u64,
+    hashes: Vec<String>,
+}
+
 /// Records every file's SHA-256 in the manifest, so an update patch can leave
 /// unchanged files where they are and check them before relying on them.
-fn record_hashes(project: &mut Project) -> Result<()> {
-    let mut progress = Progress::new("Checksums", project.sources.iter().map(|source| source.size).sum());
-    let mut done = 0u64;
-    for (entry, source) in project.manifest.files.iter_mut().zip(&project.sources) {
-        if entry.path != source.packaged {
-            bail!("the file list and the files to pack disagree about {}", source.packaged);
-        }
-        let file = File::open(&source.path).with_context(|| format!("couldn't read {}", source.path.display()))?;
-        entry.sha256 = Some(bach_pack::protect::sha256_hex(file).with_context(|| format!("couldn't read {}", source.path.display()))?);
-        done += source.size;
-        progress.update(done);
+/// `hashes` belong to `sources`, one each; a file that isn't packaged keeps
+/// the checksum it has.
+fn record_hashes(manifest: &mut bach_pack::manifest::Manifest, sources: &[archive::Source], hashes: &[String]) -> Result<()> {
+    if sources.len() != hashes.len() {
+        bail!("the packing pass gave {} checksums for {} files", hashes.len(), sources.len());
     }
-    progress.finish();
+    for (source, hash) in sources.iter().zip(hashes) {
+        let Some(entry) = manifest.files.iter_mut().find(|entry| entry.path == source.packaged) else {
+            bail!("the file list and the files to pack disagree about {}", source.packaged);
+        };
+        entry.sha256 = Some(hash.clone());
+    }
     Ok(())
 }
 
@@ -339,19 +347,19 @@ fn tidy(path: &Path) -> PathBuf {
 /// Writes the setup file through a `.partial` file, so a failed build never
 /// leaves a half-written installer where the real one belongs. Returns the
 /// archive's packed size.
-fn write_setup(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>) -> Result<u64> {
+fn write_setup(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>) -> Result<Written> {
     write_file(project, runtime_path, output, sealing, write_into)
 }
 
 /// The online installer: the same window and manifest as the setup file,
 /// and no files. It downloads the newest setup file when it runs.
-fn write_online_setup(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>) -> Result<u64> {
+fn write_online_setup(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>) -> Result<Written> {
     write_file(project, runtime_path, output, sealing, write_online_into)
 }
 
-type WriteSetup = fn(&Project, &[u8], &Path, Option<&Sealing>) -> Result<u64>;
+type WriteSetup = fn(&Project, &[u8], &Path, Option<&Sealing>) -> Result<Written>;
 
-fn write_file(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>, write: WriteSetup) -> Result<u64> {
+fn write_file(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>, write: WriteSetup) -> Result<Written> {
     let runtime = runtime::read(runtime_path)?;
     if let Some(dir) = output.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         fs::create_dir_all(dir).with_context(|| format!("couldn't create {}", dir.display()))?;
@@ -360,8 +368,8 @@ fn write_file(project: &Project, runtime_path: &Path, output: &Path, sealing: Op
     partial.push(".partial");
     let partial = PathBuf::from(partial);
 
-    let packed = match write(project, &runtime, &partial, sealing) {
-        Ok(packed) => packed,
+    let written = match write(project, &runtime, &partial, sealing) {
+        Ok(written) => written,
         Err(err) => {
             let _ = fs::remove_file(&partial);
             return Err(err);
@@ -371,10 +379,10 @@ fn write_file(project: &Project, runtime_path: &Path, output: &Path, sealing: Op
         fs::remove_file(output).with_context(|| format!("couldn't replace {} (is it open?)", output.display()))?;
     }
     fs::rename(&partial, output).with_context(|| format!("couldn't move the setup file to {}", output.display()))?;
-    Ok(packed)
+    Ok(written)
 }
 
-fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&Sealing>) -> Result<u64> {
+fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&Sealing>) -> Result<Written> {
     fs::write(path, runtime).with_context(|| format!("couldn't write {}", path.display()))?;
     brand(project, path)?;
 
@@ -384,13 +392,14 @@ fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&S
     let mut progress = Progress::new("Packing", total);
     let hashing = Hashing { inner: BufWriter::new(file), hasher: Sha256::new() };
     let mut step = |done| progress.update(done);
-    let hashing = match sealing {
+    let (hashing, hashes) = match sealing {
         // The hash covers what is appended, which is the encrypted bytes.
         Some(sealing) => {
             let writer = sealing.encryption.writer(hashing, &sealing.unlocked)?;
-            archive::write(writer, &project.sources, project.compression, &mut step)?.finish()?
+            let (writer, hashes) = archive::write_hashed(writer, &project.sources, project.compression, &mut step)?;
+            (writer.finish()?, hashes)
         }
-        None => archive::write(hashing, &project.sources, project.compression, &mut step)?,
+        None => archive::write_hashed(hashing, &project.sources, project.compression, &mut step)?,
     };
     progress.finish();
     let Hashing { inner, hasher } = hashing;
@@ -399,12 +408,14 @@ fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&S
     // The runtime checks this before unpacking anything.
     let mut manifest = project.manifest.clone();
     manifest.archive_sha256 = Some(bach_pack::protect::hex(&hasher.finalize()));
+    // The file checksums were taken while packing; the manifest goes in after the archive.
+    record_hashes(&mut manifest, &project.sources, &hashes)?;
     let layout = container::finish(&mut file, archive_offset, logo, &manifest)?;
     file.sync_all()?;
-    Ok(layout.archive.len)
+    Ok(Written { packed: layout.archive.len, hashes })
 }
 
-fn write_online_into(project: &Project, runtime: &[u8], path: &Path, _sealing: Option<&Sealing>) -> Result<u64> {
+fn write_online_into(project: &Project, runtime: &[u8], path: &Path, _sealing: Option<&Sealing>) -> Result<Written> {
     fs::write(path, runtime).with_context(|| format!("couldn't write {}", path.display()))?;
     brand(project, path)?;
     let mut file = File::options().read(true).write(true).open(path)?;
@@ -415,7 +426,7 @@ fn write_online_into(project: &Project, runtime: &[u8], path: &Path, _sealing: O
     let logo = project.logo.as_deref().unwrap_or_default();
     container::finish(&mut file, offset, logo, &manifest)?;
     file.sync_all()?;
-    Ok(0)
+    Ok(Written { packed: 0, hashes: Vec::new() })
 }
 
 /// A writer that hashes what passes through it.

@@ -14,6 +14,11 @@ appends your app to its end:
 - **logo**: the bytes of `[installer] logo` (or the PNG inside `app.icon`), if any.
 - **manifest**: JSON describing the app: name, version, publisher, the files
   and their sizes, the options, components, texts and license, the look.
+
+The build reads every file once. Each file's SHA-256 is taken from the same
+bytes that go into the archive, and the manifest, which sits behind the archive,
+is written last with those checksums in it. A build of unchanged files gives
+the same setup file, byte for byte.
 - **trailer**: 40 bytes: `BACHPACK`, the format version, the padding length
   and the length of each section.
 

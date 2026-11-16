@@ -670,3 +670,30 @@ fn json_output_is_one_object_with_stable_fields() {
     assert!(error["error"].as_str().unwrap().len() > 5 && !error.contains_key("setup"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn the_checksums_in_a_setup_file_are_those_of_the_packed_files() {
+    need_runtime!();
+    let dir = project("sums", &config(""));
+    let built = run(&dir, &["build", "--fast"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+
+    // They are taken while the files are packed, so they must still be the
+    // SHA-256 of what is on disk, for every file.
+    let mut file = std::fs::File::open(&setup).unwrap();
+    let layout = bach_pack::container::locate(&mut file).unwrap().expect("a Bach setup file");
+    let manifest = bach_pack::container::read_manifest(&mut file, &layout).unwrap();
+    assert_eq!(manifest.files.len(), 2);
+    for entry in &manifest.files {
+        let on_disk = std::fs::File::open(dir.join("app").join(&entry.path)).unwrap();
+        let expected = bach_pack::protect::sha256_hex(on_disk).unwrap();
+        assert_eq!(entry.sha256.as_deref(), Some(expected.as_str()), "{}", entry.path);
+    }
+    // And the build is deterministic: the same inputs give the same setup file.
+    let first = std::fs::read(&setup).unwrap();
+    let again = run(&dir, &["build", "--fast"]);
+    assert!(again.status.success(), "{}", text(&again.stderr));
+    assert_eq!(first, std::fs::read(&setup).unwrap(), "two builds of the same files differ");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

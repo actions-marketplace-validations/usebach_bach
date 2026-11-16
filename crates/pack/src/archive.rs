@@ -14,6 +14,7 @@ use std::io::{self, BufReader, Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
+use sha2::{Digest, Sha256};
 
 use crate::paths;
 
@@ -61,6 +62,18 @@ pub struct Source {
 /// Compresses `sources` into `out`, calling `progress` with the bytes read
 /// so far. Returns `out` once the stream is finished.
 pub fn write<W: Write>(out: W, sources: &[Source], compression: Compression, progress: &mut dyn FnMut(u64)) -> Result<W> {
+    write_hashed(out, sources, compression, progress).map(|(out, _)| out)
+}
+
+/// Like [`write`], and also gives the SHA-256 (hex) of every source file's
+/// bytes, in the order of `sources`. The hash is taken from the very bytes
+/// that go into the archive, so the build reads each file once, not twice.
+pub fn write_hashed<W: Write>(
+    out: W,
+    sources: &[Source],
+    compression: Compression,
+    progress: &mut dyn FnMut(u64),
+) -> Result<(W, Vec<String>)> {
     let mut encoder = zstd::stream::Encoder::new(out, compression.level())?;
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()) as u32;
     // Multithreading only changes speed, never the format; ignore a build
@@ -69,6 +82,7 @@ pub fn write<W: Write>(out: W, sources: &[Source], compression: Compression, pro
     encoder.include_checksum(true)?;
 
     let mut done = 0u64;
+    let mut hashes = Vec::with_capacity(sources.len());
     for source in sources {
         let packaged = paths::normalize(&source.packaged)?;
         let name = packaged.as_bytes();
@@ -84,7 +98,8 @@ pub fn write<W: Write>(out: W, sources: &[Source], compression: Compression, pro
         encoder.write_all(&name_len.to_le_bytes())?;
         encoder.write_all(name)?;
         encoder.write_all(&size.to_le_bytes())?;
-        let copied = copy_counting(&mut file, &mut encoder, &mut |n| {
+        let mut hasher = Sha256::new();
+        let copied = copy_with(&mut file, &mut encoder, Some(&mut hasher), &mut |n| {
             done = done.saturating_add(n);
             progress(done);
         })
@@ -92,9 +107,10 @@ pub fn write<W: Write>(out: W, sources: &[Source], compression: Compression, pro
         if copied != size {
             bail!("{} changed size while it was being packaged", source.path.display());
         }
+        hashes.push(crate::protect::hex(&hasher.finalize()));
     }
     encoder.write_all(&[END])?;
-    Ok(encoder.finish()?)
+    Ok((encoder.finish()?, hashes))
 }
 
 /// Reads an archive front to back, handing each file to `visit` with its
@@ -134,6 +150,11 @@ pub fn read<R: Read>(input: R, visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -
 
 /// `io::copy` that reports each chunk as it goes.
 pub fn copy_counting(from: &mut dyn Read, to: &mut dyn Write, progress: &mut dyn FnMut(u64)) -> io::Result<u64> {
+    copy_with(from, to, None, progress)
+}
+
+/// [`copy_counting`] that can also feed a hasher with the very bytes it copies.
+fn copy_with(from: &mut dyn Read, to: &mut dyn Write, mut hasher: Option<&mut Sha256>, progress: &mut dyn FnMut(u64)) -> io::Result<u64> {
     let mut buffer = vec![0u8; 256 * 1024];
     let mut total = 0u64;
     loop {
@@ -144,6 +165,9 @@ pub fn copy_counting(from: &mut dyn Read, to: &mut dyn Write, progress: &mut dyn
             Err(err) => return Err(err),
         };
         to.write_all(&buffer[..read])?;
+        if let Some(hasher) = hasher.as_mut() {
+            hasher.update(&buffer[..read]);
+        }
         total = total.saturating_add(read as u64);
         progress(read as u64);
     }
@@ -177,8 +201,13 @@ mod tests {
             .collect();
 
         let mut last = 0;
-        let bytes = write(Vec::new(), &sources, Compression::Fast, &mut |done| last = done).unwrap();
+        let (bytes, hashes) = write_hashed(Vec::new(), &sources, Compression::Fast, &mut |done| last = done).unwrap();
         assert_eq!(last, big.len() as u64 + 5);
+        // One checksum per file, of exactly the file's bytes (the SHA-256 of "hello" and of nothing).
+        assert_eq!(hashes.len(), 3);
+        assert_eq!(hashes[0], crate::protect::sha256_hex(big.as_slice()).unwrap());
+        assert_eq!(hashes[1], "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        assert_eq!(hashes[2], "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
         assert!(bytes.len() < big.len() / 10, "the pattern should compress");
 
         let mut seen = Vec::new();
