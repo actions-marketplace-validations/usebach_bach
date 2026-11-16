@@ -398,7 +398,22 @@ key = 'Software\Hello'
 name = "FirstRun"
 type = "dword"
 value = 1
+
+[[registry]]
+key = 'Software\Hello\Legacy'
+name = "InstallPath"
+view = "32"                     # "64" (default), "32" or "both"
+value = '{app}'
 ```
+
+`view` picks the registry view on a 64-bit Windows. A 32-bit program that
+reads `HKLM\Software\Vendor` is sent to `HKLM\Software\WOW6432Node\Vendor`,
+so a machine-wide app (`installer.scope = "machine"`) whose program is 32-bit
+needs `view = "32"` (or `"both"` when it ships 32-bit and 64-bit programs).
+Writing, updating and removing use the same view, and `"both"` handles both.
+`HKCU\Software` is not redirected, so the value rarely matters there. `bach
+check` warns when the install is machine-wide, `app.executable` is a 32-bit
+program (its PE header says x86) and a `[[registry]]` value leaves `view` out.
 
 Use single quotes for the key, so the backslashes stay as they are. An
 update writes the values again and removes the ones the new version no longer

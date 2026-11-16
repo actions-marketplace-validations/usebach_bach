@@ -403,6 +403,17 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         &system::Owner { id: &app.id, name: &app.name, publisher: &app.publisher },
         &mut warnings,
     )?;
+    // A 32-bit program reads HKLM\Software\Vendor from WOW6432Node.
+    if install.scope.is_machine() && system::registry_leaves_view_open(&file.registry) {
+        let program = sources.iter().find(|source| source.packaged.eq_ignore_ascii_case(&app.executable));
+        if program.and_then(|source| system::pe_machine(&source.path)) == Some(0x014C) {
+            warnings.push(
+                "app.executable is a 32-bit program and installer.scope is \"machine\": it reads HKLM\\Software\\... from the 32-bit \
+                 view (WOW6432Node), so give the [[registry]] values it reads view = \"32\" (or \"both\")"
+                    .to_string(),
+            );
+        }
+    }
     let manifest = Manifest {
         format: crate::FORMAT_VERSION,
         builder: crate::VERSION.into(),

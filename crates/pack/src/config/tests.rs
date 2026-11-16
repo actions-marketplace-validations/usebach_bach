@@ -1054,3 +1054,39 @@ fn compression_threads_and_memory_are_checked() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn the_registry_view_is_read_and_a_32_bit_program_in_a_machine_install_is_warned_about() {
+    let dir = project_dir("regview");
+    let with = |view: &str| {
+        let line = if view.is_empty() { String::new() } else { format!("view = \"{view}\"\n") };
+        format!(
+            "{MINIMAL}\n[installer]\nscope = \"machine\"\nfolder = \"Hello\"\n\n[[registry]]\nkey = 'Software\\Example\\Hello'\nname = \"Dir\"\nvalue = \"{{app}}\"\n{line}"
+        )
+    };
+    let views =
+        |text: &str| parse(text, &dir).map(|project| project.manifest.system.registry.iter().map(|value| value.view).collect::<Vec<_>>());
+    assert_eq!(views(&with("")).unwrap(), [crate::manifest::RegistryView::Native]);
+    assert_eq!(views(&with("32")).unwrap(), [crate::manifest::RegistryView::Wow32]);
+    assert_eq!(views(&with("both")).unwrap(), [crate::manifest::RegistryView::Both]);
+    let message = format!("{:#}", views(&with("16")).unwrap_err());
+    assert!(message.contains("registry[0].view") && message.contains("\"64\""), "{message}");
+
+    // A 32-bit program (the PE header says x86) with a machine-wide install: warned, once it is said.
+    let mut x86 = vec![0u8; 256];
+    x86[0..2].copy_from_slice(b"MZ");
+    x86[0x3c] = 0x80;
+    x86[0x80..0x84].copy_from_slice(b"PE\0\0");
+    x86[0x84..0x86].copy_from_slice(&0x014Cu16.to_le_bytes());
+    std::fs::write(dir.join("build/hello.exe"), &x86).unwrap();
+    let warned = |text: &str| parse(text, &dir).unwrap().warnings.iter().any(|warning| warning.contains("32-bit program"));
+    assert!(warned(&with("")), "a value that leaves the view open");
+    assert!(!warned(&with("32")), "the view is said, so no warning");
+    // The same program installed per user has no WOW6432Node view of HKCU\Software to worry about.
+    assert!(!warned(&with("").replace("scope = \"machine\"", "scope = \"user\"")));
+    // A 64-bit program: nothing to say.
+    x86[0x84..0x86].copy_from_slice(&0x8664u16.to_le_bytes());
+    std::fs::write(dir.join("build/hello.exe"), &x86).unwrap();
+    assert!(!warned(&with("")));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

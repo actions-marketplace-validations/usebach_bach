@@ -10,7 +10,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use bach_pack::manifest::system::expand_app;
-use bach_pack::manifest::{ContextMenuEntry, ContextTarget, EnvVar, Manifest, RegistryData, RegistryValue};
+use bach_pack::manifest::{ContextMenuEntry, ContextTarget, EnvVar, Manifest, RegistryData, RegistryValue, RegistryView};
 use windows_registry::Key;
 
 const CLASSES: &str = r"Software\Classes";
@@ -99,15 +99,31 @@ fn undo_stale(at: &Where, manifest: &Manifest, previous: &Manifest, dir: &Path) 
 }
 
 fn same_value(a: &RegistryValue, b: &RegistryValue) -> bool {
-    a.key.eq_ignore_ascii_case(&b.key) && a.name.eq_ignore_ascii_case(&b.name)
+    a.key.eq_ignore_ascii_case(&b.key) && a.name.eq_ignore_ascii_case(&b.name) && a.view == b.view
+}
+
+/// Opens (or makes) `path` in one view of the registry: `wow32` is the view
+/// a 32-bit program has, which Windows keeps under `WOW6432Node`.
+fn open_view(at: &Where, path: &str, wow32: bool, create: bool) -> windows_registry::Result<Key> {
+    let mut options = at.hive.options();
+    options.read().write();
+    if create {
+        options.create();
+    }
+    if wow32 {
+        options.wow64_32();
+    }
+    options.open(path)
 }
 
 fn write_value(at: &Where, value: &RegistryValue, dir: &Path) -> Result<()> {
-    let key = at.hive.create(&value.key)?;
-    match &value.data {
-        RegistryData::String(text) => key.set_string(&value.name, expand_app(text, dir))?,
-        RegistryData::Expand(text) => key.set_expand_string(&value.name, expand_app(text, dir))?,
-        RegistryData::Dword(number) => key.set_u32(&value.name, *number)?,
+    for &wow32 in value.view.each() {
+        let key = open_view(at, &value.key, wow32, true)?;
+        match &value.data {
+            RegistryData::String(text) => key.set_string(&value.name, expand_app(text, dir))?,
+            RegistryData::Expand(text) => key.set_expand_string(&value.name, expand_app(text, dir))?,
+            RegistryData::Dword(number) => key.set_u32(&value.name, *number)?,
+        }
     }
     Ok(())
 }
@@ -123,30 +139,40 @@ fn holds(key: &Key, value: &RegistryValue, dir: &Path) -> bool {
 }
 
 fn remove_value(at: &Where, value: &RegistryValue, dir: &Path) {
-    let Ok(key) = at.hive.options().read().write().open(&value.key) else {
-        return;
-    };
-    if holds(&key, value, dir) {
-        let _ = key.remove_value(&value.name);
+    for &wow32 in value.view.each() {
+        let Ok(key) = open_view(at, &value.key, wow32, false) else {
+            continue;
+        };
+        if holds(&key, value, dir) {
+            let _ = key.remove_value(&value.name);
+        }
+        drop(key);
+        prune(at, &value.key, wow32);
     }
-    drop(key);
-    prune(at, &value.key);
 }
 
 /// Removes `path` and the keys above it while they're empty, but never
 /// `Software` itself and never a key that still holds anything.
-fn prune(at: &Where, path: &str) {
+fn prune(at: &Where, path: &str, wow32: bool) {
     let mut parts: Vec<&str> = path.split('\\').collect();
     while parts.len() >= 2 {
         let current = parts.join("\\");
-        let empty = at.hive.open(&current).is_ok_and(|key| {
+        let empty = open_view(at, &current, wow32, false).is_ok_and(|key| {
             key.keys().is_ok_and(|mut keys| keys.next().is_none()) && key.values().is_ok_and(|mut values| values.next().is_none())
         });
-        if !empty || at.hive.remove_tree(&current).is_err() {
+        if !empty || !remove_empty_key(at, &current, wow32) {
             return;
         }
         parts.pop();
     }
+}
+
+/// Deletes one key (and what's below it) in the given view.
+fn remove_empty_key(at: &Where, path: &str, wow32: bool) -> bool {
+    let Some((parent, name)) = path.rsplit_once('\\') else {
+        return false;
+    };
+    open_view(at, parent, wow32, false).is_ok_and(|parent| parent.remove_tree(name).is_ok())
 }
 
 fn write_env(at: &Where, var: &EnvVar, dir: &Path) -> Result<()> {
@@ -226,9 +252,24 @@ mod tests {
         let exe = dir.join("hello.exe");
         let system = SystemChanges {
             registry: vec![
-                RegistryValue { key: format!(r"{base}\App"), name: "Dir".into(), data: RegistryData::Expand(r"{app}\bin".into()) },
-                RegistryValue { key: format!(r"{base}\App"), name: "Level".into(), data: RegistryData::Dword(3) },
-                RegistryValue { key: format!(r"{base}\Other"), name: String::new(), data: RegistryData::String("x".into()) },
+                RegistryValue {
+                    key: format!(r"{base}\App"),
+                    name: "Dir".into(),
+                    data: RegistryData::Expand(r"{app}\bin".into()),
+                    view: RegistryView::Native,
+                },
+                RegistryValue {
+                    key: format!(r"{base}\App"),
+                    name: "Level".into(),
+                    data: RegistryData::Dword(3),
+                    view: RegistryView::Native,
+                },
+                RegistryValue {
+                    key: format!(r"{base}\Other"),
+                    name: String::new(),
+                    data: RegistryData::String("x".into()),
+                    view: RegistryView::Native,
+                },
             ],
             environment: vec![EnvVar { name: "BACH_TEST_HOME".into(), value: "{app}".into() }],
             ..SystemChanges::default()
@@ -261,6 +302,41 @@ mod tests {
         undo(&at, &newer, dir);
         assert!(CURRENT_USER.open(format!(r"{base}\App")).is_err());
         let _ = CURRENT_USER.remove_tree(&base);
+    }
+
+    #[test]
+    fn a_value_can_go_to_the_32_bit_view_and_comes_back_from_it() {
+        // Under HKCU\Software\Classes Windows keeps a separate 32-bit view
+        // (Wow6432Node), so it shows without administrator rights.
+        let tag = std::process::id();
+        let class = format!(r"Software\Classes\CLSID\{{BACH0000-0000-0000-0000-{tag:012}}}");
+        let seen_by_32 = format!(r"Software\Classes\Wow6432Node\CLSID\{{BACH0000-0000-0000-0000-{tag:012}}}");
+        let at = Where { hive: CURRENT_USER, environment: "Environment" };
+        let dir = Path::new(r"C:\Apps\Hello");
+        let exe = dir.join("hello.exe");
+        let value = |view| RegistryValue { key: class.clone(), name: "Dir".into(), data: RegistryData::String("{app}".into()), view };
+        let with = |view| manifest("ViewTest", SystemChanges { registry: vec![value(view)], ..SystemChanges::default() });
+
+        // The 32-bit view: where a 32-bit program looks, which is Wow6432Node to everyone else.
+        apply(&at, &with(RegistryView::Wow32), None, dir, &exe).unwrap();
+        assert_eq!(CURRENT_USER.open(&seen_by_32).unwrap().get_string("Dir").unwrap(), r"C:\Apps\Hello");
+        assert!(CURRENT_USER.open(&class).is_err(), "the 64-bit view got nothing");
+        undo(&at, &with(RegistryView::Wow32), dir);
+        assert!(CURRENT_USER.open(&seen_by_32).is_err(), "taking it back leaves nothing in that view");
+
+        // Both views, and an update that drops the 32-bit one only.
+        apply(&at, &with(RegistryView::Both), None, dir, &exe).unwrap();
+        assert!(CURRENT_USER.open(&class).is_ok() && CURRENT_USER.open(&seen_by_32).is_ok());
+        apply(&at, &with(RegistryView::Native), Some(&with(RegistryView::Both)), dir, &exe).unwrap();
+        assert!(CURRENT_USER.open(&class).is_ok(), "the 64-bit value stays");
+        assert!(
+            CURRENT_USER.open(&seen_by_32).is_err() || CURRENT_USER.open(&seen_by_32).unwrap().get_string("Dir").is_err(),
+            "the 32-bit one went"
+        );
+        undo(&at, &with(RegistryView::Native), dir);
+        assert!(CURRENT_USER.open(&class).is_err());
+        let _ = CURRENT_USER.remove_tree(&class);
+        let _ = CURRENT_USER.remove_tree(&seen_by_32);
     }
 
     #[test]

@@ -31,7 +31,7 @@ pub use choices::{
 pub use extras::{Check, DeltaEntry, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
 pub use features::{Component, FileType, Protocol};
 pub use scope::Scope;
-pub use system::{ContextMenuEntry, ContextTarget, EnvVar, Migrate, RegistryData, RegistryValue, SystemChanges};
+pub use system::{ContextMenuEntry, ContextTarget, EnvVar, Migrate, RegistryData, RegistryValue, RegistryView, SystemChanges};
 pub use validate::MAX_LICENSE;
 
 /// The uninstaller's file name in every install folder.

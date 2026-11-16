@@ -76,6 +76,51 @@ pub struct RegistryValue {
     #[serde(default)]
     pub name: String,
     pub data: RegistryData,
+    /// Which view of the registry on a 64-bit Windows: a 32-bit program reads
+    /// `HKLM\Software\Vendor` from `WOW6432Node`.
+    #[serde(default, skip_serializing_if = "RegistryView::is_native")]
+    pub view: RegistryView,
+}
+
+/// The registry view a value is written to (and taken back from).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RegistryView {
+    /// The view of a 64-bit program: what setup itself sees.
+    #[default]
+    #[serde(rename = "64")]
+    Native,
+    /// The view of a 32-bit program (`WOW6432Node`).
+    #[serde(rename = "32")]
+    Wow32,
+    /// Both, for an app that has 32-bit and 64-bit programs.
+    #[serde(rename = "both")]
+    Both,
+}
+
+impl RegistryView {
+    pub fn is_native(&self) -> bool {
+        *self == RegistryView::Native
+    }
+
+    /// Reads the setting of `bach.toml`: "64", "32" or "both".
+    pub fn parse(text: &str) -> Option<RegistryView> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "64" => Some(RegistryView::Native),
+            "32" => Some(RegistryView::Wow32),
+            "both" => Some(RegistryView::Both),
+            _ => None,
+        }
+    }
+
+    /// The views to go through, as "is it the 32-bit one": the 64-bit view
+    /// first.
+    pub fn each(self) -> &'static [bool] {
+        match self {
+            RegistryView::Native => &[false],
+            RegistryView::Wow32 => &[true],
+            RegistryView::Both => &[false, true],
+        }
+    }
 }
 
 /// A registry value's content. `{app}` in text stands for the install folder.
@@ -458,7 +503,12 @@ mod tests {
 
     #[test]
     fn registry_data_round_trips() {
-        let value = RegistryValue { key: r"Software\V\A".into(), name: "Dir".into(), data: RegistryData::Expand("{app}".into()) };
+        let value = RegistryValue {
+            key: r"Software\V\A".into(),
+            name: "Dir".into(),
+            data: RegistryData::Expand("{app}".into()),
+            view: RegistryView::default(),
+        };
         let json = serde_json::to_string(&value).unwrap();
         assert_eq!(json, r#"{"key":"Software\\V\\A","name":"Dir","data":{"type":"expand","value":"{app}"}}"#);
         assert_eq!(serde_json::from_str::<RegistryValue>(&json).unwrap(), value);

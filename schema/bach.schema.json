@@ -573,6 +573,14 @@
               "integer"
             ],
             "description": "The data. {app} stands for the install folder."
+          },
+          "view": {
+            "enum": [
+              "64",
+              "32",
+              "both"
+            ],
+            "description": "Which registry view on a 64-bit Windows: 64 (default), 32 (what a 32-bit program reads, WOW6432Node under HKLM) or both."
           }
         }
       }
