@@ -10,7 +10,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use bach_pack::manifest::system::expand_app;
-use bach_pack::manifest::{ContextMenuEntry, ContextTarget, EnvVar, Manifest, RegistryData, RegistryValue, RegistryView};
+use bach_pack::manifest::{ContextMenuEntry, ContextTarget, EnvVar, Manifest, RegistryData, RegistryValue};
 use windows_registry::Key;
 
 const CLASSES: &str = r"Software\Classes";
@@ -229,7 +229,7 @@ fn unregister_menu(at: &Where, manifest: &Manifest, entry: &ContextMenuEntry, ta
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bach_pack::manifest::SystemChanges;
+    use bach_pack::manifest::{RegistryView, SystemChanges};
     use windows_registry::CURRENT_USER;
 
     fn manifest(id: &str, system: SystemChanges) -> Manifest {
