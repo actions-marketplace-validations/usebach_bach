@@ -146,6 +146,8 @@ fn show(found: &[Found]) -> Result<()> {
         );
     }
     eprintln!("Everything agrees on {first}.");
+    crate::output::result("version", first.clone());
+    crate::output::result("files", shown.iter().map(|item| item.file.to_string()).collect::<Vec<_>>());
     Ok(())
 }
 
@@ -164,6 +166,9 @@ fn raise(dir: &Path, found: &[Found], target: &str, dry_run: bool) -> Result<()>
         eprintln!("Every file already says {new}.");
     }
     say!("{new}");
+    crate::output::result("version", new.clone());
+    crate::output::result("dry_run", dry_run);
+    crate::output::result("changed", changes.iter().map(|change| change.file.to_string()).collect::<Vec<_>>());
     Ok(())
 }
 

@@ -180,7 +180,7 @@ your app can do to update on quit and for a workflow of your own.
 - **Leave out build leftovers** with `[files] exclude = ["*.pdb", "*.log"]`.
 - **CI.** `bach build` exits with a non-zero code and a readable message on
   any problem, so it fits in a pipeline as is, on Windows, macOS or Linux.
-- **Scripts and agents.** `bach check`, `build`, `inspect`, `feed` and `doctor` take
+- **Scripts and agents.** `bach check`, `build`, `inspect`, `feed`, `doctor` and `version` take
   `--json`: stdout is then one JSON object, nothing else, with `ok`, what the
   command made (`setup`, `online_setup`, `patch`, `feed`, `version`, `sha256`,
   `size`) and `warnings`. After an error it is `{"ok": false, "error": "…"}` and

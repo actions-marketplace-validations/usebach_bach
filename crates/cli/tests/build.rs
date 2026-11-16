@@ -785,3 +785,20 @@ fn a_key_file_with_many_keys_gives_each_its_own_slot() {
     assert!(!twice.status.success() && text(&twice.stderr).contains("same as an earlier"), "{}", text(&twice.stderr));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn bach_version_says_its_result_as_json() {
+    need_runtime!();
+    let dir = project("version-json", &config(""));
+    let shown = json_of(&run(&dir, &["version", "--json"]));
+    assert_eq!(shown["version"], "1.0.0");
+    assert_eq!(shown["files"], serde_json::json!(["bach.toml"]));
+    let dry = json_of(&run(&dir, &["version", "minor", "--dry-run", "--json"]));
+    assert_eq!((dry["version"].as_str(), dry["dry_run"].as_bool()), (Some("1.1.0"), Some(true)));
+    assert_eq!(dry["changed"], serde_json::json!(["bach.toml"]));
+    assert!(std::fs::read_to_string(dir.join("bach.toml")).unwrap().contains("1.0.0"), "a dry run writes nothing");
+    let raised = json_of(&run(&dir, &["version", "patch", "--json"]));
+    assert_eq!(raised["version"], "1.0.1");
+    assert!(std::fs::read_to_string(dir.join("bach.toml")).unwrap().contains("1.0.1"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
