@@ -1039,3 +1039,18 @@ fn a_windows_requirement_below_the_supported_minimum_warns() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn compression_threads_and_memory_are_checked() {
+    let dir = project_dir("threads");
+    let with = |extra: &str| parse(&format!("{MINIMAL}\n[installer]\n{extra}\n"), &dir);
+    let project = with("compression_threads = 3\ncompression_memory = 2048").unwrap();
+    assert_eq!((project.compression_threads, project.compression_memory_mib), (Some(3), 2048));
+    let project = parse(MINIMAL, &dir).unwrap();
+    assert_eq!((project.compression_threads, project.compression_memory_mib), (None, crate::archive::DEFAULT_MEMORY_MIB));
+    for bad in ["compression_threads = 0", "compression_threads = 1000", "compression_memory = 8", "compression_memory = 999999"] {
+        let message = format!("{:#}", with(bad).err().unwrap_or_else(|| panic!("{bad} should be refused")));
+        assert!(message.contains(bad.split(' ').next().unwrap()), "{bad}: {message}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

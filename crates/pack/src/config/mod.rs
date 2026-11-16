@@ -127,6 +127,8 @@ struct InstallerSection {
     accent: Option<String>,
     logo: Option<String>,
     compression: Option<String>,
+    compression_threads: Option<u32>,
+    compression_memory: Option<u32>,
     languages: Option<Vec<String>>,
     license: Option<toml::Value>,
     desktop_shortcut: Option<toml::Value>,
@@ -170,6 +172,11 @@ pub struct Project {
     /// Where the online installer goes; only written when [`Self::online`].
     pub online_output: PathBuf,
     pub compression: Compression,
+    /// `installer.compression_threads`: how many threads to compress with
+    /// (None: as many as the memory budget allows).
+    pub compression_threads: Option<u32>,
+    /// `installer.compression_memory`: the memory budget for compressing, in MiB.
+    pub compression_memory_mib: u32,
     /// Whether the files are encrypted (`[access] encrypt`): the build then
     /// needs the key, from the environment variable [`Self::key_env`].
     pub encrypt: bool,
@@ -266,6 +273,13 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         Some(value) => Compression::parse(value)
             .with_context(|| format!("installer.compression is \"{value}\"; use \"best\", \"normal\" or \"fast\""))?,
     };
+    if file.installer.compression_threads.is_some_and(|threads| !(1..=256).contains(&threads)) {
+        bail!("installer.compression_threads is {}; use a number from 1 to 256", file.installer.compression_threads.unwrap_or(0));
+    }
+    let compression_memory_mib = file.installer.compression_memory.unwrap_or(crate::archive::DEFAULT_MEMORY_MIB);
+    if !(64..=65_536).contains(&compression_memory_mib) {
+        bail!("installer.compression_memory is {compression_memory_mib}; give the memory in MiB, from 64 to 65536");
+    }
 
     let icon = match &file.app.icon {
         None => None,
@@ -434,6 +448,8 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         online,
         online_output,
         compression,
+        compression_threads: file.installer.compression_threads,
+        compression_memory_mib,
         encrypt: access.as_ref().is_some_and(|access| access.encrypt),
         key_env: access.as_ref().map_or_else(|| extras::DEFAULT_KEY_ENV.to_string(), |access| access.key_env.clone()),
         warnings,

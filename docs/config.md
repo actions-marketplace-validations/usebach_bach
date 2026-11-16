@@ -88,6 +88,8 @@ The source folder may not contain symbolic links or a file named
 | `online` | `false` | `true` also builds the **online installer** (see below). Needs [`[updates]`](#updates). `bach build --online` does the same once. |
 | `online_output` | `dist/{name}-Web-Setup.exe` | Where the online installer goes. No version in the name, so one download link keeps pointing at the newest. |
 | `compression` | `best` | `best` makes the smallest file, `normal` and `fast` build quicker. Unpacking is fast either way. `bach build --fast` overrides it once. |
+| `compression_threads` | as many as the memory budget allows | How many threads compress, from 1 to 256 (never more than the processor cores). The setup file is the same whatever the number. |
+| `compression_memory` | `1024` | The memory budget for compressing, in MiB (64 to 65536). It holds the number of threads back, but one thread always runs. When it does, the build says so. |
 
 ### Online and offline installers
 
@@ -921,6 +923,22 @@ update or removal. Every run logs to `%TEMP%\<app id>-update.log`.
 
 so editors with TOML support (VS Code with Even Better TOML, Zed, JetBrains
 with Taplo) complete every setting and flag typos as you type.
+
+## What compressing costs
+
+Measured with a Release build on 300 MB of mixed files (half random, half
+text), 12 cores; the setup file's size does not change with the thread count:
+
+| Level | Threads | Peak memory | Time |
+| --- | --- | --- | --- |
+| best (zstd 19) | 1 / 4 / 12 | 291 / 714 / 961 MB | 172 / 76 / 68 s |
+| normal (zstd 9) | 1 / 4 / 12 | 156 / 299 / 443 MB | 2.1 / 1.4 / 1.5 s |
+| fast (zstd 3) | 1 / 4 / 12 | 83 / 140 / 268 MB | 1.2 / 1.1 / 1.1 s |
+
+`best` takes the most memory, so by default a build keeps it under
+`compression_memory` (1024 MB) by using fewer threads: 6 of 12 here, with a
+peak of 880 MB. In a container with a memory limit, set `compression_memory`
+below it, or `compression_threads = 1`.
 
 ## Listing your app in winget
 

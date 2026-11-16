@@ -392,14 +392,26 @@ fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&S
     let mut progress = Progress::new("Packing", total);
     let hashing = Hashing { inner: BufWriter::new(file), hasher: Sha256::new() };
     let mut step = |done| progress.update(done);
+    // How many threads compress: as many as the memory budget allows, never
+    // more than there are cores, unless the config says how many. The setup
+    // file is the same either way.
+    let plan = project.compression.plan(project.compression_threads, project.compression_memory_mib);
+    if plan.limited_by_memory {
+        say!(
+            "Compressing on {} threads (about {} MB of memory; installer.compression_memory is {} MB)",
+            plan.threads,
+            plan.estimated_mib,
+            project.compression_memory_mib
+        );
+    }
     let (hashing, hashes) = match sealing {
         // The hash covers what is appended, which is the encrypted bytes.
         Some(sealing) => {
             let writer = sealing.encryption.writer(hashing, &sealing.unlocked)?;
-            let (writer, hashes) = archive::write_hashed(writer, &project.sources, project.compression, &mut step)?;
+            let (writer, hashes) = archive::write_hashed(writer, &project.sources, project.compression, plan.threads, &mut step)?;
             (writer.finish()?, hashes)
         }
-        None => archive::write_hashed(hashing, &project.sources, project.compression, &mut step)?,
+        None => archive::write_hashed(hashing, &project.sources, project.compression, plan.threads, &mut step)?,
     };
     progress.finish();
     let Hashing { inner, hasher } = hashing;
