@@ -76,6 +76,17 @@ jobs:
         shell: pwsh
         run: ./scripts/test-winget.ps1
 
+      # Every setup file carries the runtime, so its size is every download's
+      # size. This keeps it from growing unnoticed; raise the limit on purpose.
+      - name: Check the size of the setup runtime
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $size = (Get-Item target/release/bach-setup.exe).Length
+          $limit = 9.5MB
+          "bach-setup.exe is {0:N2} MB (limit {1:N1} MB)" -f ($size / 1MB), ($limit / 1MB) | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY
+          if ($size -gt $limit) { throw "bach-setup.exe grew past $($limit / 1MB) MB. Find out why, or raise the limit in .github/workflows/ci.yml on purpose." }
+
       - name: Install, update and remove for real
         shell: pwsh
         run: ./scripts/e2e.ps1 -Profile release

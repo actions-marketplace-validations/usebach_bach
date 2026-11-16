@@ -112,7 +112,7 @@ github = "owner/repo"
 
 ```console
 $ bach build
-Wrote dist\Hello-Setup-1.4.0.exe (9.7 MB)
+Wrote dist\Hello-Setup-1.4.0.exe (8.7 MB)
 Wrote dist\Hello-Web-Setup.exe (8.9 MB), the online installer
 ```
 

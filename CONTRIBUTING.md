@@ -72,6 +72,10 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+The release profile (`Cargo.toml`) is tuned for size, because the setup runtime is inside every setup file: fat LTO and
+`opt-level = "s"` (zstd's C code stays at full speed). That took `bach-setup.exe` from 11.2 MB to 9.1 MB with the same
+install speed; panics still unwind. CI fails when it passes 9.5 MiB, so a heavy new dependency has to be a decision.
+
 `cargo test` also reads every example in the docs: each ```` ```toml ```` block must be TOML,
 each whole `bach.toml` must pass the config check, and every relative link and
 heading anchor in `README.md`, `CONTRIBUTING.md` and `docs/` must land
