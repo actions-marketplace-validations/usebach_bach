@@ -69,6 +69,13 @@ jobs:
           target/release/bach.exe inspect dist/Hello-Setup-1.0.0.exe
           if ($LASTEXITCODE -ne 0) { throw "The example installer isn't readable." }
 
+      # The manifests `bach winget` writes, checked by winget itself (the
+      # runner has it; windows-11-arm and older images may not).
+      - name: Validate the winget manifests
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: ./scripts/test-winget.ps1
+
       - name: Install, update and remove for real
         shell: pwsh
         run: ./scripts/e2e.ps1 -Profile release

@@ -948,7 +948,10 @@ bach winget dist/Hello-Setup-1.4.0.exe --url https://example.com/Hello-Setup-1.4
 
 writes the three manifests the Windows Package Manager needs; check them
 with `winget validate` and open a pull request to microsoft/winget-pkgs.
-The manifests say `Scope: machine` for a setup file with
+CI checks them with `winget validate` (`scripts/test-winget.ps1`), also for an
+app whose id is 50 characters long. They name the oldest supported Windows
+(`MinimumOSVersion: 10.0.17763.0`) and quote every link, so a `#` in it stays
+part of it. The manifests say `Scope: machine` for a setup file with
 `installer.scope = "machine"` (otherwise `user`), and list it under the
 architecture of its runtime: `x64`, or `arm64` for a setup file built with the
 ARM64 runtime.

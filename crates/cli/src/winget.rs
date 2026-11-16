@@ -13,6 +13,9 @@ use bach_pack::manifest::Manifest;
 
 const MANIFEST_VERSION: &str = "1.6.0";
 
+/// The oldest Windows Bach supports (Windows 10 version 1809), in winget's form.
+const MINIMUM_OS: &str = "10.0.17763.0";
+
 pub struct Options<'a> {
     pub setup: &'a Path,
     pub url: &'a str,
@@ -130,7 +133,7 @@ fn manifests(manifest: &Manifest, id: &str, url: &str, sha256: &str, license: Op
     // A machine-wide setup file installs for every user (winget calls it "machine").
     let scope = if manifest.install.scope.is_machine() { "machine" } else { "user" };
     let installer = format!(
-        "{}InstallerType: exe\nScope: {scope}\nInstallModes:\n  - interactive\n  - silent\n  - silentWithProgress\nInstallerSwitches:\n  Silent: --silent\n  SilentWithProgress: --silent\n  InstallLocation: --dir \"<INSTALLPATH>\"\n  Log: --log \"<LOGPATH>\"\nUpgradeBehavior: install\nProductCode: {}\nInstallers:\n  - Architecture: {architecture}\n    InstallerUrl: {}\n    InstallerSha256: {sha256}\nManifestType: installer\nManifestVersion: {MANIFEST_VERSION}\n",
+        "{}InstallerType: exe\nScope: {scope}\nMinimumOSVersion: {MINIMUM_OS}\nInstallModes:\n  - interactive\n  - silent\n  - silentWithProgress\nInstallerSwitches:\n  Silent: --silent\n  SilentWithProgress: --silent\n  InstallLocation: --dir \"<INSTALLPATH>\"\n  Log: --log \"<LOGPATH>\"\nUpgradeBehavior: install\nProductCode: {}\nInstallers:\n  - Architecture: {architecture}\n    InstallerUrl: {}\n    InstallerSha256: {sha256}\nManifestType: installer\nManifestVersion: {MANIFEST_VERSION}\n",
         header("installer"),
         yaml(&app.id),
         quoted(url)
@@ -195,6 +198,7 @@ mod tests {
         assert_eq!(files.len(), 3);
         let installer = &files[1].1;
         assert!(installer.contains("Silent: --silent") && installer.contains("Scope: user"));
+        assert!(installer.contains("MinimumOSVersion: 10.0.17763.0"), "the oldest supported Windows is named");
         let mut machine = manifest.clone();
         machine.install.scope = bach_pack::manifest::Scope::Machine;
         let files = manifests(&machine, &id, "https://hello.example/Setup.exe", "AB", None, "arm64");
