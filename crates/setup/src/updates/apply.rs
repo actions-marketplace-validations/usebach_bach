@@ -38,7 +38,7 @@ pub fn wait_for_app(ctx: &Context) -> Result<(), String> {
 /// again), Err for a staged file that must not run (it is deleted).
 pub fn install(ctx: &Context, staged: &Staged) -> Result<i32, String> {
     let app_id = &ctx.manifest().app.id;
-    if let Err(problem) = stage::verify(staged, app_id).and_then(|()| super::authenticode::check(ctx.manifest(), &staged.file)) {
+    if let Err(problem) = stage::verify(staged, app_id) {
         stage::clear(app_id);
         return Err(problem);
     }
@@ -86,6 +86,12 @@ pub fn install(ctx: &Context, staged: &Staged) -> Result<i32, String> {
 /// full setup file gets a few tries, for a virus scanner that still holds one
 /// of the app's files.
 fn run_attempts(ctx: &Context, staged: &Staged) -> Result<bool, String> {
+    // Every setup file an update runs, the patch and the full file it falls
+    // back to alike, has to be signed by the publisher the app names.
+    if let Err(problem) = super::authenticode::check(ctx.manifest(), &staged.file) {
+        stage::clear(&ctx.manifest().app.id);
+        return Err(problem);
+    }
     let tries = if staged.patch { 1 } else { ATTEMPTS };
     let kind = if staged.patch { "patch for" } else { "" };
     for attempt in 1..=tries {

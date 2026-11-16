@@ -298,6 +298,17 @@ doesn't trust or a file signed by anyone else is deleted from the download
 folder and not run, with the reason in the log. This also protects against a
 feed host that was taken over: it can name any file, but not sign as you.
 
+A plain name matches any certificate that has it as its common name or
+organisation, and a certificate authority can issue that to another company of
+the same name. To pin the company, give the whole subject (the certificate's
+"Issued to" details, as `Get-AuthenticodeSignature FILE | % { $_.SignerCertificate.Subject }`
+prints it): `signer = "CN=Example Inc., O=Example, L=Berlin, C=DE"` has to match
+the certificate's subject pair for pair, so another company of the same name,
+in another place, doesn't. A renewed certificate keeps its subject, so the
+setting survives renewals; a new company name needs a release that carries
+both, which is not supported yet: change `signer` in a version that you
+distribute by hand.
+
 `bach build --sign` and `bach sign` check the same thing after signing: if the
 signed file's certificate isn't the `signer`, the build stops, because every
 installed copy would refuse the update. Use it together with `[signing]` and sign

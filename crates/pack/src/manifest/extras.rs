@@ -180,18 +180,13 @@ pub struct Updates {
     pub signer: Option<String>,
 }
 
-/// Whether a certificate subject like `CN=Example Inc., O=Example, C=DE` names
-/// `wanted`: its common name or its organisation is that text (any case).
-pub fn subject_names(subject: &str, wanted: &str) -> bool {
-    let wanted = wanted.trim();
-    if wanted.is_empty() {
-        return false;
-    }
+/// A distinguished name like `CN=Example Inc., O=Example, C=DE` as its
+/// `(key, value)` pairs, keys in upper case. A value may be quoted and then
+/// holds commas of its own.
+fn name_parts(subject: &str) -> Vec<(String, String)> {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
-    // A distinguished name is `key=value` pairs split by commas, where a value
-    // may be quoted and then holds commas of its own.
     for c in subject.chars() {
         match c {
             '"' => quoted = !quoted,
@@ -203,7 +198,29 @@ pub fn subject_names(subject: &str, wanted: &str) -> bool {
     parts
         .iter()
         .filter_map(|part| part.trim().split_once('='))
-        .any(|(key, value)| matches!(key.trim().to_ascii_uppercase().as_str(), "CN" | "O") && value.trim().eq_ignore_ascii_case(wanted))
+        .map(|(key, value)| (key.trim().to_ascii_uppercase(), value.trim().to_string()))
+        .collect()
+}
+
+/// Whether a certificate `subject` is the publisher `wanted`. A plain name
+/// (`Example Inc.`) is the subject's common name or organisation, the whole
+/// text, any case. A whole distinguished name (`CN=Example Inc., O=Example,
+/// L=Berlin, C=DE`) has to be the subject exactly, pair for pair: that is how
+/// to tell two companies of the same name apart. A subject with a control
+/// character in it is nobody's.
+pub fn subject_names(subject: &str, wanted: &str) -> bool {
+    let wanted = wanted.trim();
+    if wanted.is_empty() || subject.chars().any(char::is_control) {
+        return false;
+    }
+    let found = name_parts(subject);
+    if wanted.contains('=') {
+        let asked = name_parts(wanted);
+        return !asked.is_empty()
+            && asked.len() == found.len()
+            && asked.iter().zip(&found).all(|((ak, av), (fk, fv))| ak == fk && av.eq_ignore_ascii_case(fv));
+    }
+    found.iter().any(|(key, value)| matches!(key.as_str(), "CN" | "O") && value.eq_ignore_ascii_case(wanted))
 }
 
 impl Updates {

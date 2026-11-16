@@ -1122,7 +1122,8 @@ fn the_publisher_of_updates_is_read_and_checked() {
     assert_eq!(signer("signer = \"Example Inc.\"").unwrap().as_deref(), Some("Example Inc."));
     assert_eq!(signer("").unwrap(), None);
     assert_eq!(signer("signer = \"  \"").unwrap(), None, "blank means none");
-    for bad in ["signer = \"CN=Example Inc.\"", &format!("signer = \"{}\"", "x".repeat(201))] {
+    assert!(signer("signer = \"CN=Example Inc., O=Example, C=DE\"").unwrap().is_some(), "a whole subject is fine");
+    for bad in ["signer = \"x\\u0007y\"", &format!("signer = \"{}\"", "x".repeat(301))] {
         let message = format!("{:#}", signer(bad).unwrap_err());
         assert!(message.contains("updates.signer"), "{bad}: {message}");
     }
@@ -1131,5 +1132,14 @@ fn the_publisher_of_updates_is_read_and_checked() {
     assert!(subject_names(subject, "Example, Inc.") && subject_names(subject, "example holding"));
     assert!(!subject_names(subject, "Example") && !subject_names(subject, "Berlin") && !subject_names(subject, ""));
     assert!(!subject_names("", "Example Inc."));
+    // A whole subject must be the subject, pair for pair: another company of the same name differs in L or C.
+    let full = "CN=Example Inc., O=Example, L=Berlin, C=DE";
+    assert!(
+        subject_names(full, "CN=Example Inc., O=Example, L=Berlin, C=DE") && subject_names(full, "cn=example inc.,o=EXAMPLE,L=berlin,c=de")
+    );
+    assert!(!subject_names(full, "CN=Example Inc., O=Example, L=Paris, C=FR"), "same name, other place");
+    assert!(!subject_names(full, "CN=Example Inc., O=Example, C=DE"), "a part of the subject is not the subject");
+    assert!(!subject_names(&format!("{full}, E=x@y.z"), full), "more than was asked for is not the same");
+    assert!(!subject_names("CN=Example Inc.\u{7}", "Example Inc."), "control characters");
     std::fs::remove_dir_all(&dir).unwrap();
 }

@@ -353,8 +353,8 @@ pub fn updates(section: Option<&UpdatesSection>, machine: bool) -> Result<Option
     };
     let signer = match section.signer.as_deref().map(str::trim) {
         None | Some("") => None,
-        Some(name) if name.chars().count() > 200 || name.chars().any(char::is_control) || name.contains('=') => {
-            bail!("updates.signer is \"{name}\"; give the publisher's name as the signing certificate shows it, like \"Example Inc.\" (no CN= and no more than 200 characters)")
+        Some(name) if name.chars().count() > 300 || name.chars().any(char::is_control) => {
+            bail!("updates.signer is \"{name}\"; give the publisher's name as the signing certificate shows it, like \"Example Inc.\", or its whole subject (CN=..., O=..., C=...), in at most 300 characters")
         }
         Some(name) => Some(name.to_string()),
     };
