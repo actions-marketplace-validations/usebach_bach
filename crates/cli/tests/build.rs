@@ -727,3 +727,28 @@ fn the_same_files_in_another_folder_give_the_same_setup_file() {
 fn dir_setup(dir: &Path) -> Vec<u8> {
     std::fs::read(dir.join("dist/Hello-Setup-1.0.0.exe")).unwrap()
 }
+
+#[test]
+fn a_chocolatey_package_carries_the_checksum_of_the_setup_file() {
+    need_runtime!();
+    let dir = project("choco", &config(""));
+    let built = run(&dir, &["build", "--fast"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+    let made =
+        run(&dir, &["choco", setup.to_str().unwrap(), "--url", "https://bach-test.invalid/Hello-Setup-1.0.0.exe", "--license", "MIT"]);
+    assert!(made.status.success(), "{}", text(&made.stderr));
+    let package = dir.join("dist/choco/bachintegrationtest-hello/1.0.0");
+    let sha = bach_pack::protect::sha256_hex(std::fs::File::open(&setup).unwrap()).unwrap();
+    let install = std::fs::read_to_string(package.join("tools/chocolateyInstall.ps1")).unwrap();
+    assert!(install.contains(&format!("'{sha}'")), "the install script checks the setup file's SHA-256\n{install}");
+    assert!(install.contains("https://bach-test.invalid/Hello-Setup-1.0.0.exe") && install.contains("'--silent'"));
+    assert!(package.join("bachintegrationtest-hello.nuspec").is_file());
+    assert!(package.join("tools/chocolateyUninstall.ps1").is_file());
+    assert!(text(&made.stderr).contains("per-user") || text(&made.stderr).contains("administrator"), "a per-user app gets the warning");
+
+    // Not a setup file with files in it, and not over http.
+    let online = run(&dir, &["choco", setup.to_str().unwrap(), "--url", "http://bach-test.invalid/x.exe"]);
+    assert!(!online.status.success());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

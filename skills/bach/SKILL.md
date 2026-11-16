@@ -281,6 +281,9 @@ window speaks several).
   the user's disk: for real protection check a license inside the app.
 - To list the app in winget: `bach winget SETUP.exe --url URL --license MIT`,
   then `winget validate` and a pull request to microsoft/winget-pkgs.
+- To make a Chocolatey package: `bach choco SETUP.exe --url URL --license MIT`,
+  then `choco pack` in the folder it writes (use `installer.scope = "machine"`,
+  since Chocolatey installs as an administrator).
 
 ## Troubleshooting
 

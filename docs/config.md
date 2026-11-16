@@ -928,3 +928,18 @@ The manifests say `Scope: machine` for a setup file with
 `installer.scope = "machine"` (otherwise `user`), and list it under the
 architecture of its runtime: `x64`, or `arm64` for a setup file built with the
 ARM64 runtime.
+
+## Listing your app in Chocolatey
+
+```bash
+bach choco dist/Hello-Setup-1.4.0.exe --url https://example.com/Hello-Setup-1.4.0.exe --license MIT
+```
+
+writes a Chocolatey package into `choco/<id>/<version>` next to the setup
+file: `<id>.nuspec`, `tools/chocolateyInstall.ps1` (downloads the file, checks
+its SHA-256, runs it with `--silent`) and `tools/chocolateyUninstall.ps1` (runs
+the app's own uninstaller from its Settings › Apps entry). The id is the app
+id in lowercase. Build it with `choco pack` in that folder. Chocolatey runs as
+an administrator, so a per-user app is installed for that account only; the
+command warns, and `installer.scope = "machine"` fixes it. `--license` takes a
+link or a name like `MIT`; `--out` picks the folder.

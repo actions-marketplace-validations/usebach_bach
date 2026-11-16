@@ -24,20 +24,11 @@ pub fn command(options: Options) -> Result<()> {
     if !bach_pack::manifest::extras::is_https(options.url) {
         bail!("--url must be the https link the setup file is downloaded from");
     }
-    let mut file = std::fs::File::open(options.setup).with_context(|| format!("couldn't open {}", options.setup.display()))?;
-    let Some(layout) = container::locate(&mut file)? else {
-        bail!("{} isn't a Bach setup file", options.setup.display());
-    };
-    let manifest = container::read_manifest(&mut file, &layout)?;
-    if !layout.has_archive() {
-        let what = if manifest.online { "an online installer" } else { "an uninstaller" };
-        bail!("{} is {what}; point bach winget at the full setup file", options.setup.display());
-    }
+    let manifest = read_full_setup(options.setup, "winget")?;
     // Hashed in pieces; only the start of the file is needed for the architecture.
     let (sha256, _) = crate::feed::digest_of(options.setup)?;
     let sha256 = sha256.to_ascii_uppercase();
-    let mut head = Vec::new();
-    std::io::Read::read_to_end(&mut std::io::Read::take(std::fs::File::open(options.setup)?, 64 * 1024), &mut head)?;
+    let architecture = setup_architecture(options.setup)?;
     let id = package_id(&manifest);
     let version = &manifest.app.version;
     let dir = match options.out {
@@ -45,7 +36,7 @@ pub fn command(options: Options) -> Result<()> {
         None => options.setup.parent().unwrap_or(Path::new(".")).join("winget").join(&id).join(version),
     };
     std::fs::create_dir_all(&dir).with_context(|| format!("couldn't create {}", dir.display()))?;
-    let files = manifests(&manifest, &id, options.url, &sha256, options.license, architecture(&head));
+    let files = manifests(&manifest, &id, options.url, &sha256, options.license, architecture);
     for (name, text) in &files {
         std::fs::write(dir.join(name), text).with_context(|| format!("couldn't write {name}"))?;
     }
@@ -55,6 +46,29 @@ pub fn command(options: Options) -> Result<()> {
     }
     say!("Check them with `winget validate {}`, then open a pull request to microsoft/winget-pkgs.", dir.display());
     Ok(())
+}
+
+/// The manifest of a full setup file, for the commands that list a setup file
+/// somewhere (`command` is theirs, for the message). An online installer or an
+/// uninstaller carries no files, so there is nothing to list.
+pub(crate) fn read_full_setup(setup: &Path, command: &str) -> Result<Manifest> {
+    let mut file = std::fs::File::open(setup).with_context(|| format!("couldn't open {}", setup.display()))?;
+    let Some(layout) = container::locate(&mut file)? else {
+        bail!("{} isn't a Bach setup file", setup.display());
+    };
+    let manifest = container::read_manifest(&mut file, &layout)?;
+    if !layout.has_archive() {
+        let what = if manifest.online { "an online installer" } else { "an uninstaller" };
+        bail!("{} is {what}; point bach {command} at the full setup file", setup.display());
+    }
+    Ok(manifest)
+}
+
+/// The architecture a setup file was built for, from the start of the file.
+pub(crate) fn setup_architecture(setup: &Path) -> Result<&'static str> {
+    let mut head = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(std::fs::File::open(setup)?, 64 * 1024), &mut head)?;
+    Ok(architecture(&head))
 }
 
 /// `Publisher.AppId` with only the characters winget allows.

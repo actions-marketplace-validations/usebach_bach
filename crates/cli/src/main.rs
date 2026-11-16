@@ -11,6 +11,7 @@
 //! bach sign FILE         sign a setup file the way [signing] in bach.toml says
 //! bach key               make random access keys for a protected app
 //! bach winget FILE --url write winget manifests for a setup file
+//! bach choco FILE --url  write the Chocolatey package for a setup file
 //! bach version [TARGET]  show or raise the version in every file that has one
 //! bach workflow          add the one-click release workflow to a GitHub repository
 //! ```
@@ -26,6 +27,7 @@ macro_rules! say {
 }
 
 mod builder;
+mod choco;
 mod detect;
 mod doctor;
 mod feed;
@@ -210,6 +212,20 @@ enum Command {
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
+    /// Write the Chocolatey package that installs a setup file.
+    Choco {
+        /// The setup file.
+        file: PathBuf,
+        /// The https link it's downloaded from.
+        #[arg(long)]
+        url: String,
+        /// The app's license: a link, or an SPDX name like MIT.
+        #[arg(long)]
+        license: Option<String>,
+        /// Write the package into this folder.
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
     /// Show the version a project carries, or raise it in every file at once.
     Version {
         /// patch, minor, major, current (keep it), or an exact version like
@@ -274,6 +290,9 @@ fn main() -> ExitCode {
         Command::Workflow { dir, force } => workflow::command(workflow::Options { dir: &dir, force }),
         Command::Winget { file, url, license, out } => {
             winget::command(winget::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
+        }
+        Command::Choco { file, url, license, out } => {
+            choco::command(choco::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
         }
         Command::Feed { file, url, config, notes, notes_file, rollout, out, patch, patch_url } => feed::command(feed::Options {
             setup: &file,
