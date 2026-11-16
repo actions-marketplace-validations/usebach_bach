@@ -227,8 +227,8 @@ and unticking one takes the shortcut, PATH entry or autostart away again.
 | `license` | none | A UTF-8 text file the user accepts before the install page, like `"LICENSE.txt"`, or one per language: `{ en = "LICENSE.txt", de = "LIZENZ.txt" }`. An update shows it again only when it changed. |
 
 Built-in languages: `en` English, `de` Deutsch, `nl` Nederlands, `fr`
-Français, `es` Español, `it` Italiano, `pt` Português, `pl` Polski, `ru`
-Русский, `tr` Türkçe, `ja` 日本語, `ko` 한국어, `zh` 简体中文.
+Français, `es` Español, `it` Italiano, `pt` Português (Brazilian), `pl` Polski, `ru`
+Русский, `tr` Türkçe, `ja` 日本語, `ko` 한국어, `zh` 简体中文, `zh-tw` 繁體中文 (Traditional Chinese, for Taiwan, Hong Kong and Macau; `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant` tags pick it, and `zh-CN`, `zh-SG` and `zh-Hans` pick `zh`).
 
 ## [[components]]
 
@@ -652,10 +652,13 @@ and the manifest holds that key once per access key, each locked with it (a
 away, build again without their line and distribute that file: copies already
 handed out keep working with the keys they were built with, so pair this with
 `send_key` and a server that refuses the revoked key for updates. Opening takes
-a third of a second for each slot tried, and a one-byte tag in each slot cuts
-that to about one try. That tag is a fast hash of the key, so keys that are
-easy to guess are easier to guess offline: use `bach key`'s 100-bit keys. Setup
-files made before slots (one key for the whole file) still open.
+a third of a second for each slot tried. With 17 keys or more, each slot also
+carries a one-byte tag (a fast hash of the key) that lets setup skip most of
+them, so a key opens in about one try even with a thousand. The tag is
+something somebody guessing keys offline can use to rule candidates out, which
+only helps against keys that are easy to guess, so a file with fewer keys has
+no tags at all: use `bach key`'s 100-bit keys. Setup files made before slots
+(one key for the whole file) still open.
 
 Setup asks for the key on its own page before the license (typed or pasted),
 and a wrong key stops before anything on the computer is touched. A silent

@@ -18,7 +18,7 @@ For security problems, don't open an issue; follow the
   [feature request](https://github.com/usebach/bach/issues/new?template=feature_request.yml)
   that starts from what you're trying to do, not from the setting you'd
   like. For anything big, talk to us before you write code.
-- **Fix a translation.** Every text in the window exists in 13 languages in
+- **Fix a translation.** Every text in the window exists in 14 languages in
   `crates/pack/src/i18n`. A native speaker's correction is worth a lot.
 - **Improve the docs.** If something in [docs](docs) confused you, it
   confuses others.
@@ -115,7 +115,7 @@ Also:
   `skills/bach/SKILL.md` if agents need to know.
 - **Texts** the window shows are `bach_pack::i18n::Key`s with a translation
   in every language, never a literal in `crates/setup`. Adding a key means
-  adding it to all 13 languages and to `docs/config.md`.
+  adding it to all 14 languages and to `docs/config.md`.
 - **Use `bun`** for JavaScript tooling in this repository (`bun install`,
   `bun scripts/…`), never npm, pnpm or yarn. The one exception is the published
   npm package in `npm/cli`: it is a plain Node package, tested with

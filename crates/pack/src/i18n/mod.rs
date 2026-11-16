@@ -117,6 +117,7 @@ pub const LANGUAGES: &[Language] = &[
     Language { code: "ja", name: "日本語", strings: &asian::JA },
     Language { code: "ko", name: "한국어", strings: &asian::KO },
     Language { code: "zh", name: "简体中文", strings: &asian::ZH },
+    Language { code: "zh-tw", name: "繁體中文", strings: &asian::ZH_TW },
 ];
 
 /// The built-in language with this code, if Bach speaks it.
@@ -145,9 +146,13 @@ pub fn pick(offers: &[String], preferred: &[String]) -> &'static Language {
     for wanted in preferred {
         let wanted = wanted.trim().replace('_', "-").to_ascii_lowercase();
         let primary = wanted.split('-').next().unwrap_or_default();
-        let found = offers
-            .iter()
-            .find(|code| code.eq_ignore_ascii_case(&wanted))
+        // Chinese as written in Taiwan, Hong Kong and Macau (or any Hant tag) is
+        // Traditional; every other Chinese tag reads Simplified.
+        let traditional = primary == "zh" && wanted.split('-').skip(1).any(|part| matches!(part, "tw" | "hk" | "mo" | "hant"));
+        let found = traditional
+            .then(|| offers.iter().find(|code| code.eq_ignore_ascii_case("zh-tw")))
+            .flatten()
+            .or_else(|| offers.iter().find(|code| code.eq_ignore_ascii_case(&wanted)))
             .or_else(|| offers.iter().find(|code| code.eq_ignore_ascii_case(primary)))
             .and_then(|code| language(code));
         if let Some(found) = found {
@@ -263,6 +268,24 @@ mod tests {
                 assert_eq!(want, have, "{}.{}", language.code, key.name());
             }
         }
+    }
+
+    #[test]
+    fn chinese_follows_how_it_is_written() {
+        let all: Vec<String> = Vec::new();
+        let pick_for = |tag: &str| pick(&all, &[tag.to_string()]).code;
+        for tag in ["zh-TW", "zh-HK", "zh-MO", "zh-Hant", "zh-Hant-TW", "zh_tw"] {
+            assert_eq!(pick_for(tag), "zh-tw", "{tag}");
+        }
+        for tag in ["zh", "zh-CN", "zh-SG", "zh-Hans", "zh-Hans-CN"] {
+            assert_eq!(pick_for(tag), "zh", "{tag}");
+        }
+        // An app that offers only one of them still speaks Chinese to both.
+        let only_simplified = vec!["en".to_string(), "zh".to_string()];
+        assert_eq!(pick(&only_simplified, &["zh-TW".to_string()]).code, "zh");
+        let only_traditional = vec!["en".to_string(), "zh-tw".to_string()];
+        assert_eq!(pick(&only_traditional, &["zh-CN".to_string()]).code, "en", "Simplified isn't offered: next best is the app's first");
+        assert_eq!(language("ZH-tw").unwrap().name, "繁體中文");
     }
 
     #[test]

@@ -162,7 +162,8 @@
               "tr",
               "ja",
               "ko",
-              "zh"
+              "zh",
+              "zh-tw"
             ]
           },
           "minItems": 1,
@@ -189,7 +190,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -317,7 +319,8 @@
                     "tr",
                     "ja",
                     "ko",
-                    "zh"
+                    "zh",
+                    "zh-tw"
                   ]
                 },
                 "additionalProperties": {
@@ -349,7 +352,8 @@
                     "tr",
                     "ja",
                     "ko",
-                    "zh"
+                    "zh",
+                    "zh-tw"
                   ]
                 },
                 "additionalProperties": {
@@ -766,7 +770,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -798,7 +803,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -830,7 +836,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -862,7 +869,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -894,7 +902,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -926,7 +935,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -958,7 +968,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -990,7 +1001,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1022,7 +1034,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1054,7 +1067,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1086,7 +1100,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1118,7 +1133,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1150,7 +1166,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1182,7 +1199,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1214,7 +1232,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1246,7 +1265,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1278,7 +1298,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1310,7 +1331,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1342,7 +1364,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1374,7 +1397,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1406,7 +1430,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1438,7 +1463,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1470,7 +1496,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1502,7 +1529,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1534,7 +1562,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1566,7 +1595,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1598,7 +1628,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1630,7 +1661,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1662,7 +1694,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1694,7 +1727,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1726,7 +1760,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1758,7 +1793,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1790,7 +1826,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1822,7 +1859,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1854,7 +1892,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1886,7 +1925,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1918,7 +1958,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1950,7 +1991,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -1982,7 +2024,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2014,7 +2057,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2046,7 +2090,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2078,7 +2123,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2110,7 +2156,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2142,7 +2189,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2174,7 +2222,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2206,7 +2255,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2238,7 +2288,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2270,7 +2321,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2302,7 +2354,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2334,7 +2387,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2366,7 +2420,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2398,7 +2453,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2430,7 +2486,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2462,7 +2519,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2494,7 +2552,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2526,7 +2585,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2558,7 +2618,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2590,7 +2651,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2622,7 +2684,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2654,7 +2717,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2686,7 +2750,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2718,7 +2783,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2750,7 +2816,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2782,7 +2849,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2814,7 +2882,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2846,7 +2915,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2878,7 +2948,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2910,7 +2981,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2942,7 +3014,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -2974,7 +3047,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3006,7 +3080,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3038,7 +3113,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3070,7 +3146,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3102,7 +3179,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3134,7 +3212,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3166,7 +3245,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3198,7 +3278,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3230,7 +3311,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3262,7 +3344,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3294,7 +3377,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3326,7 +3410,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3358,7 +3443,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3390,7 +3476,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3422,7 +3509,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3454,7 +3542,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3486,7 +3575,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3518,7 +3608,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3550,7 +3641,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3582,7 +3674,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3614,7 +3707,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3646,7 +3740,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3678,7 +3773,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3710,7 +3806,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3742,7 +3839,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3774,7 +3872,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3806,7 +3905,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3838,7 +3938,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3870,7 +3971,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3902,7 +4004,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3934,7 +4037,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3966,7 +4070,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -3998,7 +4103,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4030,7 +4136,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4062,7 +4169,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4094,7 +4202,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4126,7 +4235,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4158,7 +4268,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4190,7 +4301,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4222,7 +4334,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4254,7 +4367,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4286,7 +4400,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4318,7 +4433,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4350,7 +4466,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4382,7 +4499,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4414,7 +4532,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4446,7 +4565,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4478,7 +4598,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {
@@ -4523,7 +4644,8 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw"
                 ]
               },
               "additionalProperties": {

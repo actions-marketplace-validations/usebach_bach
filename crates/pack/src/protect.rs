@@ -34,6 +34,11 @@ pub const SCHEME: &str = "argon2id-chacha20poly1305-v1";
 pub const SCHEME_SLOTS: &str = "argon2id-slots-chacha20poly1305-v2";
 /// The most access keys one setup file can hold.
 pub const MAX_SLOTS: usize = 1000;
+/// From this many slots on, each carries a one-byte tag, so opening needs
+/// about one slow key derivation instead of one per slot. Below it every slot
+/// is tried: a few derivations cost seconds, and a setup file with few keys
+/// gives somebody guessing weak keys offline nothing to filter by.
+pub const TAGGED_FROM: usize = 17;
 const SLOT_NONCE_LEN: usize = 12;
 const FILE_KEY_LEN: usize = 32;
 /// Plain bytes per encrypted chunk.
@@ -191,7 +196,8 @@ impl Encryption {
                 .map_err(|_| anyhow::anyhow!("couldn't lock the files with an access key"))?;
             let mut wrapped = slot_nonce.to_vec();
             wrapped.extend_from_slice(&sealed);
-            slots.push(Slot { id: hex(&[slot_id(key, &salt)]), salt: hex(&slot_salt), wrapped: hex(&wrapped) });
+            let id = if keys.len() >= TAGGED_FROM { hex(&[slot_id(key, &salt)]) } else { String::new() };
+            slots.push(Slot { id, salt: hex(&slot_salt), wrapped: hex(&wrapped) });
         }
         let encryption = Self {
             scheme: SCHEME_SLOTS.into(),
@@ -213,7 +219,7 @@ impl Encryption {
                 bail!("the setup file's protection data is damaged");
             }
             let damaged = self.slots.iter().any(|slot| {
-                unhex::<1>(&slot.id).is_none()
+                (!slot.id.is_empty() && unhex::<1>(&slot.id).is_none())
                     || unhex::<SALT_LEN>(&slot.salt).is_none()
                     || unhex_vec(&slot.wrapped).is_none_or(|bytes| bytes.len() != SLOT_NONCE_LEN + FILE_KEY_LEN + TAG)
             });
@@ -260,7 +266,8 @@ impl Encryption {
     fn unlock_slots(&self, key: &str, file_salt: &[u8; SALT_LEN]) -> Result<Unlocked, KeyError> {
         let id = hex(&[slot_id(key, file_salt)]);
         let nonce = self.nonce().map_err(|err| KeyError::Damaged(err.to_string()))?;
-        for slot in self.slots.iter().filter(|slot| slot.id.eq_ignore_ascii_case(&id)) {
+        // A slot without a tag may be anyone's; one with a tag only if the tag fits.
+        for slot in self.slots.iter().filter(|slot| slot.id.is_empty() || slot.id.eq_ignore_ascii_case(&id)) {
             let slot_salt = unhex::<SALT_LEN>(&slot.salt).ok_or_else(|| KeyError::Damaged("slot".into()))?;
             let wrapped = unhex_vec(&slot.wrapped).ok_or_else(|| KeyError::Damaged("slot".into()))?;
             let lock = derive(key, &slot_salt, self.memory_kib, self.passes).map_err(KeyError::Damaged)?;
@@ -302,9 +309,10 @@ fn slot_aad(file_salt: &[u8; SALT_LEN], nonce: &[u8; NONCE_LEN]) -> Vec<u8> {
     aad
 }
 
-/// One byte of a hash of the key, to pick the slots worth trying. It is a
-/// fast hash: the byte tells somebody who guesses keys offline 1 in 256, which
-/// only matters for keys that are easy to guess (`bach key` makes 100-bit ones).
+/// One byte of a hash of the key, to pick the slots worth trying in a file
+/// with many. It is a fast hash: the byte tells somebody who guesses keys
+/// offline 1 in 256, which only matters for keys that are easy to guess
+/// (`bach key` makes 100-bit ones), and is why a file with few keys has none.
 fn slot_id(key: &str, file_salt: &[u8; SALT_LEN]) -> u8 {
     let mut hasher = Sha256::new();
     hasher.update(b"bach access slot id v2");
@@ -735,7 +743,20 @@ mod tests {
         // The slots don't reveal which key is which beyond a byte, and the
         // wrapped file keys differ though they hold the same key.
         assert_ne!(encryption.slots[0].wrapped, encryption.slots[1].wrapped);
-        assert!(!encryption.salt.is_empty() && encryption.slots.iter().all(|slot| slot.id.len() == 2));
+        // A few keys: no tag, so nothing a guesser could filter candidates by.
+        assert!(encryption.slots.iter().all(|slot| slot.id.is_empty()));
+    }
+
+    #[test]
+    fn many_keys_get_a_tag_each_so_opening_stays_quick() {
+        let many: Vec<String> = (0..TAGGED_FROM).map(|n| format!("customer-key-{n:04}")).collect();
+        let (encryption, _) = Encryption::create_slots(&many).unwrap();
+        encryption.validate().unwrap();
+        assert!(encryption.slots.iter().all(|slot| slot.id.len() == 2), "a one-byte tag in each");
+        for key in [&many[0], &many[TAGGED_FROM / 2], &many[TAGGED_FROM - 1]] {
+            assert!(encryption.unlock(key).is_ok(), "{key}");
+        }
+        assert_eq!(encryption.unlock("customer-key-9999").unwrap_err(), KeyError::Wrong);
     }
 
     #[test]
