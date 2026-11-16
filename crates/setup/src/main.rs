@@ -28,6 +28,7 @@ mod pages;
 mod silent;
 #[cfg(windows)]
 mod start;
+mod support;
 #[cfg(windows)]
 mod system;
 #[cfg(windows)]

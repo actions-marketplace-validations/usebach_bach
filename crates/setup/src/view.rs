@@ -80,6 +80,8 @@ pub struct SetupView {
     pub license_pending: bool,
     /// Waiting for the app to close after "Close and continue".
     pub closing_app: bool,
+    /// What happened to "Save support info" on the failed page.
+    pub support: SupportState,
     pub stage: Stage,
     /// Counts attempts, so each one's page and bar start fresh.
     pub attempt: usize,
@@ -95,6 +97,14 @@ pub struct SetupView {
     picker: Option<Task<()>>,
     pub(crate) closer: Option<Task<()>>,
     pub(crate) checker: Option<Task<()>>,
+}
+
+/// The failed page's "Save support info" button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SupportState {
+    Idle,
+    Saved,
+    Failed,
 }
 
 impl SetupView {
@@ -152,6 +162,7 @@ impl SetupView {
             key_checking: false,
             license_pending,
             closing_app: false,
+            support: SupportState::Idle,
             stage,
             attempt: 0,
             focus_handle: cx.focus_handle(),

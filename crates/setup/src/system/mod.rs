@@ -134,6 +134,11 @@ pub fn desktop_shortcut(manifest: &Manifest) -> Result<PathBuf> {
     Ok(known_folder(desktop)?.join(shortcut_name(manifest)))
 }
 
+/// The current user's desktop folder (it may live in OneDrive).
+pub fn user_desktop() -> Result<PathBuf> {
+    known_folder(&FOLDERID_Desktop)
+}
+
 fn known_folder(id: &GUID) -> Result<PathBuf> {
     // Safety: the returned buffer is ours to free, which we do once it's
     // copied into a PathBuf.

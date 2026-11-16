@@ -47,6 +47,50 @@ impl SetupView {
         !self.is_removing() && matches!(&self.stage, Stage::Failed(message) if message.as_ref() == self.texts.get(Key::error_still_open))
     }
 
+    /// Writes the support info (see `support.rs`) to the desktop and shows
+    /// it in Explorer. The user decides whether it goes anywhere.
+    pub fn save_support(&mut self, cx: &mut Context<Self>) {
+        let message = match &self.stage {
+            Stage::Failed(message) => message.to_string(),
+            _ => String::new(),
+        };
+        let log = crate::log::path().and_then(|path| std::fs::read_to_string(path).ok()).unwrap_or_default();
+        let manifest = &self.package.manifest;
+        let facts = crate::support::Facts {
+            manifest,
+            message: &message,
+            windows_build: apps::windows_build(),
+            elevated: crate::system::elevate::is_elevated(),
+            install_dir: &self.dir,
+            free_bytes: crate::system::host::free_space(&self.dir),
+            log: &log,
+        };
+        let saved = if self.preview {
+            // A preview changes nothing on this computer.
+            Ok(None)
+        } else {
+            crate::system::user_desktop()
+                .map_err(|err| std::io::Error::other(err.to_string()))
+                .and_then(|folder| crate::support::save(&folder, &facts, &crate::support::Hide::from_environment()))
+                .map(Some)
+        };
+        match saved {
+            Ok(path) => {
+                if let Some(path) = path {
+                    crate::log::line(&format!("Saved the support info to {}", path.display()));
+                    // Show the file; Explorer takes `/select,path` as one argument.
+                    let _ = std::process::Command::new("explorer.exe").arg(format!("/select,{}", path.display())).spawn();
+                }
+                self.support = crate::view::SupportState::Saved;
+            }
+            Err(err) => {
+                crate::log::line(&format!("Couldn't save the support info: {err}"));
+                self.support = crate::view::SupportState::Failed;
+            }
+        }
+        cx.notify();
+    }
+
     /// Asks the app to close (it may ask the user to save first), then
     /// tries again. Nothing is ever killed.
     pub fn close_app_and_retry(&mut self, cx: &mut Context<Self>) {

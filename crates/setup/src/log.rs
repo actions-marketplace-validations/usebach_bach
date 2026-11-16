@@ -10,6 +10,12 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static LOG: Mutex<Option<File>> = Mutex::new(None);
+static PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Where this run's log is, once it has started.
+pub fn path() -> Option<PathBuf> {
+    PATH.lock().ok().and_then(|path| path.clone())
+}
 
 /// Where a run's log goes when `--log` doesn't say.
 pub fn default_path(app_id: &str) -> PathBuf {
@@ -32,6 +38,9 @@ pub fn start(path: &Path, first_line: &str) {
     let _ = file.write_all("\u{feff}".as_bytes());
     if let Ok(mut log) = LOG.lock() {
         *log = Some(file);
+    }
+    if let Ok(mut remembered) = PATH.lock() {
+        *remembered = Some(path.to_path_buf());
     }
     line(first_line);
 }

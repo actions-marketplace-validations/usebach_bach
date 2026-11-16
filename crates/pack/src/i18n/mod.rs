@@ -84,6 +84,7 @@ texts! {
     error_delete_data, error_not_found, error_open_failed,
     problem_title, problem_damaged,
     downgrade_title, downgrade_subtitle, downgrade_button, close_app, error_close_app,
+    support_save, support_saved, support_failed,
     requirement_title, requirement_subtitle, requirement_button, step_downloading, error_download,
     website, feedback,
     step_finding, step_fetching, error_fetch,

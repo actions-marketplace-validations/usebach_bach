@@ -7,7 +7,7 @@ use super::{footer, page_icon, subtitle_text, PageLayout};
 use crate::keyboard::Target;
 use crate::theme::{ActiveTheme, Theme};
 use crate::ui::prelude::*;
-use crate::view::SetupView;
+use crate::view::{SetupView, SupportState};
 
 impl SetupView {
     pub(super) fn working_page(&self, progress: f32, label: SharedString, theme: &Theme) -> AnyElement {
@@ -121,6 +121,17 @@ impl SetupView {
                             .focused(self.is_focused(Target::Cancel))
                             .on_click(cx.listener(|this, _, _, cx| this.close(cx)))
                             .into_any_element(),
+                        FormButton::new(
+                            "setup-support",
+                            texts.get(match self.support {
+                                SupportState::Idle => Key::support_save,
+                                SupportState::Saved => Key::support_saved,
+                                SupportState::Failed => Key::support_failed,
+                            }),
+                        )
+                        .outline()
+                        .on_click(cx.listener(|this, _, _, cx| this.save_support(cx)))
+                        .into_any_element(),
                         if self.app_is_open() {
                             // The app holds its files: offer to close it.
                             FormButton::new("setup-close-app", texts.get(Key::close_app))
