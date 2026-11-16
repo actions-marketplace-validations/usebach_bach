@@ -72,6 +72,11 @@ jobs:
       github.triggering_actor == 'leifiyoo'
     runs-on: windows-latest
     timeout-minutes: 120
+    # id-token and attestations: the signed provenance of the files below.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     outputs:
       version: ${{ steps.version.outputs.version }}
       runtime_sha256: ${{ steps.build.outputs.runtime_sha256 }}
@@ -150,6 +155,15 @@ jobs:
           $scoop.hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
           ($scoop | ConvertTo-Json -Depth 5) + "`n" | Set-Content -NoNewline -Encoding utf8NoBOM scoop/bach.json
 
+      - name: List what each program is built from (SBOM)
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          bun scripts/sbom.mjs bach-cli "dist/bach-$version-sbom-cli.cdx.json"
+          if ($LASTEXITCODE -ne 0) { throw "The bach SBOM wasn't written." }
+          bun scripts/sbom.mjs bach-setup "dist/bach-$version-sbom-setup.cdx.json" --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "The bach-setup SBOM wasn't written." }
+
       - name: Keep the dry run's files
         if: inputs.dry_run
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -159,8 +173,28 @@ jobs:
             dist/*.zip
             dist/*.exe
             dist/*.sha256
+            dist/*.cdx.json
             dist/release-notes.md
             CHANGELOG.md
+
+      # A signed statement, kept by GitHub, of which commit and workflow built
+      # each file: `gh attestation verify FILE --repo usebach/bach`.
+      - name: Attest where the files come from
+        if: ${{ !inputs.dry_run }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/bach-${{ steps.version.outputs.version }}-windows-x64.zip
+            dist/bach-setup.exe
+            dist/Hello-Setup-1.0.0.exe
+            dist/bach-${{ steps.version.outputs.version }}-sbom-*.cdx.json
+
+      - name: Attach the bach-setup SBOM to the runtime
+        if: ${{ !inputs.dry_run }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/bach-setup.exe
+          sbom-path: dist/bach-${{ steps.version.outputs.version }}-sbom-setup.cdx.json
 
       - name: Commit and tag the release
         if: ${{ !inputs.dry_run }}
@@ -201,6 +235,8 @@ jobs:
             "dist/bach-setup.exe.sha256" `
             "dist/Hello-Setup-1.0.0.exe" `
             "dist/Hello-Setup-1.0.0.exe.sha256" `
+            "dist/bach-$version-sbom-cli.cdx.json" `
+            "dist/bach-$version-sbom-setup.cdx.json" `
             --title "Bach $version" `
             --notes-file dist/release-notes.md `
             @flags
@@ -231,6 +267,10 @@ jobs:
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -258,6 +298,11 @@ jobs:
           tar -czf "dist/$name.tar.gz" -C dist "$name"
           (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
 
+      - name: Attest where it comes from
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/bach-${{ needs.release.outputs.version }}-${{ matrix.name }}.tar.gz
+
       - name: Add it to the release
         shell: bash
         env:
@@ -273,6 +318,10 @@ jobs:
     if: ${{ !inputs.dry_run }}
     runs-on: windows-11-arm
     timeout-minutes: 120
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -299,6 +348,11 @@ jobs:
           Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
           $hash = (Get-FileHash -Algorithm SHA256 "dist/$name.zip").Hash.ToLower()
           "$hash  $name.zip" | Set-Content -NoNewline "dist/$name.zip.sha256"
+
+      - name: Attest where it comes from
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/bach-${{ needs.release.outputs.version }}-windows-arm64.zip
 
       - name: Add it to the release
         shell: pwsh

@@ -95,3 +95,21 @@ Notes:
 - Signing with `[signing]` and signing by hand give the same result; use
   whichever fits your pipeline. After changing a signed file in any way,
   write the feed again with `bach feed`.
+
+## Check a Bach download
+
+Every file of a Bach release (the zip, `bach-setup.exe`, the example installer,
+the macOS and Linux downloads and the Windows ARM64 zip) has a signed
+statement from GitHub's artifact attestations: which commit and which workflow
+run built it. With the GitHub CLI:
+
+```bash
+gh attestation verify bach-0.7.0-windows-x64.zip --repo usebach/bach
+```
+
+The release also lists what `bach` and `bach-setup.exe` are built from, as
+CycloneDX files: `bach-<version>-sbom-cli.cdx.json` and
+`bach-<version>-sbom-setup.cdx.json` (each crate with its version, licence
+and the checksum from `Cargo.lock`). The runtime's own list is attached to
+`bach-setup.exe` as an attestation too, and `bun scripts/sbom.mjs bach-cli
+out.json` writes the same list from a checkout. The `.sha256` files remain.
