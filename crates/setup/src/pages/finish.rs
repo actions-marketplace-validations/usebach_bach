@@ -130,6 +130,7 @@ impl SetupView {
                             }),
                         )
                         .outline()
+                        .focused(self.is_focused(Target::Support))
                         .on_click(cx.listener(|this, _, _, cx| this.save_support(cx)))
                         .into_any_element(),
                         if self.app_is_open() {

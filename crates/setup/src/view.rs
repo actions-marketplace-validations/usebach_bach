@@ -396,10 +396,15 @@ impl SetupView {
     /// Closing is refused while work runs: stopping halfway is what the
     /// all-or-nothing install avoids.
     pub fn close(&mut self, cx: &mut Context<Self>) {
-        if !matches!(self.stage, Stage::Working { .. }) {
+        if can_close(&self.stage) {
             cx.quit();
         }
     }
+}
+
+/// Whether the window may be closed on this page.
+pub fn can_close(stage: &Stage) -> bool {
+    !matches!(stage, Stage::Working { .. })
 }
 
 enum Job {
@@ -433,6 +438,16 @@ fn install_folder(picked: PathBuf, folder_name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_window_closes_everywhere_except_while_files_move() {
+        let pages = [Stage::Requirement(0), Stage::Access, Stage::License, Stage::Ready, Stage::Done, Stage::Failed("x".into())];
+        assert!(pages.iter().all(can_close), "every page but one may be closed");
+        assert!(
+            !can_close(&Stage::Working { progress: 0.3, label: "Copying".into() }),
+            "stopping halfway is what the all-or-nothing install avoids"
+        );
+    }
 
     #[test]
     fn picked_folders_get_the_app_folder() {

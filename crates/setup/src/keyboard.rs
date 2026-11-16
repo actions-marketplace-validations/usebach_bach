@@ -29,34 +29,64 @@ pub enum Target {
     Cancel,
     /// The second button: Try again on the requirement page.
     Secondary,
+    /// "Save support info" on the failed page.
+    Support,
     /// The page's main button: I agree, Install, Open, Try again.
     Primary,
+}
+
+/// What on a page decides which controls it has.
+pub struct PageFacts {
+    /// The key page links to where people get a key.
+    pub get_key_link: bool,
+    /// The last page has a website or feedback link.
+    pub done_link: bool,
+    /// The last page offers to open the app.
+    pub open_button: bool,
+    /// The ready page's rows (Location, toggles), in order; None for a row
+    /// that isn't shown.
+    pub rows: Vec<Option<Target>>,
+}
+
+/// The page's controls in Tab order. Pure, so the order can be tested
+/// without a window.
+pub fn page_targets(stage: &Stage, facts: &PageFacts) -> Vec<Target> {
+    let buttons = |primary: bool| {
+        let mut buttons = vec![Target::Cancel];
+        if primary {
+            buttons.push(Target::Primary);
+        }
+        buttons
+    };
+    match stage {
+        Stage::Requirement(_) => vec![Target::Cancel, Target::Secondary, Target::Primary],
+        Stage::Access => {
+            let get_key = facts.get_key_link.then_some(Target::GetKey);
+            get_key.into_iter().chain([Target::Paste, Target::Cancel, Target::Primary]).collect()
+        }
+        Stage::Failed(_) => vec![Target::Cancel, Target::Support, Target::Primary],
+        Stage::License => buttons(true),
+        Stage::Ready => facts.rows.iter().flatten().copied().chain(buttons(true)).collect(),
+        Stage::Working { .. } => Vec::new(),
+        Stage::Done => {
+            let link = facts.done_link.then_some(Target::Link);
+            link.into_iter().chain(buttons(facts.open_button)).collect()
+        }
+    }
 }
 
 impl SetupView {
     /// The page's controls in Tab order.
     pub fn targets(&self) -> Vec<Target> {
-        let buttons = |primary: bool| {
-            let mut buttons = vec![Target::Cancel];
-            if primary {
-                buttons.push(Target::Primary);
-            }
-            buttons
-        };
-        match &self.stage {
-            Stage::Requirement(_) => vec![Target::Cancel, Target::Secondary, Target::Primary],
-            Stage::Access => {
-                let get_key = self.has_get_key_link().then_some(Target::GetKey);
-                get_key.into_iter().chain([Target::Paste, Target::Cancel, Target::Primary]).collect()
-            }
-            Stage::License | Stage::Failed(_) => buttons(true),
-            Stage::Ready => self.row_targets().into_iter().flatten().chain(buttons(true)).collect(),
-            Stage::Working { .. } => Vec::new(),
-            Stage::Done => {
-                let link = self.done_link().is_some().then_some(Target::Link);
-                link.into_iter().chain(buttons(self.has_open_button())).collect()
-            }
-        }
+        page_targets(
+            &self.stage,
+            &PageFacts {
+                get_key_link: self.has_get_key_link(),
+                done_link: self.done_link().is_some(),
+                open_button: self.has_open_button(),
+                rows: self.row_targets(),
+            },
+        )
     }
 
     /// The link the last page offers: the website after installing, the
@@ -131,6 +161,7 @@ impl SetupView {
             Target::Toggle(toggle) => self.toggle(toggle, cx),
             Target::Cancel => self.close(cx),
             Target::Secondary => self.recheck_requirements(cx),
+            Target::Support => self.save_support(cx),
             Target::GetKey => self.open_get_key(),
             Target::Paste => self.paste_key(cx),
             Target::Link if self.is_removing() => self.open_feedback(),
@@ -156,5 +187,61 @@ impl SetupView {
         if let Some(row) = self.row_targets().iter().position(|row| *row == Some(target)) {
             self.choices_scroll.scroll_to_item(row);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::view::Toggle;
+
+    fn facts() -> PageFacts {
+        PageFacts { get_key_link: false, done_link: false, open_button: true, rows: Vec::new() }
+    }
+
+    #[test]
+    fn every_page_has_its_tab_order() {
+        let nothing = facts();
+        assert_eq!(page_targets(&Stage::Requirement(0), &nothing), [Target::Cancel, Target::Secondary, Target::Primary]);
+        assert_eq!(page_targets(&Stage::Access, &nothing), [Target::Paste, Target::Cancel, Target::Primary]);
+        assert_eq!(
+            page_targets(&Stage::Access, &PageFacts { get_key_link: true, ..facts() }),
+            [Target::GetKey, Target::Paste, Target::Cancel, Target::Primary]
+        );
+        assert_eq!(page_targets(&Stage::License, &nothing), [Target::Cancel, Target::Primary]);
+        // The failed page: Close, Save support info, Try again, in that order.
+        assert_eq!(page_targets(&Stage::Failed("x".into()), &nothing), [Target::Cancel, Target::Support, Target::Primary]);
+        // Nothing to tab to while files move: a click on Cancel is no longer possible.
+        assert!(page_targets(&Stage::Working { progress: 0.5, label: "x".into() }, &nothing).is_empty());
+    }
+
+    #[test]
+    fn the_ready_page_lists_its_rows_before_its_buttons() {
+        let rows = vec![
+            Some(Target::Location),
+            None,
+            Some(Target::Toggle(Toggle::DesktopShortcut)),
+            Some(Target::Toggle(Toggle::StartWithWindows)),
+        ];
+        let order = page_targets(&Stage::Ready, &PageFacts { rows, ..facts() });
+        assert_eq!(
+            order,
+            [
+                Target::Location,
+                Target::Toggle(Toggle::DesktopShortcut),
+                Target::Toggle(Toggle::StartWithWindows),
+                Target::Cancel,
+                Target::Primary
+            ],
+            "rows that aren't shown are skipped"
+        );
+    }
+
+    #[test]
+    fn the_last_page_offers_what_the_app_has() {
+        let both = PageFacts { done_link: true, open_button: true, ..facts() };
+        assert_eq!(page_targets(&Stage::Done, &both), [Target::Link, Target::Cancel, Target::Primary]);
+        let only_close = PageFacts { done_link: false, open_button: false, ..facts() };
+        assert_eq!(page_targets(&Stage::Done, &only_close), [Target::Cancel], "no Open button: Close is the only one");
     }
 }

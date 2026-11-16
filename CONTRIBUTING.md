@@ -82,6 +82,10 @@ Linux and macOS): they install from a release made on the spot (`BACH_INSTALL_FR
 damaged or wrong archive with one sentence. `test-install.ps1 -TouchPath` also checks the PATH entry; use it only
 on a throwaway machine.
 
+The setup window's logic is tested without drawing it: `keyboard::page_targets` is the Tab order of every
+page (`cargo test -p bach-setup keyboard`) and `view::can_close` says when the window may be closed. Drawing
+itself is still checked by eye with `bach preview` in light and dark.
+
 CI runs the full build and test, with the real install/update/remove run
 (`scripts/e2e.ps1`), on `windows-latest`, `windows-11-arm` (the ARM64 runtime,
 natively) and `windows-2022`. GitHub has no Windows 10 image, so Windows 10 is
