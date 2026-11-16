@@ -72,6 +72,11 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+`cargo test` also reads every example in the docs: each ```` ```toml ```` block must be TOML,
+each whole `bach.toml` must pass the config check, and every relative link and
+heading anchor in `README.md`, `CONTRIBUTING.md` and `docs/` must land
+(`crates/pack/tests/docs.rs`). Links to other sites are not followed.
+
 CI runs the full build and test, with the real install/update/remove run
 (`scripts/e2e.ps1`), on `windows-latest`, `windows-11-arm` (the ARM64 runtime,
 natively) and `windows-2022`. GitHub has no Windows 10 image, so Windows 10 is
