@@ -134,3 +134,6 @@ try {
 
 if ($failures -ne 0) { Write-Host "$failures check(s) failed." -ForegroundColor Red; exit 1 }
 Write-Host 'All install.ps1 checks passed.'
+# The last checks run child processes that fail on purpose; without this the step ends with
+# their exit code (CI's pwsh passes $LASTEXITCODE on) although every check passed.
+exit 0
