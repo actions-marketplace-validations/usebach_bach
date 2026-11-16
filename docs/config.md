@@ -584,6 +584,7 @@ download_url = "https://example.com/hello/{file}"   # {file}: the setup file's n
 | `download_url` | from `github` | The `https` link the setup file will be downloaded from. `{file}` is the setup file's name (encoded for a link), `{version}` the app's version. |
 | `public_key` | none | The publisher's Ed25519 public key (64 hex digits, from `bach feed-key`). With it, the installed app accepts only feed entries signed with the matching private key. See [Signed feeds](updates.md#signed-feeds). |
 | `next_public_key` | none | A second public key that is trusted too, to hand over to a new key without stranding installed copies (needs `public_key`, and must differ from it). See [Changing the key](updates.md#changing-the-key). |
+| `beta_feed` | none | The `https` link of the beta channel's feed, written like `feed` (`bach feed FILE --out latest-beta.json`). A person who runs `uninstall.exe --channel beta` follows it instead of `feed` and `mirrors`. See [Beta versions](updates.md#beta-versions). |
 | `signer` | none | The publisher a downloaded update has to be signed by (Authenticode): the common name or organisation of the signing certificate, like `Example Inc.` (or its whole subject, `CN=..., O=..., L=..., C=...`, which has to match exactly). Windows must accept the signature, and an unsigned update or one by another publisher is refused. See [Signed updates](updates.md#signed-updates-authenticode). |
 | `mirrors` | none | More feeds to ask when `feed` can't be reached, each the `https` link of a full feed with its own download link. The first feed that answers decides the newest version; a mirror only offers another place to download the *same* file (same version and SHA-256), so a weaker mirror can't widen what an installed app trusts. |
 | `auto` | `true` | Keep the app up to date in the background: `true` (the install page offers "Automatic updates", ticked), `false` (offered, unticked), `"always"` or `"never"`. |
@@ -943,6 +944,7 @@ process API and wait for it.
 | `--update` | Downloads it (or uses the one kept ready) and opens its setup window. |
 | `--update --silent` | Installs it without a window and exits with the setup's own code. |
 | `--auto-update` | One background round: check, download, and install if the app isn't running. This is what the "Automatic updates" scheduled task runs. |
+| `--channel beta\|stable\|show` | Follow the beta or the stable update feed from now on, or say which one this is. Needs `[updates] beta_feed` for `beta`. |
 
 Updating in the background, so closing the app is all the user does: run
 `--download-update` when the app starts, and `--apply-update --wait-for

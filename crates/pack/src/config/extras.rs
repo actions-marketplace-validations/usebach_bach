@@ -76,6 +76,8 @@ pub struct UpdatesSection {
     next_public_key: Option<String>,
     /// The publisher a downloaded update must be signed by (Authenticode).
     signer: Option<String>,
+    /// The feed of the beta channel.
+    beta_feed: Option<String>,
 }
 
 /// The environment variable the access key is read from unless `key_env`
@@ -351,6 +353,16 @@ pub fn updates(section: Option<&UpdatesSection>, machine: bool) -> Result<Option
             Some(key)
         }
     };
+    let beta_feed = match section.beta_feed.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(link) if !is_https(link) => {
+            bail!("updates.beta_feed is \"{link}\"; it must be the https link of a feed, like https://example.com/hello/latest-beta.json")
+        }
+        Some(link) if link == feed || mirrors.iter().any(|mirror| mirror == link) => {
+            bail!("updates.beta_feed is the same as the stable feed; give the beta versions a feed of their own")
+        }
+        Some(link) => Some(link.to_string()),
+    };
     let signer = match section.signer.as_deref().map(str::trim) {
         None | Some("") => None,
         Some(name) if name.chars().count() > 300 || name.chars().any(char::is_control) => {
@@ -359,7 +371,7 @@ pub fn updates(section: Option<&UpdatesSection>, machine: bool) -> Result<Option
         Some(name) => Some(name.to_string()),
     };
     Ok(Some(UpdateSettings {
-        updates: Updates { feed, auto, mirrors, public_key, next_public_key, signer },
+        updates: Updates { feed, auto, mirrors, public_key, next_public_key, signer, beta_feed },
         download_url: download,
         github,
     }))

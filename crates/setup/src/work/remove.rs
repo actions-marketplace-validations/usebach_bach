@@ -88,6 +88,7 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     remove_empty_parents(dir, manifest.files.iter().map(|file| file.path.as_str()));
     // The access key kept for updates goes with the app.
     system::secret::forget(&manifest.app.id);
+    system::channel::forget(&manifest.app.id);
 
     if plan.delete_data {
         report(0.75, &texts.get(Key::step_deleting_data));

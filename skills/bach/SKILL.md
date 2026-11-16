@@ -171,6 +171,7 @@ github = "owner/repo"                     # from that repo's GitHub releases; or
 # auto = true                             # offer "Automatic updates" (false / "always" / "never")
 # mirrors = ["https://mirror.example/myapp/latest.json"]   # fallback feeds
 # public_key = "..."   # from `bach feed-key`: the app then accepts only feeds signed with it (BACH_FEED_KEY signs)
+# beta_feed = "https://.../latest-beta.json"   # beta channel: `uninstall.exe --channel beta|stable|show`
 # next_public_key = "..."   # to hand over to a new key: both are trusted (see docs/updates.md "Changing the key")
 
 [uninstall]

@@ -388,12 +388,29 @@ try {
     Check ((Run $u4 @('--silent', '--with', 'auto-update', '--allow-downgrade')) -eq 0) 'ticked again'
     Check (Task-Exists) 'the update task is back'
 
+    Write-Host 'The beta channel is the choice of the person using the app'
+    $channelKey = 'HKCU:\Software\Bach\Channel'
+    $channelOf = { (Get-ItemProperty -Path $channelKey -Name $id -ErrorAction SilentlyContinue).$id }
+    Check ((Run $uninstaller @('--channel', 'beta')) -eq 1) 'an app without [updates] beta_feed has no beta channel'
+    Check ($null -eq (& $channelOf)) 'and nothing is kept'
+    $u5 = BuildU '5.0.0' $id 'beta_feed = "https://example.invalid/bach-e2e/latest-beta.json"'
+    Check ((Run $u5 @('--silent')) -eq 0) 'installs a version with a beta feed'
+    Check ((Run $uninstaller @('--channel', 'beta')) -eq 0) 'following beta works'
+    Check ((& $channelOf) -eq 'beta') 'and is kept for this user'
+    Check ((Run $u5 @('--silent', '--allow-downgrade')) -eq 0) 'a reinstall'
+    Check ((& $channelOf) -eq 'beta') 'leaves the choice alone'
+    Check ((Run $uninstaller @('--channel', 'nightly')) -eq 2) 'another channel name is a command-line mistake'
+    Check ((Run $uninstaller @('--channel', 'stable')) -eq 0) 'going back to stable works'
+    Check ($null -eq (& $channelOf)) 'and the choice is gone'
+    Check ((Run $uninstaller @('--channel', 'beta')) -eq 0) 'beta again, to see the uninstall take it away'
+
     Write-Host 'Uninstall removes the task and any waiting download'
     Stage $u3 '5.0.0'
     Check ((Run $uninstaller @('--silent')) -eq 0) 'exits 0'
     Check (-not (Test-Path $updatesKey)) 'gone from Settings > Apps'
     Check (-not (Task-Exists)) 'the update task is gone'
     Check (-not (Test-Path $staging)) 'the waiting download is gone'
+    Check ($null -eq (& $channelOf)) 'the chosen channel is forgotten'
 } finally {
     cmd /c "schtasks /Delete /TN ""Bach\$id"" /F >nul 2>&1"
     Get-Process -Name hello -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$updatesInstall*" } | Stop-Process -Force -ErrorAction SilentlyContinue

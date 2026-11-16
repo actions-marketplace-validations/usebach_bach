@@ -762,6 +762,11 @@
           "pattern": "^[0-9a-fA-F]{64}$",
           "description": "A second Ed25519 public key that is trusted too, to hand over to a new key (needs public_key): entries signed with either key are accepted."
         },
+        "beta_feed": {
+          "type": "string",
+          "pattern": "^https://",
+          "description": "The https link of the beta channel's feed. An installation that chose beta versions (uninstall.exe --channel beta) asks this feed instead of feed and mirrors. The same keys and signer apply."
+        },
         "signer": {
           "type": "string",
           "maxLength": 300,

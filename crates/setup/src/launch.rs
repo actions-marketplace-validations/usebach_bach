@@ -50,6 +50,7 @@ uninstall.exe only
   --apply-update          Install what was kept ready. [--wait-for PID] [--launch]
   --update                Download the newest version and open its setup (--silent: install it).
   --auto-update           One background round, as the scheduled task runs it.
+  --channel beta|stable|show  Follow the beta or the stable update channel (show: say which).
 
   --help, -h, /?          This text.
 ";
@@ -122,6 +123,8 @@ pub struct Args {
     pub json: bool,
     /// `--wait-for PID`: let that process (the app) end first.
     pub wait_for: Option<u32>,
+    /// `--channel beta|stable|show`: which update feed this installation follows.
+    pub channel: Option<String>,
     /// `--launch`: start the app again after a silent update.
     pub launch: bool,
     pub theme: Option<Theme>,
@@ -137,7 +140,7 @@ impl Args {
     }
 
     pub fn updating(&self) -> bool {
-        self.update || self.check_update || self.download_update || self.apply_update || self.auto_update
+        self.update || self.check_update || self.download_update || self.apply_update || self.auto_update || self.channel.is_some()
     }
 
     pub fn parse() -> Result<Self, String> {
@@ -226,6 +229,13 @@ impl Args {
             }
             "theme" => self.theme = Some(Theme::parse(&text).ok_or_else(|| format!("--theme is light, dark or system, not \"{text}\"."))?),
             "lang" => self.lang = Some(text),
+            "channel" => {
+                let channel = text.trim().to_ascii_lowercase();
+                if !["beta", "stable", "show"].contains(&channel.as_str()) {
+                    return Err(format!("--channel is beta, stable or show, not \"{text}\"."));
+                }
+                self.channel = Some(channel);
+            }
             _ => {}
         }
         Ok(())
@@ -274,6 +284,7 @@ const FLAGS: &[Flag] = &[
     valued(&["wait-for"]),
     valued(&["theme"]),
     valued(&["lang"]),
+    valued(&["channel"]),
 ];
 
 /// `--dir=C:\Apps` or `/DIR=C:\Apps` → ("dir", Some("C:\Apps")); `--silent` →
@@ -552,6 +563,18 @@ mod tests {
             let internal = ["json", "launch", "install-dir", "uninstall"].contains(&flag.names[0]);
             assert!(HELP.contains(&name) || internal, "{name} is parsed but not in the help text");
         }
+    }
+
+    #[test]
+    fn the_channel_flag_takes_beta_stable_or_show() {
+        for (line, channel) in [("--channel beta", "beta"), ("--channel=Stable", "stable"), ("/CHANNEL show", "show")] {
+            let parsed = args(line);
+            assert_eq!(parsed.channel.as_deref(), Some(channel), "{line}");
+            assert!(parsed.updating(), "it is a job of the uninstaller, like the update flags");
+        }
+        assert!(mistake("--channel nightly").contains("beta, stable or show"));
+        assert!(mistake("--channel").contains("--channel"));
+        assert!(args("--silent").channel.is_none());
     }
 
     #[test]

@@ -162,7 +162,11 @@ pub fn run(args: &Args, package: &Package) -> i32 {
         );
         return 1;
     }
-    let ctx = Context { args, package, texts, feeds: updates.feeds(), dir, key };
+    if let Some(channel) = &args.channel {
+        return choose_channel(package, updates, channel);
+    }
+    let beta = system::channel::is_beta(&manifest.app.id);
+    let ctx = Context { args, package, texts, feeds: updates.feeds_for(beta), dir, key };
     let result = if args.apply_update {
         apply_ready(&ctx)
     } else if args.auto_update {
@@ -182,6 +186,33 @@ pub fn run(args: &Args, package: &Package) -> i32 {
             1
         }
     }
+}
+
+/// `--channel beta|stable|show`: says or changes which feed this installation
+/// follows. The next check, download or update uses it; nothing is downloaded now.
+fn choose_channel(package: &Package, updates: &bach_pack::manifest::Updates, channel: &str) -> i32 {
+    let app = &package.manifest.app;
+    let now = if system::channel::is_beta(&app.id) { "beta" } else { "stable" };
+    if channel == "show" {
+        println!("{now}");
+        return 0;
+    }
+    if channel == "beta" && updates.beta_feed.is_none() {
+        eprintln!("{} has no beta versions: its bach.toml has no [updates] beta_feed.", app.name);
+        return 1;
+    }
+    if let Err(err) = system::channel::set(&app.id, channel == "beta") {
+        eprintln!("{err:#}");
+        return 1;
+    }
+    if channel == now {
+        println!("{} already follows the {channel} channel.", app.name);
+    } else if channel == "beta" {
+        println!("{} now follows the beta channel.", app.name);
+    } else {
+        println!("{} now follows the stable channel. A beta version that is installed stays until a stable one is newer.", app.name);
+    }
+    0
 }
 
 /// The access key an update run uses: one given on the command line (a key

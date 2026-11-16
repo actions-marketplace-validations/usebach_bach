@@ -280,6 +280,35 @@ and receives an unsigned feed stops updating, so run `bach feed` with the key
 before you publish. An app only trusts the keys its own setup file carries, so
 keep the private key safe, and change it in two steps (below) if you must.
 
+### Beta versions
+
+An app can offer pre-release versions to the people who ask for them:
+
+```toml bach.toml
+[updates]
+feed = "https://example.com/hello/latest.json"            # stable
+beta_feed = "https://example.com/hello/latest-beta.json"  # beta
+```
+
+Build the beta (`version = "2.0.0-beta.1"`) and write its feed to its own file:
+`bach feed dist/Hello-Setup-2.0.0-beta.1.exe --out latest-beta.json`. The stable
+feed stays as it is, so nobody gets a beta by accident. Each installation
+chooses for itself, with the installed `uninstall.exe` (your app can run it):
+
+```bash
+uninstall.exe --channel beta      # follow the beta feed from now on
+uninstall.exe --channel stable    # back to the stable feed
+uninstall.exe --channel show      # say which one this is
+```
+
+The choice lives under the user's own `HKCU\Software\Bach\Channel`, survives
+updates and repairs, and is deleted when the app is removed. The next
+`--check-update`, `--download-update` or `--update` (and the background task)
+asks only the beta feed (no mirrors), with the same `public_key` and `signer`
+checks. An app without `beta_feed` answers `--channel beta` with exit code `1`.
+Going back to stable never installs an older version by itself: a beta that is
+installed stays until a stable version newer than it is out.
+
 ### Signed updates (Authenticode)
 
 `public_key` signs the feed. `signer` checks the *file*: with

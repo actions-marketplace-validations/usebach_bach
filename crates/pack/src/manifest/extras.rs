@@ -178,6 +178,11 @@ pub struct Updates {
     /// for Windows, or signed by anyone else is refused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signer: Option<String>,
+    /// The feed of the beta channel (https): what an installation that chose
+    /// beta versions asks instead of `feed` and `mirrors`. It is the same JSON,
+    /// and the publisher's keys and signer apply to it as well.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beta_feed: Option<String>,
 }
 
 /// A distinguished name like `CN=Example Inc., O=Example, C=DE` as its
@@ -227,6 +232,15 @@ impl Updates {
     /// Every feed to ask, the main one first.
     pub fn feeds(&self) -> Vec<String> {
         std::iter::once(self.feed.clone()).chain(self.mirrors.iter().cloned()).collect()
+    }
+
+    /// The feeds an installation asks: the beta channel's, when it chose beta
+    /// and there is one, else [`Self::feeds`].
+    pub fn feeds_for(&self, beta: bool) -> Vec<String> {
+        match (&self.beta_feed, beta) {
+            (Some(feed), true) => vec![feed.clone()],
+            _ => self.feeds(),
+        }
     }
 }
 

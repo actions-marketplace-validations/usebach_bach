@@ -240,6 +240,7 @@ mod tests {
             public_key: Some("ab".repeat(32)),
             next_public_key: Some("cd".repeat(32)),
             signer: None,
+            beta_feed: None,
         });
         let signer = signer_of(&manifest).unwrap();
         assert_eq!((signer.public_key, signer.app_id), ("ab".repeat(32).as_str(), manifest.app.id.as_str()));

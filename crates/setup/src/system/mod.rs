@@ -18,6 +18,7 @@
 pub mod acl;
 pub mod apps;
 pub mod changes;
+pub mod channel;
 pub mod elevate;
 pub mod env_path;
 pub mod folders;

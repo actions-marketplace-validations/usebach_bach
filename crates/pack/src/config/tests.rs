@@ -1115,6 +1115,42 @@ fn the_registry_view_is_read_and_a_32_bit_program_in_a_machine_install_is_warned
 }
 
 #[test]
+fn the_beta_feed_is_read_checked_and_picked_by_channel() {
+    let dir = project_dir("beta");
+    let feed = "feed = \"https://x.example/latest.json\"";
+    let with = |line: &str| {
+        parse(
+            &format!(
+                "{MINIMAL}
+[updates]
+{feed}
+mirrors = [\"https://m.example/latest.json\"]
+{line}
+"
+            ),
+            &dir,
+        )
+    };
+    let updates = with("beta_feed = \"https://x.example/latest-beta.json\"").unwrap().manifest.updates.unwrap();
+    assert_eq!(updates.beta_feed.as_deref(), Some("https://x.example/latest-beta.json"));
+    // Stable asks the feed and its mirror; beta asks only the beta feed.
+    assert_eq!(updates.feeds_for(false), ["https://x.example/latest.json", "https://m.example/latest.json"]);
+    assert_eq!(updates.feeds_for(true), ["https://x.example/latest-beta.json"]);
+    // An app without beta versions follows stable whatever was chosen.
+    let plain = with("").unwrap().manifest.updates.unwrap();
+    assert_eq!(plain.feeds_for(true), plain.feeds());
+    for (bad, why) in [
+        ("beta_feed = \"http://x.example/beta.json\"", "https"),
+        ("beta_feed = \"https://x.example/latest.json\"", "same as the stable feed"),
+        ("beta_feed = \"https://m.example/latest.json\"", "same as the stable feed"),
+    ] {
+        let message = format!("{:#}", with(bad).unwrap_err());
+        assert!(message.contains("updates.beta_feed") && message.contains(why), "{bad}: {message}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn the_publisher_of_updates_is_read_and_checked() {
     let dir = project_dir("signer");
     let with = |line: &str| format!("{MINIMAL}\n[updates]\nfeed = \"https://x.example/latest.json\"\n{line}\n");
