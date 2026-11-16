@@ -73,6 +73,12 @@ jobs:
         shell: pwsh
         run: ./scripts/e2e.ps1 -Profile release
 
+      # install.ps1, against a release made on the spot (no download). It adds
+      # the folder to this runner's user PATH, which is thrown away.
+      - name: Test install.ps1
+        shell: pwsh
+        run: ./scripts/test-install.ps1 -Profile release -TouchPath
+
       # The action and its checks need nothing that depends on the Windows
       # version, so they run once.
       - name: Prepare the action test
@@ -146,6 +152,11 @@ jobs:
 
       - name: Clippy
         run: cargo clippy -p bach-pack -p bach-cli --all-targets -- -D warnings
+
+      # install.sh, the first thing many people run, against a release made on
+      # the spot (no download).
+      - name: Test install.sh
+        run: sh scripts/test-install.sh target/debug/bach
 
   # Known vulnerabilities (RustSec), licenses and where crates come from; the
   # rules are in deny.toml.

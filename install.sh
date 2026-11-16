@@ -9,6 +9,11 @@
 # $BACH_INSTALL_DIR). `bach build` fetches the Windows setup runtime it
 # builds on by itself, the first time it needs it.
 #
+# For tests: BACH_INSTALL_FROM=DIR installs from the files in DIR (the
+# bach-VERSION-OS-ARCH.tar.gz and its .sha256, as on a release) instead of
+# downloading them, for exactly the BACH_VERSION given, and never contacts
+# GitHub.
+#
 # It never needs administrator rights, and never asks for them, unless you
 # ask for a system-wide install: BACH_SCOPE=system (or --system) puts bach in
 # /usr/local/bin for every user, using sudo only for that one copy, and only
@@ -49,6 +54,11 @@ esac
 wanted="${BACH_VERSION:-}"
 wanted="${wanted#v}"
 [ "$wanted" = "latest" ] && wanted=""
+from="${BACH_INSTALL_FROM:-}"
+if [ -n "$from" ]; then
+  [ -n "$wanted" ] || { echo "BACH_INSTALL_FROM needs BACH_VERSION: the version of the files in $from." >&2; exit 1; }
+  [ -d "$from" ] || { echo "BACH_INSTALL_FROM is $from, which isn't a folder." >&2; exit 1; }
+fi
 # A token (as in GitHub Actions) keeps the API's rate limit out of the way.
 gh_api() {
   if [ -n "${GITHUB_TOKEN:-}" ]; then
@@ -65,7 +75,9 @@ case "$wanted" in
   *) partial="" ;;
 esac
 
-if [ -n "$partial" ]; then
+if [ -n "$from" ]; then
+  tag="v$wanted"
+elif [ -n "$partial" ]; then
   # "0" or "0.2": the newest release of that line. 0.2 is 0.2.0, 0.2.1, ...
   # and never 0.20; a pre-release is only taken when the line has no other.
   list=$(gh_api "https://api.github.com/repos/$repo/releases?per_page=100") || {
@@ -97,12 +109,20 @@ url="https://github.com/$repo/releases/download/$tag/$name.tar.gz"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-echo "Downloading $name"
-if ! curl -fsSL -o "$work/$name.tar.gz" "$url"; then
-  echo "Release $tag has no $name download. Build bach with: cargo install --git https://github.com/$repo bach-cli" >&2
-  exit 1
+if [ -n "$from" ]; then
+  echo "Using $from/$name.tar.gz"
+  if ! cp "$from/$name.tar.gz" "$work/$name.tar.gz" 2>/dev/null || ! cp "$from/$name.tar.gz.sha256" "$work/$name.tar.gz.sha256" 2>/dev/null; then
+    echo "$from has no $name.tar.gz with its .sha256, so nothing was installed." >&2
+    exit 1
+  fi
+else
+  echo "Downloading $name"
+  if ! curl -fsSL -o "$work/$name.tar.gz" "$url"; then
+    echo "Release $tag has no $name download. Build bach with: cargo install --git https://github.com/$repo bach-cli" >&2
+    exit 1
+  fi
+  curl -fsSL -o "$work/$name.tar.gz.sha256" "$url.sha256"
 fi
-curl -fsSL -o "$work/$name.tar.gz.sha256" "$url.sha256"
 expected=$(cut -d ' ' -f 1 < "$work/$name.tar.gz.sha256")
 if command -v sha256sum >/dev/null 2>&1; then
   actual=$(sha256sum "$work/$name.tar.gz" | cut -d ' ' -f 1)
@@ -111,7 +131,8 @@ else
 fi
 [ "$expected" = "$actual" ] || { echo "The download doesn't match its published SHA-256; nothing was installed." >&2; exit 1; }
 
-tar -xzf "$work/$name.tar.gz" -C "$work"
+tar -xzf "$work/$name.tar.gz" -C "$work" 2>/dev/null || { echo "The download isn't a readable archive; nothing was installed." >&2; exit 1; }
+[ -f "$work/$name/bach" ] || { echo "The download has no bach in it; nothing was installed." >&2; exit 1; }
 
 # Administrator rights are asked for only when a system-wide install was
 # requested and the folder isn't writable by this user; the one copy is all
