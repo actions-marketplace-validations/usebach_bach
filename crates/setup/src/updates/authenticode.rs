@@ -34,6 +34,8 @@ pub fn read(file: &Path) -> Result<Signature, String> {
             "$s = Get-AuthenticodeSignature -LiteralPath $env:BACH_CHECK_FILE; \"$($s.Status)\"; \"$($s.SignerCertificate.Subject)\"",
         ])
         .env("BACH_CHECK_FILE", file)
+        // A module path inherited from PowerShell 7 can hide the signature cmdlet.
+        .env_remove("PSModulePath")
         .output()
         .map_err(|err| format!("couldn't ask Windows who signed the update: {err}"))?;
     parse(&String::from_utf8_lossy(&output.stdout))

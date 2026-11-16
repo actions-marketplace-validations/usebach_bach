@@ -98,24 +98,14 @@ fn judge(status: &str, timestamped: bool) -> Signed {
 /// would otherwise publish an unsigned setup file believing it signed. No
 /// timestamp, or a signature Windows doesn't trust yet, is a warning.
 fn check_signature(file: &Path, publisher: Option<&str>) -> Result<()> {
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "$s = Get-AuthenticodeSignature -LiteralPath $env:BACH_VERIFY_FILE; \
-             \"$($s.Status)\"; \"$($null -ne $s.TimeStamperCertificate)\"; \"$($s.SignerCertificate.Subject)\"",
-        ])
-        .env("BACH_VERIFY_FILE", file)
-        .output();
-    let Ok(output) = output else {
-        say!("warning: couldn't check the signature of {} (PowerShell isn't available)", file.display());
-        return Ok(());
+    let found = match read_signature(file) {
+        Ok(found) => found,
+        Err(why) => {
+            say!("warning: couldn't check the signature of {}: {why}", file.display());
+            return Ok(());
+        }
     };
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut lines = text.lines().map(str::trim);
-    let (status, timestamped) = (lines.next().unwrap_or(""), lines.next() == Some("True"));
-    let subject = lines.next().unwrap_or("");
+    let (status, timestamped, subject) = (found.status.as_str(), found.timestamped, found.subject.as_str());
     // The update check of every installed copy will look for this publisher: say so now, not after the release.
     if let Some(publisher) = publisher.filter(|_| !subject.is_empty()) {
         if !bach_pack::manifest::extras::subject_names(subject, publisher) {
@@ -139,6 +129,46 @@ fn check_signature(file: &Path, publisher: Option<&str>) -> Result<()> {
         Signed::Broken(why) => bail!("the sign command ran, but {} isn't signed: {why}", file.display()),
     }
     Ok(())
+}
+
+/// What Windows says about a file's signature.
+struct Found {
+    status: String,
+    timestamped: bool,
+    subject: String,
+}
+
+/// Asks Windows PowerShell for the signature of `file`. An error says why
+/// Windows gave no answer, which is not the same as "not signed".
+fn read_signature(file: &Path) -> Result<Found> {
+    // Windows' own PowerShell by its full name, and with its own module path:
+    // one inherited from PowerShell 7 (a CI step, a terminal) can hide the
+    // module that has `Get-AuthenticodeSignature`.
+    let powershell = std::env::var_os("SystemRoot")
+        .map(|root| PathBuf::from(root).join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe"))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("powershell"));
+    let output = Command::new(powershell)
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$s = Get-AuthenticodeSignature -LiteralPath $env:BACH_VERIFY_FILE; \
+             \"$($s.Status)\"; \"$($null -ne $s.TimeStamperCertificate)\"; \"$($s.SignerCertificate.Subject)\"",
+        ])
+        .env("BACH_VERIFY_FILE", file)
+        .env_remove("PSModulePath")
+        .output()
+        .map_err(|_| anyhow::anyhow!("PowerShell isn't available"))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut lines = text.lines().map(str::trim);
+    let status = lines.next().unwrap_or("");
+    if status.is_empty() {
+        let said = String::from_utf8_lossy(&output.stderr);
+        let said = said.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("it printed nothing").to_string();
+        bail!("Windows PowerShell gave no answer ({}; {said})", output.status);
+    }
+    Ok(Found { status: status.to_string(), timestamped: lines.next() == Some("True"), subject: lines.next().unwrap_or("").to_string() })
 }
 
 /// Whether `program` names Windows' signing tool without a folder.
@@ -277,8 +307,15 @@ mod tests {
         let file = std::env::temp_dir().join(format!("bach-unsigned-{}.exe", std::process::id()));
         // A real program that nobody signed: this test's own executable.
         std::fs::copy(std::env::current_exe().unwrap(), &file).unwrap();
-        let err = check_signature(&file, None).unwrap_err().to_string();
+        let answer = read_signature(&file);
+        let result = check_signature(&file, None);
         std::fs::remove_file(&file).unwrap();
+        if let Err(why) = answer {
+            // Windows gave no answer at all (say, no PowerShell module on this machine): nothing to judge.
+            eprintln!("skipped: {why}");
+            return;
+        }
+        let err = result.unwrap_err().to_string();
         assert!(err.contains("isn't signed"), "{err}");
     }
 

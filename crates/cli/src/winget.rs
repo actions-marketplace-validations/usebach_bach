@@ -204,9 +204,11 @@ mod tests {
         let files = manifests(&machine, &id, "https://hello.example/Setup.exe", "AB", None, "arm64");
         assert!(files[1].1.contains("Scope: machine"), "a machine-wide setup file says so");
         assert!(files[1].1.contains("Architecture: arm64"));
-        // The machine field of a real PE header: this very test program.
-        let exe = std::fs::read(std::env::current_exe().unwrap()).unwrap();
-        assert_eq!(architecture(&exe), if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" });
+        // The machine field of a real PE header: this very test program (only a Windows one has it).
+        if cfg!(windows) {
+            let exe = std::fs::read(std::env::current_exe().unwrap()).unwrap();
+            assert_eq!(architecture(&exe), if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" });
+        }
         assert_eq!(architecture(b"not a program"), "x64");
         assert!(installer.contains("ProductCode: \"Hello App\""));
         assert!(files[2].1.contains("ShortDescription: \"Says \\\"hi\\\".\""));
