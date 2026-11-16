@@ -429,4 +429,37 @@ mod tests {
         }
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn a_cancelled_unpack_leaves_nothing_and_the_old_files_alone() {
+        let dir = temp("cancel");
+        let old = dir.join("old.txt");
+        std::fs::write(&old, "the earlier version").unwrap();
+        let mut transaction = Transaction::default();
+
+        // The first file is unpacked fine...
+        super::super::cancel::reset();
+        let mut first: &[u8] = &vec![1u8; 700_000];
+        transaction.stage(&dir.join("one.bin"), &mut super::super::cancel::Cancellable(&mut first), &mut |_| {}).unwrap();
+        // ...then Cancel is pressed while the second one is in the middle.
+        let mut body = std::io::Cursor::new(vec![2u8; 3_000_000]);
+        let mut chunks = 0;
+        let result = transaction.stage(&dir.join("two.bin"), &mut super::super::cancel::Cancellable(&mut body), &mut |_| {
+            chunks += 1;
+            if chunks == 2 {
+                super::super::cancel::request();
+            }
+        });
+        let err = result.unwrap_err();
+        assert_eq!(err.to_string(), "cancelled");
+        assert!(super::super::cancel::requested());
+        assert!(!with_suffix(&dir.join("two.bin"), NEW).exists(), "the half-written file is gone");
+        transaction.discard();
+        super::super::cancel::reset();
+
+        let left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(left, ["old.txt"], "nothing else is left: {left:?}");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "the earlier version");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

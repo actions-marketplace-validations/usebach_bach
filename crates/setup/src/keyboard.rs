@@ -46,6 +46,8 @@ pub struct PageFacts {
     /// The ready page's rows (Location, toggles), in order; None for a row
     /// that isn't shown.
     pub rows: Vec<Option<Target>>,
+    /// The working page offers "Cancel".
+    pub cancellable: bool,
 }
 
 /// The page's controls in Tab order. Pure, so the order can be tested
@@ -67,6 +69,7 @@ pub fn page_targets(stage: &Stage, facts: &PageFacts) -> Vec<Target> {
         Stage::Failed(_) => vec![Target::Cancel, Target::Support, Target::Primary],
         Stage::License => buttons(true),
         Stage::Ready => facts.rows.iter().flatten().copied().chain(buttons(true)).collect(),
+        Stage::Working { .. } if facts.cancellable => vec![Target::Cancel],
         Stage::Working { .. } => Vec::new(),
         Stage::Done => {
             let link = facts.done_link.then_some(Target::Link);
@@ -85,6 +88,7 @@ impl SetupView {
                 done_link: self.done_link().is_some(),
                 open_button: self.has_open_button(),
                 rows: self.row_targets(),
+                cancellable: self.can_cancel(),
             },
         )
     }
@@ -196,7 +200,7 @@ mod tests {
     use crate::view::Toggle;
 
     fn facts() -> PageFacts {
-        PageFacts { get_key_link: false, done_link: false, open_button: true, rows: Vec::new() }
+        PageFacts { get_key_link: false, done_link: false, open_button: true, rows: Vec::new(), cancellable: false }
     }
 
     #[test]
@@ -211,8 +215,10 @@ mod tests {
         assert_eq!(page_targets(&Stage::License, &nothing), [Target::Cancel, Target::Primary]);
         // The failed page: Close, Save support info, Try again, in that order.
         assert_eq!(page_targets(&Stage::Failed("x".into()), &nothing), [Target::Cancel, Target::Support, Target::Primary]);
-        // Nothing to tab to while files move: a click on Cancel is no longer possible.
-        assert!(page_targets(&Stage::Working { progress: 0.5, label: "x".into() }, &nothing).is_empty());
+        // Nothing to tab to once files move into place; while they are only unpacked there is Cancel.
+        let working = Stage::Working { progress: 0.5, label: "x".into() };
+        assert!(page_targets(&working, &nothing).is_empty());
+        assert_eq!(page_targets(&working, &PageFacts { cancellable: true, ..facts() }), [Target::Cancel]);
     }
 
     #[test]

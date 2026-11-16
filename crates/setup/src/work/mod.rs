@@ -28,6 +28,45 @@ pub use remove::{remove, RemovePlan};
 
 use crate::texts::Texts;
 
+/// Cancelling an install while its files are still only unpacked, never
+/// moved into place: nothing of the earlier version has been touched, so
+/// stopping is as safe as never having started. One flag for the one job a
+/// setup window runs.
+pub mod cancel {
+    use std::io::{self, Read};
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static REQUESTED: AtomicBool = AtomicBool::new(false);
+
+    /// What a cancelled job reports instead of a sentence for the user.
+    pub const CANCELLED: &str = "\u{1}cancelled";
+
+    pub fn request() {
+        REQUESTED.store(true, Ordering::SeqCst);
+    }
+
+    pub fn reset() {
+        REQUESTED.store(false, Ordering::SeqCst);
+    }
+
+    pub fn requested() -> bool {
+        REQUESTED.load(Ordering::SeqCst)
+    }
+
+    /// A reader that fails once the job is cancelled, so even one huge file
+    /// stops within a chunk.
+    pub struct Cancellable<R>(pub R);
+
+    impl<R: Read> Read for Cancellable<R> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if requested() {
+                return Err(io::Error::other("cancelled"));
+            }
+            self.0.read(buf)
+        }
+    }
+}
+
 /// What a job tells the view.
 pub enum Event {
     /// How far along (0..1) and what it's doing, as a short label.

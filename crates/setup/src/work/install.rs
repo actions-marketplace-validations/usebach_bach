@@ -49,6 +49,7 @@ pub struct InstallPlan {
 /// Installs or updates. An online installer first downloads the newest
 /// setup file and installs from that; everything after is the same.
 pub fn install(plan: &InstallPlan, report: Report) -> Result<(), String> {
+    super::cancel::reset();
     if !plan.package.manifest.online {
         return install_files(plan, report);
     }
@@ -322,6 +323,10 @@ fn unpack(
     let mut write_error: Option<String> = None;
     let mut present: HashSet<String> = HashSet::new();
     let mut visit = |packaged: &str, _size: u64, body: &mut dyn Read| {
+        if super::cancel::requested() {
+            write_error = Some(super::cancel::CANCELLED.to_string());
+            return Err(anyhow::anyhow!("cancelled"));
+        }
         if !wanted.contains(packaged) {
             return Ok(());
         }
@@ -332,12 +337,14 @@ fn unpack(
         }
         let target = paths::under(dir, packaged);
         transaction
-            .stage(&target, body, &mut |chunk| {
+            .stage(&target, &mut super::cancel::Cancellable(body), &mut |chunk| {
                 done = done.saturating_add(chunk);
                 report(0.04 + UNPACK_SHARE * (done as f32 / total as f32).min(1.0), &copying);
             })
             .map_err(|err| {
-                write_error = Some(if is_disk_full(&err) {
+                write_error = Some(if super::cancel::requested() {
+                    super::cancel::CANCELLED.to_string()
+                } else if is_disk_full(&err) {
                     texts.with(Key::error_disk_full, &[("size", &texts::size(needed)), ("free", "0 KB")])
                 } else {
                     failed(texts, Key::error_write, &target, &err)
@@ -372,6 +379,12 @@ fn unpack(
             remove_empty_parents(dir, wanted.iter().copied());
             return Err(texts.get(Key::error_damaged));
         }
+    }
+    // A cancel that came as the last file was written: nothing is moved yet.
+    if super::cancel::requested() {
+        transaction.discard();
+        remove_empty_parents(dir, wanted.iter().copied());
+        return Err(super::cancel::CANCELLED.to_string());
     }
     // A patch is only good on the version it was made for: every file it
     // leaves out has to be there, unchanged.

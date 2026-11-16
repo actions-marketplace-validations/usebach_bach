@@ -10,7 +10,7 @@ use crate::ui::prelude::*;
 use crate::view::{SetupView, SupportState};
 
 impl SetupView {
-    pub(super) fn working_page(&self, progress: f32, label: SharedString, theme: &Theme) -> AnyElement {
+    pub(super) fn working_page(&self, progress: f32, label: SharedString, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let texts = &self.texts;
         let title = if self.is_removing() {
             texts.get(Key::removing)
@@ -26,12 +26,23 @@ impl SetupView {
             .line_height(px(20.))
             .child(Shimmer::new(label).color(theme.muted_foreground));
         let bar = div().mt(px(32.)).px(px(56.)).child(ProgressBar::new(("setup-progress", self.attempt), progress));
+        // Only while the files are being unpacked: that can be undone without a trace.
+        let buttons = if self.can_cancel() {
+            vec![FormButton::new("setup-cancel", self.texts.get(Key::cancel))
+                .outline()
+                .pending(self.cancelling)
+                .focused(self.is_focused(Target::Cancel))
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_install(cx)))
+                .into_any_element()]
+        } else {
+            Vec::new()
+        };
         PageLayout {
             centered: true,
             mark: self.mark(true, theme),
             subtitle: Some(line.into_any_element()),
             content: Some(bar.into_any_element()),
-            ..PageLayout::new(title, footer(Some(self.meta()), Vec::new(), theme))
+            ..PageLayout::new(title, footer(Some(self.meta()), buttons, theme))
         }
         .render()
     }

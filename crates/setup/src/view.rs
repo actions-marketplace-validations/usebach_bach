@@ -82,6 +82,8 @@ pub struct SetupView {
     pub closing_app: bool,
     /// What happened to "Save support info" on the failed page.
     pub support: SupportState,
+    /// "Cancel" was pressed while files were being unpacked; the job is stopping.
+    pub cancelling: bool,
     pub stage: Stage,
     /// Counts attempts, so each one's page and bar start fresh.
     pub attempt: usize,
@@ -163,6 +165,7 @@ impl SetupView {
             license_pending,
             closing_app: false,
             support: SupportState::Idle,
+            cancelling: false,
             stage,
             attempt: 0,
             focus_handle: cx.focus_handle(),
@@ -280,6 +283,7 @@ impl SetupView {
             return;
         }
         let (sender, mut events) = mpsc::unbounded::<Event>();
+        self.cancelling = false;
         let texts = self.texts.clone();
         let job = match (&self.mode, self.preview) {
             (_, true) => Job::Pretend {
@@ -352,6 +356,11 @@ impl SetupView {
                             cx.background_executor().timer(FINISH_HOLD).await;
                         }
                         this.update(cx, |this, cx| {
+                            // A cancelled install leaves nothing behind: the window just ends.
+                            if matches!(&result, Err(message) if message == work::cancel::CANCELLED) {
+                                cx.quit();
+                                return;
+                            }
                             this.stage = match result {
                                 Ok(()) => Stage::Done,
                                 // A key the files don't open (a kept one that a
@@ -398,6 +407,30 @@ impl SetupView {
     pub fn close(&mut self, cx: &mut Context<Self>) {
         if can_close(&self.stage) {
             cx.quit();
+        } else {
+            // While files are only being unpacked, closing means cancelling.
+            self.cancel_install(cx);
+        }
+    }
+
+    /// Whether the page offers "Cancel": while an install unpacks its files,
+    /// which is the part that can be undone without a trace.
+    pub fn can_cancel(&self) -> bool {
+        match &self.stage {
+            Stage::Working { label, .. } => {
+                !self.preview && !self.is_removing() && label.as_ref() == self.texts.get(Key::step_copying).as_str()
+            }
+            _ => false,
+        }
+    }
+
+    /// Stops the install. The worker undoes what it unpacked and the window ends.
+    pub fn cancel_install(&mut self, cx: &mut Context<Self>) {
+        if self.can_cancel() && !self.cancelling {
+            self.cancelling = true;
+            crate::log::line("Cancel was pressed; stopping before anything is moved into place.");
+            work::cancel::request();
+            cx.notify();
         }
     }
 }

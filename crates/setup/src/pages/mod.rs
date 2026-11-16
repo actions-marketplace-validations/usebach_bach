@@ -43,7 +43,7 @@ impl Render for SetupView {
             Stage::Access => ("access", self.access_page(cx)),
             Stage::License => ("license", self.license_page(cx)),
             Stage::Ready => ("ready", self.ready_page(cx)),
-            Stage::Working { progress, label } => ("working", self.working_page(progress, label, &theme)),
+            Stage::Working { progress, label } => ("working", self.working_page(progress, label, &theme, cx)),
             Stage::Done => ("done", self.done_page(cx)),
             Stage::Failed(message) => ("failed", self.failed_page(message, cx)),
         };

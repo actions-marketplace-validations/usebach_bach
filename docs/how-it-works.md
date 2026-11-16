@@ -42,6 +42,9 @@ so a newer setup file still reads the uninstaller an older one installed.
    file stepping aside as `<name>.bach-old` first. If one can't be moved (a
    file in use), every move is undone: an update either completes or leaves
    the earlier version exactly as it was.
+   While the files are only being unpacked, the window offers "Cancel" (Esc
+   too): setup deletes what it unpacked and ends, and nothing of the earlier
+   version was touched. After the first move there is no cancel.
 3. If an earlier version is installed, the files it installed and this one
    doesn't (including components the user unticked) are removed. The earlier
    file list comes from its uninstaller.
