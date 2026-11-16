@@ -48,7 +48,7 @@ mod workflow;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
 #[command(name = "bach", version, about = "Build modern, clean Windows installers from one bach.toml.")]
@@ -59,6 +59,13 @@ struct Cli {
     json: bool,
     #[command(subcommand)]
     command: Command,
+}
+
+/// `bach workflow --pin`.
+#[derive(Clone, Copy, ValueEnum)]
+enum PinArg {
+    Commit,
+    Float,
 }
 
 #[derive(Subcommand)]
@@ -246,6 +253,10 @@ enum Command {
         /// Replace .github/workflows/bach-release.yml even if Bach didn't write it.
         #[arg(long)]
         force: bool,
+        /// How the workflow names Bach's action: `commit` (default) pins the
+        /// commit of this release, `float` follows the newest 0.x release.
+        #[arg(long, value_enum, default_value = "commit")]
+        pin: PinArg,
     },
     /// Check that everything a build needs is in place.
     Doctor {
@@ -287,7 +298,14 @@ fn main() -> ExitCode {
         Command::Version { target, config, dry_run } => {
             version::command(version::Options { config: &config, target: target.as_deref(), dry_run })
         }
-        Command::Workflow { dir, force } => workflow::command(workflow::Options { dir: &dir, force }),
+        Command::Workflow { dir, force, pin } => workflow::command(workflow::Options {
+            dir: &dir,
+            force,
+            pin: match pin {
+                PinArg::Commit => workflow::Pin::Commit,
+                PinArg::Float => workflow::Pin::Float,
+            },
+        }),
         Command::Winget { file, url, license, out } => {
             winget::command(winget::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
         }
