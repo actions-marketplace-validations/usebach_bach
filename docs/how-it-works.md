@@ -32,10 +32,13 @@ so a newer setup file still reads the uninstaller an older one installed.
 
 1. Checks before anything changes: what the app needs (requirements) is
    there, no other setup for the same app is running, the app isn't open,
-   the drive has room for every file, and the archive matches the SHA-256
-   recorded when it was built.
+   and the drive has room for every file.
 2. Every chosen file is unpacked next to its target as `<name>.bach-new`.
-   Only when all of them are on disk are they swapped into place, each old
+   The setup file is read once: while it is unpacked, its archive is checked
+   against the SHA-256 recorded when it was built, so the progress bar moves
+   from the first byte. If the archive doesn't match, everything unpacked is
+   deleted and nothing is replaced. Only when all of them are on disk and the
+   check has passed are the files swapped into place, each old
    file stepping aside as `<name>.bach-old` first. If one can't be moved (a
    file in use), every move is undone: an update either completes or leaves
    the earlier version exactly as it was.

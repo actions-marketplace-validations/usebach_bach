@@ -111,7 +111,6 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     let unchanged: u64 = manifest.files.iter().filter(|file| matching.contains(&file.path)).map(|file| file.size).sum();
     let to_copy = needed.saturating_sub(unchanged);
     check_free_space(dir, to_copy, texts)?;
-    verify_archive(package, layout.archive, texts)?;
 
     // An older install of this app by another installer goes first, so its
     // uninstaller can't take away what this one puts in place.
@@ -315,7 +314,10 @@ fn unpack(
     let mut done = 0u64;
     let mut source = File::open(&plan.package.exe).map_err(read_failed)?;
     source.seek(SeekFrom::Start(archive_section.offset)).map_err(read_failed)?;
-    let reader = BufReader::new(source.take(archive_section.len));
+    // The archive is checked against the builder's SHA-256 as it is read (and
+    // before the commit below), not in a pass of its own beforehand.
+    let (section, verdict) = super::section::hashing(source.take(archive_section.len));
+    let reader = BufReader::new(section);
     let mut transaction = Transaction::default();
     let mut write_error: Option<String> = None;
     let mut present: HashSet<String> = HashSet::new();
@@ -354,6 +356,22 @@ fn unpack(
         transaction.discard();
         remove_empty_parents(dir, wanted.iter().copied());
         return Err(write_error.unwrap_or_else(|| format!("{} {}", texts.get(Key::error_damaged), plain(&err))));
+    }
+    if let Some(expected) = &manifest.archive_sha256 {
+        let intact = match verdict.matches(expected) {
+            Ok(intact) => intact,
+            Err(err) => {
+                transaction.discard();
+                remove_empty_parents(dir, wanted.iter().copied());
+                return Err(read_failed(err));
+            }
+        };
+        if !intact {
+            crate::log::line("The archive doesn't match the SHA-256 recorded when the setup file was built.");
+            transaction.discard();
+            remove_empty_parents(dir, wanted.iter().copied());
+            return Err(texts.get(Key::error_damaged));
+        }
     }
     // A patch is only good on the version it was made for: every file it
     // leaves out has to be there, unchanged.
@@ -494,23 +512,6 @@ fn shortcuts(
         if let Ok(folder) = system::start_menu_folder(manifest) {
             let _ = fs::remove_dir(folder);
         }
-    }
-    Ok(())
-}
-
-/// Checks the archive against the SHA-256 the builder recorded, before a
-/// single file is unpacked, so a damaged download fails right away.
-fn verify_archive(package: &Package, section: container::Section, texts: &Texts) -> Result<(), String> {
-    let Some(expected) = &package.manifest.archive_sha256 else {
-        return Ok(());
-    };
-    let damaged = || texts.get(Key::error_damaged);
-    let mut file = File::open(&package.exe).map_err(|_| texts.get(Key::error_read_setup))?;
-    file.seek(SeekFrom::Start(section.offset)).map_err(|_| texts.get(Key::error_read_setup))?;
-    let mut reader = file.take(section.len);
-    let actual = bach_pack::protect::sha256_hex(&mut reader).map_err(|_| texts.get(Key::error_read_setup))?;
-    if reader.limit() != 0 || actual != expected.to_ascii_lowercase() {
-        return Err(damaged());
     }
     Ok(())
 }

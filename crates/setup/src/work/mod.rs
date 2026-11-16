@@ -11,6 +11,7 @@ mod patch;
 mod place;
 mod preview;
 mod remove;
+mod section;
 mod steps;
 
 use std::fs;
