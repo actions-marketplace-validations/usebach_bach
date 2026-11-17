@@ -1219,3 +1219,15 @@ fn a_path_that_would_pass_the_classic_windows_limit_warns() {
     assert!(parse(MINIMAL, &dir).unwrap().warnings.iter().any(|warning| warning.contains("characters long")));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_data_folder_that_does_not_look_like_the_apps_own_warns() {
+    let dir = project_dir("datawarn");
+    let with = |folder: &str| parse(&format!("{MINIMAL}\n[uninstall]\ndata = ['{folder}']\n"), &dir).unwrap();
+    assert!(with(r"%APPDATA%\Hello").warnings.is_empty());
+    assert!(with(r"%LOCALAPPDATA%\Example\Cache").warnings.is_empty(), "the publisher counts");
+    let warning = with(r"%APPDATA%\Notes").warnings.join(" ");
+    assert!(warning.contains("uninstall.data") && warning.contains("looks like the app's name"), "{warning}");
+    assert!(parse(&format!("{MINIMAL}\n[uninstall]\ndata = ['%USERPROFILE%\\source\\repos']\n"), &dir).is_err());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

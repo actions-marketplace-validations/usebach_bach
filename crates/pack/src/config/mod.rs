@@ -261,6 +261,12 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     }
     for folder in &file.uninstall.data {
         paths::check_data_folder(folder).context("uninstall.data")?;
+        if !paths::looks_like_apps_own(folder, &[&app.name, &app.id, &app.publisher]) {
+            warnings.push(format!(
+                "uninstall.data \"{folder}\" has no folder that looks like the app's name, id or publisher. The uninstaller \
+                 deletes it when the user ticks \"delete my data\", so make sure it holds only your app's data"
+            ));
+        }
     }
 
     let theme = match &file.installer.theme {

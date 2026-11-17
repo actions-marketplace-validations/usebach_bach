@@ -106,6 +106,11 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     let mut data_left = Vec::new();
     if plan.delete_data {
         report(0.75, &texts.get(Key::step_deleting_data));
+        for template in &manifest.uninstall.data {
+            if let Some(folder) = paths::expand_data_folder(template, |name| std::env::var(name).ok()) {
+                crate::log::line(&format!("Deleting the data folder {}", folder.display()));
+            }
+        }
         data_left = delete_data(manifest, dir, &|name| std::env::var(name).ok());
         for (folder, why) in &data_left {
             crate::log::line(&format!("Couldn't delete {}: {why}", folder.display()));

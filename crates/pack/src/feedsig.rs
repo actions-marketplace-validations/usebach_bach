@@ -91,7 +91,15 @@ pub fn format_utc(seconds: u64) -> String {
 /// The inverse of [`format_utc`]: only the exact `YYYY-MM-DDTHH:MM:SSZ` form.
 pub fn parse_utc(text: &str) -> Option<u64> {
     let bytes = text.as_bytes();
-    if bytes.len() != 20 || !text.is_ascii() || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' || bytes[13] != b':' || bytes[16] != b':' || bytes[19] != b'Z' {
+    if bytes.len() != 20
+        || !text.is_ascii()
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || bytes[19] != b'Z'
+    {
         return None;
     }
     let number = |from: usize, to: usize| -> Option<i64> {
@@ -275,7 +283,18 @@ mod tests {
             assert_eq!(parse_utc(&text), Some(seconds), "{text}");
         }
         assert_eq!(format_utc(1_794_897_360), "2026-11-17T06:36:00Z");
-        for bad in ["", "2026-11-17", "2026-11-17T06:36:00", "2026-11-17 06:36:00Z", "2026-02-31T00:00:00Z", "2026-13-01T00:00:00Z", "1969-12-31T23:59:59Z", "2026-11-17T24:00:00Z", "+026-11-17T06:36:00Z", "２０２６-11-17T06:36:00Z"] {
+        for bad in [
+            "",
+            "2026-11-17",
+            "2026-11-17T06:36:00",
+            "2026-11-17 06:36:00Z",
+            "2026-02-31T00:00:00Z",
+            "2026-13-01T00:00:00Z",
+            "1969-12-31T23:59:59Z",
+            "2026-11-17T24:00:00Z",
+            "+026-11-17T06:36:00Z",
+            "２０２６-11-17T06:36:00Z",
+        ] {
             assert_eq!(parse_utc(bad), None, "{bad:?}");
         }
     }

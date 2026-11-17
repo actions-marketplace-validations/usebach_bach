@@ -21,8 +21,10 @@ code as it is; where a protection does not exist yet, it says so.
   install folder. The uninstaller deletes only files its manifest lists, inside a
   folder that is plainly the app's install, keeps a file that changed after
   setup wrote it, and deletes data folders only when the user asks and only below
-  `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%` (never `Documents`, `.ssh` and
-  the like). A first install into a folder that already holds files warns first.
+  `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%` (never `Documents`, `.ssh`,
+  developer tool folders, other programs' browser or chat profiles and the like).
+  The page lists the folders it would delete, as they are on that computer,
+  instead of showing only the developer's description. A first install into a folder that already holds files warns first.
 - **The developer's secrets.** `bach build` refuses a source folder that holds
   `.env` files, private keys, certificates, `.git` or `bach.toml` unless
   `files.allow_secrets` says so.
