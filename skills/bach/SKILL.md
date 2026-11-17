@@ -292,6 +292,7 @@ window speaks several).
 
 | Message | Fix |
 | --- | --- |
+| `A new version of Bach is available …` | Run `bach update` (or the command the line names for npm, Scoop, winget or Cargo installs). `bach update --check --json` reports `update_available` without changing anything; `BACH_NO_UPDATE_CHECK=1` silences the line. |
 | `couldn't get bach-setup.exe …` | No network or no release for this version: put `bach-setup.exe` next to `bach`, or pass `--runtime PATH` / set `BACH_RUNTIME`. |
 | `app.executable is "…", but there's no such file` | Build the app first, or fix `source`/`executable` (paths are relative to `bach.toml` and `source`). |
 | `… is a symbolic link` | Copy real files into the source folder. |

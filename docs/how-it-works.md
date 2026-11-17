@@ -268,6 +268,35 @@ Every setup file contains the runtime, so `bach` is strict about it:
   says so and asks for `--runtime` or `BACH_RUNTIME`.
 - `BACH_NO_DOWNLOAD` forbids the download altogether.
 
+## How `bach` updates itself
+
+`bach update` replaces the `bach` that runs it. It asks GitHub for the newest
+release (not a pre-release), takes only its tag and file names from the
+answer, and builds the download address itself
+(`https://github.com/usebach/bach/releases/download/vX.Y.Z/...`). The archive
+for this system is downloaded into a staging folder beside `bach`, checked
+against the `.sha256` published next to it, unpacked with the system's `tar`
+(or PowerShell on a Windows without it), and the new program must start and
+report the version that was asked for. Only then are `bach` and
+`bach-setup.exe` swapped in: each old file is kept as `*.old` until all new
+ones are in place, and put back if one step fails. Windows can't delete a
+running program, so the old `bach.exe.old` is removed the next time `bach`
+starts.
+
+Only a standalone copy (the release download, `install.ps1`, `install.sh`)
+replaces itself. A path inside `node_modules`, `scoop\apps`, `Microsoft\WinGet`
+or `.cargo\bin` (or `$CARGO_HOME\bin`) is managed by that tool, and `bach
+update` stops and names the command that updates it.
+
+The "new version available" line comes from a small file,
+`update-check.json` in the cache folder above, that a detached
+`bach update-refresh` writes at most once a day. A command only reads it, so
+it never waits on the network. `BACH_NO_UPDATE_CHECK` (any value) turns the
+check off; it is also off when `CI` is set, with `--json`, when stderr isn't a
+terminal, and in a build from a checkout (`target\debug` or `target\release`).
+`BACH_UPDATE_FROM=DIR` makes `bach update VERSION` read the release files from
+a folder, as `BACH_INSTALL_FROM` does for the install scripts.
+
 ## Reproducible builds
 
 The same files, the same `bach.toml` and the same `bach` version give the same
