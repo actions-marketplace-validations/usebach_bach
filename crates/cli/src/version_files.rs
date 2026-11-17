@@ -156,24 +156,36 @@ fn rewrite(kind: &Kind, text: &str, new: &str) -> (String, Vec<String>) {
     (text, olds)
 }
 
-/// The byte range and value of `version = "x"` directly in `[table]`.
+/// The byte range and value of `version = "x"` directly in `[table]` (a
+/// dotted name like `workspace.package` is a table inside a table).
+///
+/// The file is read with a real TOML parser that reports where each value
+/// sits, not line by line: a `version = "9.9.9"` inside a multi-line string or
+/// an array is text, not the version. A file that isn't valid TOML has no
+/// version to rewrite, and a version that isn't one plain quoted string on one
+/// line (`version.workspace = true`, a multi-line string) is left alone.
 fn toml_version(text: &str, table: &str) -> Option<(std::ops::Range<usize>, String)> {
-    let mut in_table = false;
-    let mut offset = 0;
-    for line in text.split_inclusive('\n') {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') {
-            // `[ app ]` and `[app] # comment` are the same table.
-            let header = trimmed.split('#').next().unwrap_or("").trim();
-            in_table = header.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')).is_some_and(|name| name.trim() == table);
-        } else if in_table {
-            if let Some(found) = toml_version_line(line, offset) {
-                return Some(found);
-            }
+    use toml::de::{DeTable, DeValue};
+    let parsed = DeTable::parse(text).ok()?;
+    let mut node: &DeTable = parsed.get_ref();
+    for key in table.split('.') {
+        match node.get(key)?.get_ref() {
+            DeValue::Table(inner) => node = inner,
+            _ => return None,
         }
-        offset += line.len();
     }
-    None
+    let version = node.get("version")?;
+    let DeValue::String(value) = version.get_ref() else {
+        return None;
+    };
+    // The span includes the quotes; a single-line string has one on each side.
+    let span = version.span();
+    let raw = text.get(span.clone())?;
+    let single_line = (raw.starts_with('"') && !raw.starts_with("\"\"\"")) || (raw.starts_with('\'') && !raw.starts_with("'''"));
+    if !single_line || raw.len() < 2 || raw.contains('\n') {
+        return None;
+    }
+    Some((span.start + 1..span.end - 1, value.to_string()))
 }
 
 /// `version = "1.2.3"` (or with single quotes) → where the 1.2.3 is.
@@ -199,7 +211,9 @@ fn xml_version(text: &str) -> Option<(std::ops::Range<usize>, String)> {
 }
 
 /// Cargo.lock's own packages (the ones without a `source`, which are the
-/// workspace's crates) at any of `olds`.
+/// workspace's crates) at any of `olds`. A path dependency from outside the
+/// workspace has no `source` either, so one that happens to carry the same
+/// version is bumped too; cargo fixes the lock file on its next run.
 fn rewrite_cargo_lock(text: &str, olds: &[String], new: &str) -> (String, Vec<String>) {
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     let mut out = String::with_capacity(text.len());
@@ -423,5 +437,22 @@ mod tests {
         assert_eq!(after.matches("0.4.0").count(), 2, "app and member");
         assert!(after.contains("name = \"dep\"\nversion = \"0.3.0\"\nsource"), "a dependency keeps its version");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_version_inside_a_multi_line_string_or_array_is_text_not_the_version() {
+        let text = "[package]\nname = \"root\"\ndescription = \"\"\"\nmulti\nversion = \"9.9.9\"\n\"\"\"\nkeywords = [\n  \"a\",\n]\nversion = \"1.0.0\"\n";
+        let (_, olds) = rewrite(&Kind::Toml(&["package"]), text, "1.1.0");
+        assert_eq!(olds, ["1.0.0"]);
+        let (edited, _) = rewrite(&Kind::Toml(&["package"]), text, "1.1.0");
+        assert!(edited.contains("version = \"9.9.9\""), "the description is untouched");
+        assert!(edited.ends_with("version = \"1.1.0\"\n"));
+        // A table named like another one, a workspace inheriting its version, a broken file.
+        let inherits = "[package]\nname = \"x\"\nversion.workspace = true\n[package.metadata]\nversion = \"3.0.0\"\n";
+        assert!(rewrite(&Kind::Toml(&["package"]), inherits, "2.0.0").1.is_empty());
+        assert!(rewrite(&Kind::Toml(&["package"]), "[package\nversion = \"1.0.0\"", "2.0.0").1.is_empty());
+        let dotted = "[workspace.package]\nversion = '1.0.0' # keep\r\n";
+        let (edited, olds) = rewrite(&Kind::Toml(&["workspace.package"]), dotted, "1.0.1");
+        assert_eq!((olds.as_slice(), edited.as_str()), (&["1.0.0".to_string()][..], "[workspace.package]\nversion = '1.0.1' # keep\r\n"));
     }
 }
