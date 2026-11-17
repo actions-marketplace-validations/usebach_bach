@@ -76,6 +76,51 @@ pub struct RegistryValue {
     #[serde(default)]
     pub name: String,
     pub data: RegistryData,
+    /// Which view of the registry on a 64-bit Windows: a 32-bit program reads
+    /// `HKLM\Software\Vendor` from `WOW6432Node`.
+    #[serde(default, skip_serializing_if = "RegistryView::is_native")]
+    pub view: RegistryView,
+}
+
+/// The registry view a value is written to (and taken back from).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RegistryView {
+    /// The view of a 64-bit program: what setup itself sees.
+    #[default]
+    #[serde(rename = "64")]
+    Native,
+    /// The view of a 32-bit program (`WOW6432Node`).
+    #[serde(rename = "32")]
+    Wow32,
+    /// Both, for an app that has 32-bit and 64-bit programs.
+    #[serde(rename = "both")]
+    Both,
+}
+
+impl RegistryView {
+    pub fn is_native(&self) -> bool {
+        *self == RegistryView::Native
+    }
+
+    /// Reads the setting of `bach.toml`: "64", "32" or "both".
+    pub fn parse(text: &str) -> Option<RegistryView> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "64" => Some(RegistryView::Native),
+            "32" => Some(RegistryView::Wow32),
+            "both" => Some(RegistryView::Both),
+            _ => None,
+        }
+    }
+
+    /// The views to go through, as "is it the 32-bit one": the 64-bit view
+    /// first.
+    pub fn each(self) -> &'static [bool] {
+        match self {
+            RegistryView::Native => &[false],
+            RegistryView::Wow32 => &[true],
+            RegistryView::Both => &[false, true],
+        }
+    }
 }
 
 /// A registry value's content. `{app}` in text stands for the install folder.
@@ -175,10 +220,28 @@ impl From<ContextTarget> for String {
 impl ContextMenuEntry {
     /// The verb's key name: `Bach.<app>.<menu text>`, letters and digits only,
     /// so it's plainly this app's own key.
+    ///
+    /// A text in a script with no ASCII letters (Chinese, Japanese, Korean,
+    /// Cyrillic, Arabic, ...) has nothing to show there, so those parts also
+    /// carry the first 8 hex digits of the text's SHA-256: `Bach.Hello._ab12cd34`.
+    /// Texts and ids in Latin script keep the key they have always had, so an
+    /// installed app's entries are still found on update and removal.
     pub fn verb(&self, app_id: &str) -> String {
-        let clean = |text: &str| text.chars().filter(char::is_ascii_alphanumeric).collect::<String>();
-        format!("Bach.{}.{}", clean(app_id), clean(&self.name))
+        format!("Bach.{}.{}", key_part(app_id), key_part(&self.name))
     }
+}
+
+/// One part of a key name: its ASCII letters and digits, plus a short hash of
+/// the whole text when it is written in a non-Latin script.
+fn key_part(text: &str) -> String {
+    let mut part: String = text.chars().filter(char::is_ascii_alphanumeric).collect();
+    // From U+0250 on, the letters are no longer Latin (U+0250 starts the IPA block).
+    if text.chars().any(|c| c.is_alphabetic() && c as u32 >= 0x250) {
+        let hash = crate::protect::sha256_hex(text.as_bytes()).unwrap_or_default();
+        part.push('_');
+        part.push_str(&hash[..hash.len().min(8)]);
+    }
+    part
 }
 
 /// `{app}` is the install folder in registry data and environment values.
@@ -195,11 +258,17 @@ const PROTECTED_KEYS: &[&str] = &[
     "policies",
     "wow6432node",
     "bach",
-    "microsoft\\windows",
-    "microsoft\\windows nt",
-    "microsoft\\internet explorer",
-    "microsoft\\command processor",
-    "microsoft\\active setup",
+    // Whole vendors whose keys hold security settings, trust lists, browser
+    // extension hooks and shell registrations: Office trusted locations,
+    // Defender exclusions, certificates, native messaging hosts and the like.
+    "microsoft",
+    "google",
+    "mozilla",
+    "mozillaplugins",
+    "chromium",
+    "registeredapplications",
+    "clients",
+    "odbc",
 ];
 
 /// Checks a registry key from `bach.toml` or a payload.
@@ -232,12 +301,75 @@ pub fn check_registry_value(value: &RegistryValue) -> Result<()> {
     }
 }
 
+/// Variables that load code into other programs or redirect their network
+/// traffic and trust. Never settable, whatever the config says.
+const INJECTION_VARIABLES: &[&str] = &[
+    "COR_ENABLE_PROFILING",
+    "COR_PROFILER",
+    "COR_PROFILER_PATH",
+    "CORECLR_ENABLE_PROFILING",
+    "CORECLR_PROFILER",
+    "CORECLR_PROFILER_PATH",
+    "DOTNET_STARTUP_HOOKS",
+    "DOTNET_GCHEAPAFFINITIZEMASK",
+    "JAVA_TOOL_OPTIONS",
+    "_JAVA_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+    "NODE_OPTIONS",
+    "NODE_EXTRA_CA_CERTS",
+    "NODE_TLS_REJECT_UNAUTHORIZED",
+    "PYTHONSTARTUP",
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PERL5OPT",
+    "PERL5LIB",
+    "RUBYOPT",
+    "RUBYLIB",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    "SSLKEYLOGFILE",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+];
+
 /// Variables that make Windows or other programs misbehave when changed.
 const PROTECTED_VARIABLES: &[&str] = &[
-    "PATH", "PATHEXT", "TEMP", "TMP", "USERNAME", "USERPROFILE", "USERDOMAIN", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT",
-    "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "PROGRAMDATA",
-    "COMMONPROGRAMFILES", "APPDATA", "LOCALAPPDATA", "ALLUSERSPROFILE", "PUBLIC", "COMPUTERNAME", "LOGONSERVER", "OS",
-    "PSMODULEPATH", "DRIVERDATA", "SESSIONNAME", "NUMBER_OF_PROCESSORS",
+    "PATH",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "USERNAME",
+    "USERPROFILE",
+    "USERDOMAIN",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "COMSPEC",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "PROGRAMW6432",
+    "PROGRAMDATA",
+    "COMMONPROGRAMFILES",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "ALLUSERSPROFILE",
+    "PUBLIC",
+    "COMPUTERNAME",
+    "LOGONSERVER",
+    "OS",
+    "PSMODULEPATH",
+    "DRIVERDATA",
+    "SESSIONNAME",
+    "NUMBER_OF_PROCESSORS",
 ];
 
 pub fn check_env_var(var: &EnvVar) -> Result<()> {
@@ -252,10 +384,32 @@ pub fn check_env_var(var: &EnvVar) -> Result<()> {
     if PROTECTED_VARIABLES.contains(&upper.as_str()) || upper.starts_with("PROCESSOR_") || upper.starts_with("BACH_") {
         bail!("the environment variable {} belongs to Windows or Bach; choose a name of your own", var.name);
     }
+    if INJECTION_VARIABLES.contains(&upper.as_str()) || upper.starts_with("DOTNET_") && upper.contains("PROFIL") {
+        bail!("the environment variable {} loads code into other programs or redirects their traffic, so Bach never sets it", var.name);
+    }
     if var.value.is_empty() || var.value.len() > MAX_VALUE || var.value.contains('\0') {
         bail!("the environment variable {} has an empty, too long or damaged value", var.name);
     }
     Ok(())
+}
+
+/// What an app's own environment variables start with: its id in capitals,
+/// every other character an underscore (`My App` gives `MY_APP_`).
+pub fn env_prefix(app_id: &str) -> String {
+    let mut prefix: String = app_id.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' }).collect();
+    prefix.push('_');
+    prefix
+}
+
+/// Whether a registry key's vendor folder (`Software\<vendor>`) is named
+/// after the publisher, the app or its id, ignoring case and punctuation.
+pub fn key_is_named_after(key: &str, names: &[&str]) -> bool {
+    let simple = |text: &str| text.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
+    let Some(vendor) = key.split('\\').nth(1) else {
+        return false;
+    };
+    let vendor = simple(vendor);
+    !vendor.is_empty() && names.iter().any(|name| simple(name) == vendor)
 }
 
 pub fn check_context_entry(entry: &ContextMenuEntry) -> Result<()> {
@@ -314,13 +468,47 @@ mod tests {
         ] {
             assert!(check_registry_key(bad).is_err(), "{bad}");
         }
-        assert!(check_registry_key(r"Software\Microsoft\Office\Thing").is_ok());
         assert!(check_registry_key(r"Software\Microsoftish\App").is_ok());
+        assert!(check_registry_key(r"Software\Vendor\App").is_ok());
+        assert!(check_registry_key(r"Software\My Vendor\My App\Settings").is_ok());
+    }
+
+    #[test]
+    fn whole_vendors_with_security_settings_are_off_limits() {
+        for bad in [
+            r"Software\Microsoft\Office\16.0\Word\Security\Trusted Locations\Location9",
+            r"Software\Microsoft\Office\16.0\Word\Security\VBAWarnings",
+            r"Software\Microsoft\Windows Defender\Exclusions\Paths",
+            r"Software\Microsoft\Windows Script Host\Settings",
+            r"Software\Microsoft\SystemCertificates\Root\Certificates",
+            r"Software\Microsoft\Cryptography\Defaults",
+            r"Software\Google\Chrome\NativeMessagingHosts\x",
+            r"Software\Mozilla\NativeMessagingHosts\x",
+            r"Software\Microsoft\Edge\Extensions",
+            r"Software\RegisteredApplications",
+            r"software\MICROSOFT\x",
+        ] {
+            assert!(check_registry_key(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn keys_named_after_the_publisher_or_app() {
+        assert!(key_is_named_after(r"Software\Example Corp\Hello", &["Example Corp", "Hello", "Hello"]));
+        assert!(key_is_named_after(r"Software\HELLO\x", &["Example", "Hello"]));
+        assert!(key_is_named_after(r"Software\Example-Corp", &["Example Corp"]));
+        assert!(!key_is_named_after(r"Software\Other\Hello", &["Example", "Hello"]));
+        assert!(!key_is_named_after("Software", &["Hello"]));
     }
 
     #[test]
     fn registry_data_round_trips() {
-        let value = RegistryValue { key: r"Software\V\A".into(), name: "Dir".into(), data: RegistryData::Expand("{app}".into()) };
+        let value = RegistryValue {
+            key: r"Software\V\A".into(),
+            name: "Dir".into(),
+            data: RegistryData::Expand("{app}".into()),
+            view: RegistryView::default(),
+        };
         let json = serde_json::to_string(&value).unwrap();
         assert_eq!(json, r#"{"key":"Software\\V\\A","name":"Dir","data":{"type":"expand","value":"{app}"}}"#);
         assert_eq!(serde_json::from_str::<RegistryValue>(&json).unwrap(), value);
@@ -339,6 +527,38 @@ mod tests {
     }
 
     #[test]
+    fn variables_that_inject_code_or_redirect_traffic_are_never_set() {
+        for name in [
+            "COR_ENABLE_PROFILING",
+            "COR_PROFILER",
+            "CORECLR_PROFILER_PATH",
+            "DOTNET_STARTUP_HOOKS",
+            "JAVA_TOOL_OPTIONS",
+            "_JAVA_OPTIONS",
+            "NODE_OPTIONS",
+            "PYTHONSTARTUP",
+            "PYTHONPATH",
+            "PERL5OPT",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "NODE_EXTRA_CA_CERTS",
+            "SSL_CERT_FILE",
+            "SSLKEYLOGFILE",
+            "DOTNET_PROFILER_X",
+            "LD_PRELOAD",
+        ] {
+            assert!(check_env_var(&EnvVar { name: name.into(), value: "x".into() }).is_err(), "{name}");
+        }
+        assert!(check_env_var(&EnvVar { name: "JAVA_HOME".into(), value: "x".into() }).is_ok(), "ordinary names pass the hard list");
+    }
+
+    #[test]
+    fn an_apps_variables_start_with_its_id() {
+        assert_eq!(env_prefix("Hello"), "HELLO_");
+        assert_eq!(env_prefix("My App-2"), "MY_APP_2_");
+    }
+
+    #[test]
     fn menu_targets_and_verbs() {
         assert_eq!(ContextTarget::parse(" Files ").unwrap(), ContextTarget::Files);
         assert_eq!(ContextTarget::parse(".md").unwrap(), ContextTarget::Extension(".md".into()));
@@ -352,6 +572,34 @@ mod tests {
         assert_eq!(json, r#"{"name":"Open with Hello!","on":["files"]}"#);
         assert_eq!(serde_json::from_str::<ContextMenuEntry>(&json).unwrap(), entry);
         assert!(serde_json::from_str::<ContextMenuEntry>(r#"{"name":"x","on":["nowhere"]}"#).is_err());
+    }
+
+    #[test]
+    fn menu_texts_in_any_script_get_their_own_keys() {
+        let entry = |name: &str| ContextMenuEntry { name: name.into(), on: vec![ContextTarget::Files], arguments: None };
+        let texts = [
+            "\u{6253}\u{5f00}",
+            "\u{5f00}\u{59cb}",
+            "\u{c5f4}\u{ae30}",
+            "\u{41e}\u{442}\u{43a}\u{440}\u{44b}\u{442}\u{44c}",
+            "\u{627}\u{641}\u{62a}\u{62d}",
+        ];
+        let mut verbs = std::collections::HashSet::new();
+        for text in texts {
+            check_context_entry(&entry(text)).unwrap_or_else(|err| panic!("{text}: {err}"));
+            let verb = entry(text).verb("Hello");
+            assert!(verb.starts_with("Bach.Hello._") && verb.is_ascii() && !verb.ends_with('.'), "{verb}");
+            assert!(verbs.insert(verb), "{text} needs its own key");
+        }
+        // Two entries that differ only in CJK, next to a shared Latin word.
+        assert_ne!(entry("\u{6253}\u{5f00}\u{ff08}Hello\u{ff09}").verb("x"), entry("\u{5173}\u{95ed}\u{ff08}Hello\u{ff09}").verb("x"));
+        // An app id in a non-Latin script gets a key part too.
+        assert!(entry("Open").verb("\u{6d4b}\u{8bd5}").starts_with("Bach._"));
+        // Latin texts keep the key they always had, accents dropped as before.
+        assert_eq!(entry("Mit Hello \u{f6}ffnen").verb("Hello"), "Bach.Hello.MitHelloffnen");
+        assert_eq!(entry("Open with Hello!").verb("My App"), "Bach.MyApp.OpenwithHello");
+        // Only punctuation is still refused, and said so.
+        assert!(check_context_entry(&entry("!!!")).unwrap_err().to_string().contains("letter or digit"));
     }
 
     #[test]

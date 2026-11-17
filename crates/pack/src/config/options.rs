@@ -10,8 +10,8 @@ use super::text::localized;
 use super::InstallerSection;
 use crate::manifest::features::{is_valid_component_id, is_valid_extension, is_valid_scheme};
 use crate::manifest::{
-    self, Choice, Component, FileEntry, FileType, Protocol, OPTION_AUTO_UPDATE, OPTION_AUTOSTART,
-    OPTION_DESKTOP, OPTION_PATH, OPTION_START_MENU,
+    self, Choice, Component, FileEntry, FileType, Protocol, OPTION_AUTOSTART, OPTION_AUTO_UPDATE, OPTION_DESKTOP, OPTION_PATH,
+    OPTION_START_MENU,
 };
 use crate::paths;
 
@@ -69,8 +69,9 @@ pub(super) fn install(section: &InstallerSection, app: &manifest::App) -> Result
         website_button: section.website_button.unwrap_or(false),
         scope: match section.scope.as_deref() {
             None => manifest::Scope::User,
-            Some(word) => manifest::Scope::parse(word)
-                .ok_or_else(|| anyhow::anyhow!("installer.scope is \"{word}\"; use \"user\" or \"machine\""))?,
+            Some(word) => {
+                manifest::Scope::parse(word).ok_or_else(|| anyhow::anyhow!("installer.scope is \"{word}\"; use \"user\" or \"machine\""))?
+            }
         },
     })
 }
@@ -139,11 +140,7 @@ pub(super) fn components(
         components.push(Component {
             id: id.to_string(),
             title: localized(&section.title, &format!("{at}.title"), languages)?,
-            description: section
-                .description
-                .as_ref()
-                .map(|value| localized(value, &format!("{at}.description"), languages))
-                .transpose()?,
+            description: section.description.as_ref().map(|value| localized(value, &format!("{at}.description"), languages)).transpose()?,
             default: section.default,
         });
     }

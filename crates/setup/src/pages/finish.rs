@@ -7,10 +7,10 @@ use super::{footer, page_icon, subtitle_text, PageLayout};
 use crate::keyboard::Target;
 use crate::theme::{ActiveTheme, Theme};
 use crate::ui::prelude::*;
-use crate::view::SetupView;
+use crate::view::{SetupView, SupportState};
 
 impl SetupView {
-    pub(super) fn working_page(&self, progress: f32, label: SharedString, theme: &Theme) -> AnyElement {
+    pub(super) fn working_page(&self, progress: f32, label: SharedString, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let texts = &self.texts;
         let title = if self.is_removing() {
             texts.get(Key::removing)
@@ -25,16 +25,24 @@ impl SetupView {
             .text_size(px(14.))
             .line_height(px(20.))
             .child(Shimmer::new(label).color(theme.muted_foreground));
-        let bar = div()
-            .mt(px(32.))
-            .px(px(56.))
-            .child(ProgressBar::new(("setup-progress", self.attempt), progress));
+        let bar = div().mt(px(32.)).px(px(56.)).child(ProgressBar::new(("setup-progress", self.attempt), progress));
+        // Only while the files are being unpacked: that can be undone without a trace.
+        let buttons = if self.can_cancel() {
+            vec![FormButton::new("setup-cancel", self.texts.get(Key::cancel))
+                .outline()
+                .pending(self.cancelling)
+                .focused(self.is_focused(Target::Cancel))
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_install(cx)))
+                .into_any_element()]
+        } else {
+            Vec::new()
+        };
         PageLayout {
             centered: true,
             mark: self.mark(true, theme),
             subtitle: Some(line.into_any_element()),
             content: Some(bar.into_any_element()),
-            ..PageLayout::new(title, footer(Some(self.meta()), Vec::new(), theme))
+            ..PageLayout::new(title, footer(Some(self.meta()), buttons, theme))
         }
         .render()
     }
@@ -56,13 +64,7 @@ impl SetupView {
             FormButton::new("setup-link", label)
                 .outline()
                 .focused(self.is_focused(Target::Link))
-                .on_click(cx.listener(|this, _, _, _| {
-                    if this.is_removing() {
-                        this.open_feedback()
-                    } else {
-                        this.open_website()
-                    }
-                }))
+                .on_click(cx.listener(|this, _, _, _| if this.is_removing() { this.open_feedback() } else { this.open_website() }))
                 .into_any_element()
         });
         if self.is_removing() {
@@ -76,10 +78,7 @@ impl SetupView {
                 centered: true,
                 mark: Some(done_icon),
                 subtitle: Some(subtitle_text(subtitle, &theme)),
-                ..PageLayout::new(
-                    texts.get(Key::removed_title),
-                    footer(None, link.into_iter().chain([close(true, cx)]).collect(), &theme),
-                )
+                ..PageLayout::new(texts.get(Key::removed_title), footer(None, link.into_iter().chain([close(true, cx)]).collect(), &theme))
             }
             .render();
         }
@@ -133,6 +132,18 @@ impl SetupView {
                             .focused(self.is_focused(Target::Cancel))
                             .on_click(cx.listener(|this, _, _, cx| this.close(cx)))
                             .into_any_element(),
+                        FormButton::new(
+                            "setup-support",
+                            texts.get(match self.support {
+                                SupportState::Idle => Key::support_save,
+                                SupportState::Saved => Key::support_saved,
+                                SupportState::Failed => Key::support_failed,
+                            }),
+                        )
+                        .outline()
+                        .focused(self.is_focused(Target::Support))
+                        .on_click(cx.listener(|this, _, _, cx| this.save_support(cx)))
+                        .into_any_element(),
                         if self.app_is_open() {
                             // The app holds its files: offer to close it.
                             FormButton::new("setup-close-app", texts.get(Key::close_app))

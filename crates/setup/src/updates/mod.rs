@@ -17,6 +17,7 @@
 //! why an update that is cut short can't leave a half-updated app.
 
 mod apply;
+mod authenticode;
 mod auto;
 pub(crate) mod curl;
 pub(crate) mod feed;
@@ -38,7 +39,7 @@ use crate::texts::Texts;
 /// Exit code of `--check-update` when a newer version is out, and of
 /// `--download-update` and `--auto-update` when one is ready but not yet
 /// installed.
-pub const UPDATE_AVAILABLE: i32 = 10;
+pub use crate::launch::exit::UPDATE_AVAILABLE;
 
 /// What one update run knows.
 pub struct Context<'a> {
@@ -82,7 +83,10 @@ impl Context<'_> {
 
     /// The version that is installed now.
     fn current_version(&self) -> String {
-        system::installed(self.manifest()).map(|installed| installed.version).filter(|v| !v.is_empty()).unwrap_or_else(|| self.manifest().app.version.clone())
+        system::installed(self.manifest())
+            .map(|installed| installed.version)
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| self.manifest().app.version.clone())
     }
 
     /// The key to send with requests, when the app wants it sent, tied to
@@ -95,8 +99,8 @@ impl Context<'_> {
 
     /// What the feeds offer, in a sentence if none can be asked.
     fn latest(&self) -> Result<Offer, String> {
-        let work = std::env::temp_dir().join(format!("{}-update", self.manifest().app.id.replace(' ', "-")));
-        let mut entries = feed::fetch_offers(&self.feeds, &work, self.bearer().as_ref())
+        let work = std::env::temp_dir().join(format!("{}-update", bach_pack::paths::safe_dir_name(&self.manifest().app.id)));
+        let mut entries = feed::fetch_offers(&self.feeds, &work, self.bearer().as_ref(), feed::signer_of(self.manifest()))
             .map_err(|error| self.texts.with(Key::error_download, &[("error", &error)]))?;
         let entry = entries.remove(0);
         Ok(Offer { entry, mirrors: entries })
@@ -106,7 +110,7 @@ impl Context<'_> {
     /// not have reached it yet. An update somebody asks for (`--update`)
     /// doesn't check this.
     fn in_rollout(&self, offer: &Offer) -> bool {
-        let included = rollout::included(rollout::this_computer(&self.manifest().app.id), offer.rollout);
+        let included = rollout::included(rollout::this_computer(&self.manifest().app.id, &offer.version), offer.rollout);
         if !included {
             crate::log::line(&format!(
                 "{} is being rolled out to {}% of computers, and not this one yet.",
@@ -158,7 +162,11 @@ pub fn run(args: &Args, package: &Package) -> i32 {
         );
         return 1;
     }
-    let ctx = Context { args, package, texts, feeds: updates.feeds(), dir, key };
+    if let Some(channel) = &args.channel {
+        return choose_channel(package, updates, channel);
+    }
+    let beta = system::channel::is_beta(&manifest.app.id);
+    let ctx = Context { args, package, texts, feeds: updates.feeds_for(beta), dir, key };
     let result = if args.apply_update {
         apply_ready(&ctx)
     } else if args.auto_update {
@@ -178,6 +186,33 @@ pub fn run(args: &Args, package: &Package) -> i32 {
             1
         }
     }
+}
+
+/// `--channel beta|stable|show`: says or changes which feed this installation
+/// follows. The next check, download or update uses it; nothing is downloaded now.
+fn choose_channel(package: &Package, updates: &bach_pack::manifest::Updates, channel: &str) -> i32 {
+    let app = &package.manifest.app;
+    let now = if system::channel::is_beta(&app.id) { "beta" } else { "stable" };
+    if channel == "show" {
+        println!("{now}");
+        return 0;
+    }
+    if channel == "beta" && updates.beta_feed.is_none() {
+        eprintln!("{} has no beta versions: its bach.toml has no [updates] beta_feed.", app.name);
+        return 1;
+    }
+    if let Err(err) = system::channel::set(&app.id, channel == "beta") {
+        eprintln!("{err:#}");
+        return 1;
+    }
+    if channel == now {
+        println!("{} already follows the {channel} channel.", app.name);
+    } else if channel == "beta" {
+        println!("{} now follows the beta channel.", app.name);
+    } else {
+        println!("{} now follows the stable channel. A beta version that is installed stays until a stable one is newer.", app.name);
+    }
+    0
 }
 
 /// The access key an update run uses: one given on the command line (a key
@@ -205,8 +240,7 @@ fn check(ctx: &Context) -> Result<i32, String> {
     let entry = ctx.latest()?;
     let current = ctx.current_version();
     let newer = feed::is_newer(&entry.version, &current) && ctx.in_rollout(&entry);
-    let ready = newer
-        && stage::read(&stage::folder(&ctx.manifest().app.id)).is_some_and(|staged| staged.is_for(&entry));
+    let ready = newer && stage::read(&stage::folder(&ctx.manifest().app.id)).is_some_and(|staged| staged.is_for(&entry));
     if ctx.args.json {
         let answer = json!({
             "app": ctx.manifest().app.name,
@@ -294,6 +328,11 @@ fn update(ctx: &Context) -> Result<i32, String> {
     }
     eprintln!("{}", ctx.texts.get(Key::step_downloading));
     let staged = stage_entry(ctx, &entry, ctx.args.silent)?;
+    // A publisher that signs its updates gets only updates it signed.
+    if let Err(problem) = authenticode::check(ctx.manifest(), &staged.file) {
+        stage::clear(&ctx.manifest().app.id);
+        return Err(problem);
+    }
     // The download is done before the app is asked to close, so waiting for
     // it never delays the user twice.
     apply::wait_for_app(ctx)?;

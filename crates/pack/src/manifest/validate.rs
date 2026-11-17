@@ -14,11 +14,7 @@ pub const MAX_LICENSE: usize = 1 << 20;
 
 pub fn manifest(manifest: &Manifest) -> Result<()> {
     if manifest.format != crate::FORMAT_VERSION {
-        bail!(
-            "this setup file uses payload format {}, but this runtime reads format {}",
-            manifest.format,
-            crate::FORMAT_VERSION
-        );
+        bail!("this setup file uses payload format {}, but this runtime reads format {}", manifest.format, crate::FORMAT_VERSION);
     }
     if !paths::is_valid_id(&manifest.app.id) {
         bail!("the app id \"{}\" can't name a folder", manifest.app.id);
@@ -78,6 +74,12 @@ fn extras(manifest: &Manifest) -> Result<()> {
         if !is_https(&updates.feed) {
             bail!("the update feed \"{}\" isn't an https link", updates.feed);
         }
+        if let Some(key) = &updates.public_key {
+            crate::feedsig::check_public(key).map_err(|err| anyhow::anyhow!("the update public key: {err:#}"))?;
+        }
+        if let Some(key) = &updates.next_public_key {
+            crate::feedsig::check_public(key).map_err(|err| anyhow::anyhow!("the next update public key: {err:#}"))?;
+        }
         if let Some(mirror) = updates.mirrors.iter().find(|mirror| !is_https(mirror)) {
             bail!("the update mirror \"{mirror}\" isn't an https link");
         }
@@ -97,6 +99,9 @@ fn extras(manifest: &Manifest) -> Result<()> {
         }
         if step.arguments.as_deref().is_some_and(|arguments| arguments.len() > 2000 || arguments.contains('\0')) {
             bail!("the arguments of the step \"{}\" are damaged", step.name);
+        }
+        if step.timeout_minutes.is_some_and(|minutes| minutes == 0 || minutes > super::extras::MAX_TIMEOUT_MINUTES) {
+            bail!("the step \"{}\" has a time limit outside 1 to {} minutes", step.name, super::extras::MAX_TIMEOUT_MINUTES);
         }
         if step.success_codes.is_empty() || step.success_codes.len() > 32 {
             bail!("the step \"{}\" has no exit codes that mean success", step.name);

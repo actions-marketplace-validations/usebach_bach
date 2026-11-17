@@ -47,9 +47,33 @@ impl FileType {
 
 /// Schemes Windows or browsers own; registering them would hijack links.
 const RESERVED_SCHEMES: &[&str] = &[
-    "http", "https", "file", "ftp", "mailto", "news", "nntp", "telnet", "ldap", "tel", "sms",
-    "javascript", "vbscript", "data", "about", "blob", "res", "shell", "search", "search-ms",
-    "microsoft-edge", "callto", "skype", "steam", "zoommtg", "ws", "wss",
+    "http",
+    "https",
+    "file",
+    "ftp",
+    "mailto",
+    "news",
+    "nntp",
+    "telnet",
+    "ldap",
+    "tel",
+    "sms",
+    "javascript",
+    "vbscript",
+    "data",
+    "about",
+    "blob",
+    "res",
+    "shell",
+    "search",
+    "search-ms",
+    "microsoft-edge",
+    "callto",
+    "skype",
+    "steam",
+    "zoommtg",
+    "ws",
+    "wss",
 ];
 
 /// Whether `scheme` can be registered: 2 to 32 characters, a lowercase
@@ -68,8 +92,8 @@ pub fn is_valid_scheme(scheme: &str) -> bool {
 /// Types that run code or that Windows itself handles; an app may not
 /// claim them.
 const RESERVED_EXTENSIONS: &[&str] = &[
-    "exe", "com", "bat", "cmd", "ps1", "psm1", "lnk", "msi", "msp", "scr", "vbs", "vbe", "js", "jse",
-    "wsf", "wsh", "dll", "sys", "reg", "url", "pif", "cpl", "hta", "msc", "inf", "appx", "msix",
+    "exe", "com", "bat", "cmd", "ps1", "psm1", "lnk", "msi", "msp", "scr", "vbs", "vbe", "js", "jse", "wsf", "wsh", "dll", "sys", "reg",
+    "url", "pif", "cpl", "hta", "msc", "inf", "appx", "msix",
 ];
 
 /// Whether `extension` (with its dot, lowercase) can be registered.

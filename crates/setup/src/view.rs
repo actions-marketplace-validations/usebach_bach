@@ -65,6 +65,9 @@ pub struct SetupView {
     pub delete_data: bool,
     /// The installed version is newer than this one.
     pub downgrade: bool,
+    /// Files in the chosen folder that a first install would replace, and
+    /// that aren't from an earlier install of this app.
+    pub overwrites: Vec<String>,
     /// The access key comes after the requirements are met.
     pub access_pending: bool,
     /// What has been typed or pasted so far, or the key given up front.
@@ -77,6 +80,10 @@ pub struct SetupView {
     pub license_pending: bool,
     /// Waiting for the app to close after "Close and continue".
     pub closing_app: bool,
+    /// What happened to "Save support info" on the failed page.
+    pub support: SupportState,
+    /// "Cancel" was pressed while files were being unpacked; the job is stopping.
+    pub cancelling: bool,
     pub stage: Stage,
     /// Counts attempts, so each one's page and bar start fresh.
     pub attempt: usize,
@@ -92,6 +99,14 @@ pub struct SetupView {
     picker: Option<Task<()>>,
     pub(crate) closer: Option<Task<()>>,
     pub(crate) checker: Option<Task<()>>,
+}
+
+/// The failed page's "Save support info" button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SupportState {
+    Idle,
+    Saved,
+    Failed,
 }
 
 impl SetupView {
@@ -132,7 +147,7 @@ impl SetupView {
             None if license_pending => Stage::License,
             None => Stage::Ready,
         };
-        Self {
+        let mut view = Self {
             package,
             texts,
             mode,
@@ -142,12 +157,15 @@ impl SetupView {
             choices,
             delete_data: false,
             downgrade,
+            overwrites: Vec::new(),
             access_pending,
             key,
             key_error: None,
             key_checking: false,
             license_pending,
             closing_app: false,
+            support: SupportState::Idle,
+            cancelling: false,
             stage,
             attempt: 0,
             focus_handle: cx.focus_handle(),
@@ -157,7 +175,19 @@ impl SetupView {
             picker: None,
             closer: None,
             checker: None,
-        }
+        };
+        view.refresh_overwrites();
+        view
+    }
+
+    /// Looks again at which foreign files the chosen folder and options
+    /// would replace. Only a first install into an existing folder can.
+    pub fn refresh_overwrites(&mut self) {
+        self.overwrites = if self.is_removing() || self.existing.is_some() {
+            Vec::new()
+        } else {
+            work::foreign_files(&self.package.manifest, &self.choices, &self.dir)
+        };
     }
 
     /// The first page once nothing is missing: the key, then the license,
@@ -184,12 +214,9 @@ impl SetupView {
             Toggle::StartWithWindows => choices.start_with_windows,
             Toggle::AddToPath => choices.add_to_path,
             Toggle::AutoUpdate => choices.auto_update,
-            Toggle::Component(index) => self
-                .package
-                .manifest
-                .components
-                .get(index)
-                .is_some_and(|component| choices.components.contains(&component.id)),
+            Toggle::Component(index) => {
+                self.package.manifest.components.get(index).is_some_and(|component| choices.components.contains(&component.id))
+            }
             Toggle::DeleteData => self.delete_data,
         }
     }
@@ -210,6 +237,7 @@ impl SetupView {
             }
             Toggle::DeleteData => self.delete_data = on,
         }
+        self.refresh_overwrites();
         cx.notify();
     }
 
@@ -235,6 +263,7 @@ impl SetupView {
             this.update(cx, |this, cx| {
                 if let Some(folder) = picked {
                     this.dir = install_folder(folder, &folder_name);
+                    this.refresh_overwrites();
                 }
                 this.picker = None;
                 cx.notify();
@@ -254,6 +283,7 @@ impl SetupView {
             return;
         }
         let (sender, mut events) = mpsc::unbounded::<Event>();
+        self.cancelling = false;
         let texts = self.texts.clone();
         let job = match (&self.mode, self.preview) {
             (_, true) => Job::Pretend {
@@ -326,6 +356,11 @@ impl SetupView {
                             cx.background_executor().timer(FINISH_HOLD).await;
                         }
                         this.update(cx, |this, cx| {
+                            // A cancelled install leaves nothing behind: the window just ends.
+                            if matches!(&result, Err(message) if message == work::cancel::CANCELLED) {
+                                cx.quit();
+                                return;
+                            }
                             this.stage = match result {
                                 Ok(()) => Stage::Done,
                                 // A key the files don't open (a kept one that a
@@ -370,10 +405,39 @@ impl SetupView {
     /// Closing is refused while work runs: stopping halfway is what the
     /// all-or-nothing install avoids.
     pub fn close(&mut self, cx: &mut Context<Self>) {
-        if !matches!(self.stage, Stage::Working { .. }) {
+        if can_close(&self.stage) {
             cx.quit();
+        } else {
+            // While files are only being unpacked, closing means cancelling.
+            self.cancel_install(cx);
         }
     }
+
+    /// Whether the page offers "Cancel": while an install unpacks its files,
+    /// which is the part that can be undone without a trace.
+    pub fn can_cancel(&self) -> bool {
+        match &self.stage {
+            Stage::Working { label, .. } => {
+                !self.preview && !self.is_removing() && label.as_ref() == self.texts.get(Key::step_copying).as_str()
+            }
+            _ => false,
+        }
+    }
+
+    /// Stops the install. The worker undoes what it unpacked and the window ends.
+    pub fn cancel_install(&mut self, cx: &mut Context<Self>) {
+        if self.can_cancel() && !self.cancelling {
+            self.cancelling = true;
+            crate::log::line("Cancel was pressed; stopping before anything is moved into place.");
+            work::cancel::request();
+            cx.notify();
+        }
+    }
+}
+
+/// Whether the window may be closed on this page.
+pub fn can_close(stage: &Stage) -> bool {
+    !matches!(stage, Stage::Working { .. })
 }
 
 enum Job {
@@ -396,9 +460,7 @@ fn needs_license(manifest: &Manifest, previous: Option<&Manifest>, mode: &Mode, 
 
 /// Installing into "D:\Apps" means "D:\Apps\Hello"; "D:\Apps\Hello" stays.
 fn install_folder(picked: PathBuf, folder_name: &str) -> PathBuf {
-    let named_already = picked
-        .file_name()
-        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(folder_name));
+    let named_already = picked.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(folder_name));
     if named_already {
         picked
     } else {
@@ -409,6 +471,16 @@ fn install_folder(picked: PathBuf, folder_name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_window_closes_everywhere_except_while_files_move() {
+        let pages = [Stage::Requirement(0), Stage::Access, Stage::License, Stage::Ready, Stage::Done, Stage::Failed("x".into())];
+        assert!(pages.iter().all(can_close), "every page but one may be closed");
+        assert!(
+            !can_close(&Stage::Working { progress: 0.3, label: "Copying".into() }),
+            "stopping halfway is what the all-or-nothing install avoids"
+        );
+    }
 
     #[test]
     fn picked_folders_get_the_app_folder() {

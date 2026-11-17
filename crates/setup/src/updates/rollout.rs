@@ -5,17 +5,20 @@
 //!
 //! Which computers are "the first ten percent" must not change from one check
 //! to the next, or an update would come and go. Each computer gets a fixed
-//! number from 0 to 99, made from its Windows machine id and the app's id, and
-//! takes a rollout of `n` percent when that number is below `n`. A rollout
+//! number from 0 to 99 for each version, made from its Windows machine id, the
+//! app's id and the version, and takes a rollout of `n` percent when that
+//! number is below `n`. A rollout
 //! of 0 takes nobody; 100, or none, takes everybody. A person who asks for the
 //! update themselves (`--update`) always gets it.
 
 use sha2::{Digest, Sha256};
 use windows_registry::LOCAL_MACHINE;
 
-/// This computer's number for `app_id`, from 0 to 99.
-pub fn this_computer(app_id: &str) -> u8 {
-    bucket(&format!("{}|{app_id}", machine_id()))
+/// This computer's number for version `version` of `app_id`, from 0 to 99.
+/// The version is part of it, so the computers that go first change from one
+/// release to the next: the same ones aren't the test group every time.
+pub fn this_computer(app_id: &str, version: &str) -> u8 {
+    bucket(&format!("{}|{app_id}|{version}", machine_id()))
 }
 
 /// A fixed number from 0 to 99 for `seed`.
@@ -52,9 +55,9 @@ mod tests {
 
     #[test]
     fn a_computers_number_never_changes() {
-        let first = this_computer("Hello");
+        let first = this_computer("Hello", "2.0.0");
         assert!(first < 100);
-        assert_eq!(first, this_computer("Hello"));
+        assert_eq!(first, this_computer("Hello", "2.0.0"), "the same version always gives the same number");
         assert_eq!(bucket("same seed"), bucket("same seed"));
     }
 
@@ -87,6 +90,14 @@ mod tests {
                 assert!(included(number, Some(25)) && included(number, Some(100)));
             }
         }
+    }
+
+    #[test]
+    fn the_first_computers_change_from_version_to_version() {
+        let same = (0..400).filter(|i| bucket(&format!("m{i}|Hello|1.0.0")) < 10 && bucket(&format!("m{i}|Hello|1.1.0")) < 10).count();
+        let first_ten_percent = (0..400).filter(|i| bucket(&format!("m{i}|Hello|1.0.0")) < 10).count();
+        assert!(first_ten_percent > 20, "{first_ten_percent}");
+        assert!(same * 4 < first_ten_percent, "{same} of {first_ten_percent} were first twice in a row");
     }
 
     #[test]

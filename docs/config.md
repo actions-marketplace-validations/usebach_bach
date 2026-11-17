@@ -15,6 +15,7 @@ default, so a five-line config already builds a complete installer.
 - [`[[file_types]]`](#file_types): files your app opens
 - [`[[requirements]]`](#requirements): what the app needs on the computer first
 - [`[[shortcuts]]`](#shortcuts): more Start menu shortcuts
+- [`[[run]]`](#run): programs setup starts after the files are in place
 - [`[[registry]]`](#registry), [`[[env]]`](#env) and [`[[context_menu]]`](#context_menu): registry values, environment variables and right-click entries
 - [`[[migrate]]`](#migrate): remove an older install made by another installer
 - [`[updates]`](#updates): updates the installed app fetches itself
@@ -25,6 +26,13 @@ default, so a five-line config already builds a complete installer.
 - [Silent installs](#silent-installs) and [updating from the app](#updating-from-the-app)
 - [Editor support](#editor-support) and [listing your app in winget](#listing-your-app-in-winget)
 
+## config_version
+
+Optional, first in the file: `config_version = 1`. It says which version of this
+format the file is written for. Left out, it means the current one, so existing
+files keep working. `bach init` writes it. A version this Bach doesn't read stops
+`bach check` and `bach build` with one sentence (update Bach for a newer one).
+
 ## [app]
 
 | Setting | Required | Meaning |
@@ -33,7 +41,7 @@ default, so a five-line config already builds a complete installer.
 | `version` | yes | Any version text, like `1.2.0` or `2.0.0-beta.1`. Shown in the window and Settings › Apps; the first numbers also go into the setup file's details. |
 | `publisher` | yes | You or your company. Shown in the window's footer and Settings › Apps. |
 | `executable` | yes | The program to start, relative to `[files] source`, for example `my-app.exe` or `bin/my-app.exe`. Shortcuts and the "Open" button start it. |
-| `id` | no | Identifies the install across versions (registry key name). Defaults to `name`. Letters, digits, spaces, `.`, `-` and `_`. Never change it after your first release, or updates install side by side. |
+| `id` | no | Identifies the install across versions (registry key name). Defaults to `name`. Letters, digits, spaces, `.`, `-` and `_`, up to 64 characters, and not a name Windows keeps for devices (`CON`, `PRN`, `AUX`, `NUL`, `COM0` to `COM9`, `LPT0` to `LPT9`, with or without an extension, in any letter case). Never change it after your first release, or updates install side by side. |
 | `description` | no | One line. The shortcut's tooltip, and the line under "Install My App" on the first page (unless `[text] install_subtitle` replaces it). Without it, that line is left out. |
 | `website` | no | An `https://` link, shown as the support link in Settings › Apps. |
 | `icon` | no | A `.ico` file. It becomes the setup file's icon and the window's icon, and, when it holds a PNG image (most modern icons do) and `installer.logo` isn't set, the logo in the window. Include sizes 16 to 256 for crisp results. |
@@ -44,6 +52,24 @@ default, so a five-line config already builds a complete installer.
 | --- | --- | --- |
 | `source` | yes | The folder whose contents are installed, subfolders included. |
 | `exclude` | no | Patterns to leave out. `*` matches within a name, `**` across folders, `?` one character. A pattern without `/` matches file names anywhere (`*.pdb`); one with `/` matches from the top of `source` (`docs/**`). Case doesn't matter. |
+| `allow_secrets` | no | Patterns (same rules as `exclude`) for files that look like secrets but are meant to ship. |
+
+`bach check` and `bach build` stop when the source folder holds a file that
+looks like a secret: `.env` and `.env.*`, `*.pfx`, `*.p12`, `*.pem`, `*.key`,
+`*.snk`, `*.jks`, `*.keystore`, `*.kdbx`, `id_rsa*`, `id_dsa*`, `id_ecdsa*`,
+`id_ed25519*`, `.git-credentials`, `.npmrc`, `.pypirc`, `.netrc`,
+`.aws-credentials`, `secrets.json`, a `bach.toml` (or `bach-*.toml`), and
+anything inside a `.git`, `.ssh`, `.aws` or `.gnupg` folder. The message names
+the first file and why. Leave the file out with `exclude`, or name it in
+`allow_secrets` to ship it on purpose. Files that only add weight (`*.pdb`,
+`*.log`, `Thumbs.db`, `.DS_Store`, and anything in `node_modules`, `target` or
+`__pycache__`) give a warning, not an error. `bach init` excludes the first
+four for the stacks it recognises.
+
+Every name in the source folder, file or folder, has to be one Windows can
+create: at most 255 characters (counted as Windows counts them) and not a
+device name such as `NUL` or `COM1`. `bach check` reports the first one that
+isn't, before a setup file is built.
 
 The source folder may not contain symbolic links or a file named
 `uninstall.exe` at its top (Bach adds its own).
@@ -62,6 +88,8 @@ The source folder may not contain symbolic links or a file named
 | `online` | `false` | `true` also builds the **online installer** (see below). Needs [`[updates]`](#updates). `bach build --online` does the same once. |
 | `online_output` | `dist/{name}-Web-Setup.exe` | Where the online installer goes. No version in the name, so one download link keeps pointing at the newest. |
 | `compression` | `best` | `best` makes the smallest file, `normal` and `fast` build quicker. Unpacking is fast either way. `bach build --fast` overrides it once. |
+| `compression_threads` | as many as the memory budget allows | How many threads compress, from 1 to 256 (never more than the processor cores). The setup file is the same whatever the number. |
+| `compression_memory` | `1024` | The memory budget for compressing, in MiB (64 to 65536). It holds the number of threads back, but one thread always runs. When it does, the build says so. |
 
 ### Online and offline installers
 
@@ -84,7 +112,7 @@ github = "owner/repo"
 
 ```console
 $ bach build
-Wrote dist\Hello-Setup-1.4.0.exe (9.7 MB)
+Wrote dist\Hello-Setup-1.4.0.exe (8.7 MB)
 Wrote dist\Hello-Web-Setup.exe (8.9 MB), the online installer
 ```
 
@@ -98,7 +126,7 @@ signs and publishes both files.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `folder` | the app id | The install folder's name under `%LOCALAPPDATA%\Programs`. When the user picks another place, this name is added to it. |
+| `folder` | the app id | The install folder's name under `%LOCALAPPDATA%\Programs`. When the user picks another place, this name is added to it. Same rules as `app.id`. |
 | `change_folder` | `true` | Whether the user may pick another folder ("Change", or a click on the Location row). Updates always stay where they are. |
 | `open_button` | `true` | Whether the last page offers "Open My App". |
 | `start_menu_folder` | none | A folder in the Start menu for the shortcuts, like your company's name. Removed when it's empty after uninstalling. |
@@ -146,7 +174,11 @@ Things to know:
 - The install folder has to be inside Program Files (the default). A machine-wide
   app runs, updates and uninstalls with administrator rights, so setup refuses a
   folder the user's own programs could write to, with the usual "choose another
-  folder" message.
+  folder" message. Even inside Program Files, setup reads the folder's access
+  list before it writes, and again before an elevated update or removal: a
+  folder that belongs to someone other than Administrators, SYSTEM or
+  TrustedInstaller, or that Users, Authenticated Users or Everyone may change,
+  is refused with `error_unsafe_folder`, and the log names the reason.
 - A protected setup file (`[access]`) run silently should get its key with
   `--key-file`: the elevated copy is sure to get the arguments, and the
   `BACH_ACCESS_KEY` variable may not reach it.
@@ -173,6 +205,16 @@ Each option takes one of four values:
 | `add_to_path` | `"never"` | Adds the app's folder to the user's `PATH`, so command-line tools run from any terminal. Only that one entry is ever added or removed; the rest of `PATH` is kept byte for byte. |
 | `path_folder` | the install folder | The folder, inside the install folder, that goes on `PATH`, like `"bin"`. |
 
+Every shortcut setup writes (the Start menu one, the desktop one and those of
+`[[shortcuts]]`) carries the app's AppUserModelID: the app id with every
+character other than letters, digits, `.`, `_` and `-` turned into a `.` (at
+most 128 characters), so `My App` becomes `My.App`. Windows uses it to group
+the app's windows on the taskbar and to tie its notifications to the app. It
+does not change with the version, and it lives in the shortcut file, so
+removing the shortcuts leaves nothing behind. For the grouping to follow a
+window, your program has to use the same ID
+(`SetCurrentProcessExplicitAppUserModelID`) or leave it to Windows.
+
 The whole row is a click target: clicking anywhere on it ticks or unticks
 its box. On an update, the boxes start the way the user left them last time,
 and unticking one takes the shortcut, PATH entry or autostart away again.
@@ -185,8 +227,9 @@ and unticking one takes the shortcut, PATH entry or autostart away again.
 | `license` | none | A UTF-8 text file the user accepts before the install page, like `"LICENSE.txt"`, or one per language: `{ en = "LICENSE.txt", de = "LIZENZ.txt" }`. An update shows it again only when it changed. |
 
 Built-in languages: `en` English, `de` Deutsch, `nl` Nederlands, `fr`
-Français, `es` Español, `it` Italiano, `pt` Português, `pl` Polski, `ru`
-Русский, `tr` Türkçe, `ja` 日本語, `ko` 한국어, `zh` 简体中文.
+Français, `es` Español, `it` Italiano, `pt` Português (Brazilian), `pl` Polski, `ru`
+Русский, `tr` Türkçe, `ja` 日本語, `ko` 한국어, `zh` 简体中文, `zh-tw` 繁體中文 (Traditional Chinese, for Taiwan, Hong Kong and Macau; `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant` tags pick it, and `zh-CN`, `zh-SG` and `zh-Hans` pick `zh`), `sv` Svenska, `cs` Čeština, `vi` Tiếng Việt, `id`
+Bahasa Indonesia, `hi` हिन्दी.
 
 ## [[components]]
 
@@ -234,6 +277,12 @@ description = "My App document"     # optional
 
 Types that run code (`.exe`, `.bat`, `.ps1`, `.lnk`, …) are refused.
 
+Removing the app, or an update whose new version drops the type, takes back
+what setup wrote: the default value, the entry under `OpenWithProgids` and the
+program's own key. The `OpenWithProgids` key and the extension's key go too,
+but only when nothing else is left in them, so a program that registered itself
+for the same extension keeps its entry.
+
 ## [[requirements]]
 
 Something your app needs on the computer before it runs. Setup only looks
@@ -270,6 +319,12 @@ kind = "windows"             # this Windows build number or newer
 build = 19041                # 10240 Windows 10, 17763 1809, 19041 2004, 22000 Windows 11
 ```
 
+Bach supports Windows 10 version 1809 (build 17763) and newer, and Windows 11.
+They are tested on Windows 11, Windows on ARM and Windows Server 2022; Windows
+10 itself is not in the automated tests (GitHub has no Windows 10 image). A
+`windows` requirement with a `build` below 17763 makes `bach check` and
+`bach build` warn, because the setup window may not run there.
+
 `webview2`, `dotnet`, `vcredist` and `windows` know their name and download
 page (`windows` points at microsoft.com/windows); `file` and `registry` need
 `name` and an `https` `url`. `windows` reads the build number from
@@ -299,7 +354,7 @@ success_codes = [0, 3010]              # exit codes that mean it worked; 0 alway
 | `success_codes` | `[0]` | Exit codes that mean it worked (0 always counts). Any other code stops the install with "{name} couldn't be set up (exit code N)". |
 | `ignore_errors` | `false` | Go on when it fails. Not allowed with `when = "uninstall"`, because removing never stops for a failed step. |
 | `component` | the file's component | Only run when this optional component is installed. |
-
+| `timeout_minutes` | `15` | Minutes before setup ends the step and the programs it started. 1 to 120. |
 | `elevated` | `false` | Run this step with administrator rights: Windows asks once when it starts (not at all when setup is elevated already, as with `scope = "machine"`). Setup itself stays unelevated. Declining fails the step like any other failure. |
 
 Steps run as the user, in the program's own folder, in the order listed.
@@ -321,7 +376,10 @@ elevated = true
 An elevated step starts the program from the install folder. In a per-user
 install that folder is writable by the user's own programs, so use `elevated`
 for well-known installers (and sign them), not for anything else. A step that
-runs longer than 15 minutes is ended. Each run is in the log. `bach inspect`
+runs longer than `timeout_minutes` (15 by default, 1 to 120) is ended together with
+everything it started, so no installer it launched keeps files open. What the
+program prints is kept in the log, its last 8 KB, so a failure like exit code
+1603 comes with its reason. Each run is in the log. `bach inspect`
 lists them as `Runs`.
 
 ## [[registry]]
@@ -341,16 +399,36 @@ key = 'Software\Hello'
 name = "FirstRun"
 type = "dword"
 value = 1
+
+[[registry]]
+key = 'Software\Hello\Legacy'
+name = "InstallPath"
+view = "32"                     # "64" (default), "32" or "both"
+value = '{app}'
 ```
+
+`view` picks the registry view on a 64-bit Windows. A 32-bit program that
+reads `HKLM\Software\Vendor` is sent to `HKLM\Software\WOW6432Node\Vendor`,
+so a machine-wide app (`installer.scope = "machine"`) whose program is 32-bit
+needs `view = "32"` (or `"both"` when it ships 32-bit and 64-bit programs).
+Writing, updating and removing use the same view, and `"both"` handles both.
+`HKCU\Software` is not redirected, so the value rarely matters there. `bach
+check` warns when the install is machine-wide, `app.executable` is a 32-bit
+program (its PE header says x86) and a `[[registry]]` value leaves `view` out.
 
 Use single quotes for the key, so the backslashes stay as they are. An
 update writes the values again and removes the ones the new version no longer
 lists. Removing the app deletes a value only while it still holds what setup
 wrote, so a setting the user or the app changed since stays, and keys that end
-up empty go too. Keys that belong to Windows, other programs or Bach
-(`Software\Classes`, `Software\Policies`, `Software\Microsoft\Windows…`,
-`Software\Bach`) are refused; use `[[protocols]]`, `[[file_types]]` and
-`[[context_menu]]` for what those are for.
+up empty go too. Keys that belong to Windows, other programs or Bach are
+refused: `Software\Classes`, `Software\Policies`, `Software\Bach`, and every
+key of the vendors `Microsoft`, `Google`, `Mozilla`, `Mozillaplugins`,
+`Chromium`, `RegisteredApplications`, `Clients` and `ODBC` (they hold Office
+trusted locations, Defender exclusions, certificates, browser extension hooks
+and the like). Use `[[protocols]]`, `[[file_types]]` and `[[context_menu]]`
+for what those are for. `bach check` warns when the key isn't below a folder
+named after `app.publisher`, `app.name` or `app.id`, which usually means a
+typo.
 
 ## [[env]]
 
@@ -361,14 +439,33 @@ the install see them; ones already running don't.
 [[env]]
 name = "HELLO_HOME"
 value = '{app}'                 # {app} is the install folder
+# allow = true                  # only for a name that doesn't start with HELLO_
 ```
+
+A name must start with your app's id in capitals, with every character that
+isn't a letter or digit turned into `_` (`Hello` gives `HELLO_`, `My App`
+gives `MY_APP_`), so the variable can't change what other programs read. Set
+`allow = true` to use another name; `bach check` then warns about it.
 
 A value with a `%VARIABLE%` in it is stored so Windows fills it in when it's
 read. Removing the app removes a variable only while it still holds the value
 setup set. Names Windows uses (`PATH`, `TEMP`, `USERPROFILE`, …) are refused;
-`PATH` has its own setting, `add_to_path`.
+`PATH` has its own setting, `add_to_path`. Variables that load code into other
+programs or redirect their traffic are refused whatever `allow` says:
+`COR_PROFILER` and the other `COR_*` and `CORECLR_*` profiler settings,
+`DOTNET_STARTUP_HOOKS`, `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `NODE_OPTIONS`,
+`PYTHONSTARTUP`, `PYTHONPATH`, `PERL5OPT`, `HTTP_PROXY`, `HTTPS_PROXY`,
+`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSLKEYLOGFILE`, `LD_PRELOAD` and a
+few more.
 
 ## [[context_menu]]
+
+The `name` can be in any script: Chinese, Japanese, Korean, Cyrillic or Arabic
+texts work. Setup names the registry key after the text (`Bach.<id>.<text>`);
+for a text with no Latin letters it adds the first 8 hex digits of the text's
+SHA-256, so two entries that differ only in such characters get two keys. Texts
+in Latin script keep the keys they always had, so an update or removal still
+finds an earlier install's entries.
 
 Entries in Explorer's right-click menu that start your app with the clicked
 file or folder.
@@ -485,6 +582,10 @@ download_url = "https://example.com/hello/{file}"   # {file}: the setup file's n
 | `github` | none | `owner/repo`. Updates come from that repository's releases: the feed is `https://github.com/owner/repo/releases/latest/download/latest.json`, and each version's file is downloaded from its own tag, `.../releases/download/v{version}/{file}`. The setup file is named the way GitHub serves it (anything but letters, digits, `.`, `-` and `_` becomes `-`). |
 | `feed` | from `github` | The `https` link of `latest.json`, which the installed app reads. Needed without `github`. |
 | `download_url` | from `github` | The `https` link the setup file will be downloaded from. `{file}` is the setup file's name (encoded for a link), `{version}` the app's version. |
+| `public_key` | none | The publisher's Ed25519 public key (64 hex digits, from `bach feed-key`). With it, the installed app accepts only feed entries signed with the matching private key. See [Signed feeds](updates.md#signed-feeds). |
+| `next_public_key` | none | A second public key that is trusted too, to hand over to a new key without stranding installed copies (needs `public_key`, and must differ from it). See [Changing the key](updates.md#changing-the-key). |
+| `beta_feed` | none | The `https` link of the beta channel's feed, written like `feed` (`bach feed FILE --out latest-beta.json`). A person who runs `uninstall.exe --channel beta` follows it instead of `feed` and `mirrors`. See [Beta versions](updates.md#beta-versions). |
+| `signer` | none | The publisher a downloaded update has to be signed by (Authenticode): the common name or organisation of the signing certificate, like `Example Inc.` (or its whole subject, `CN=..., O=..., L=..., C=...`, which has to match exactly). Windows must accept the signature, and an unsigned update or one by another publisher is refused. See [Signed updates](updates.md#signed-updates-authenticode). |
 | `mirrors` | none | More feeds to ask when `feed` can't be reached, each the `https` link of a full feed with its own download link. The first feed that answers decides the newest version; a mirror only offers another place to download the *same* file (same version and SHA-256), so a weaker mirror can't widen what an installed app trusts. |
 | `auto` | `true` | Keep the app up to date in the background: `true` (the install page offers "Automatic updates", ticked), `false` (offered, unticked), `"always"` or `"never"`. |
 
@@ -517,7 +618,7 @@ get_key_url = "https://example.com/buy"   # optional: the key page gets a "Get a
 
 ```powershell
 bach key --out key.txt                     # writes one key (try --count 100 for a batch)
-bach build --key-file key.txt              # uses the first line of the file
+bach build --key-file key.txt              # every line of the file is a key that opens the setup file
 ```
 
 `--key-file` works in every shell. The build can also read the key from the
@@ -541,14 +642,26 @@ UTF-16 and Bach reads that, a byte order mark and plain UTF-8 alike.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `encrypt` | `true` | Encrypt the packaged files with the key. |
-| `key_env` | `BACH_ACCESS_KEY` | The environment variable the build reads the key from. `bach build --key-file FILE` reads its first line instead. |
+| `key_env` | `BACH_ACCESS_KEY` | The environment variable the build reads the key from (one key). `bach build --key-file FILE` reads every line of the file instead: each is a key, blank lines and lines starting with `#` are skipped, at most 1000. |
 | `get_key_url` | none | An `https` page where people get a key. |
 | `send_key` | `true` with `[updates]` | Send the key as `Authorization: Bearer <key>` with every request to the host of `[updates] feed` (the feed, and a download on that same host, redirects from it included), so a private server can refuse anyone without one. Mirrors and downloads on other hosts never get it. |
 
 A key is 8 to 128 characters: letters, digits and `- _ . ~ + / = :`.
 `bach key` makes 100-bit random ones (`--count 100` for a batch, say one per
-customer). Build one setup file per key to hand each customer their own, or
-share one key.
+customer). A key file with many keys makes one setup file that every one of
+them opens on its own: the files are locked with a random key of their own,
+and the manifest holds that key once per access key, each locked with it (a
+"slot"; the file is stored once, not once per key). To take a customer's key
+away, build again without their line and distribute that file: copies already
+handed out keep working with the keys they were built with, so pair this with
+`send_key` and a server that refuses the revoked key for updates. Opening takes
+a third of a second for each slot tried. With 17 keys or more, each slot also
+carries a one-byte tag (a fast hash of the key) that lets setup skip most of
+them, so a key opens in about one try even with a thousand. The tag is
+something somebody guessing keys offline can use to rule candidates out, which
+only helps against keys that are easy to guess, so a file with fewer keys has
+no tags at all: use `bach key`'s 100-bit keys. Setup files made before slots
+(one key for the whole file) still open.
 
 Setup asks for the key on its own page before the license (typed or pasted),
 and a wrong key stops before anything on the computer is touched. A silent
@@ -634,9 +747,12 @@ a text is given in only one, `bach check` points it out.
 | `error_create`, `error_write`, `error_delete`, `error_shortcut`, `error_delete_data`, `error_not_found` (all `{path}`) | Errors about one file or folder; Windows' own reason follows them. |
 | `error_read_setup`, `error_damaged`, `error_uninstaller`, `error_register`, `error_unregister`, `error_system`, `error_open_failed` (`{error}`) | The rarer errors. |
 | `problem_title`, `problem_damaged` (`{error}`) | The page a damaged setup file shows. |
-| `downgrade_title`, `downgrade_subtitle` (`{old_version}`), `downgrade_button` | Installing over a newer version. |
+| `downgrade_title`, `downgrade_subtitle` (`{old_version}`), `downgrade_button` | Installing over a newer version. `downgrade_button` also confirms the next one. |
+| `error_unsafe_folder` | A machine-wide app's install folder that ordinary users can change. |
+| `overwrite_title`, `overwrite_subtitle` (`{files}`) | A first install into a folder that already holds files the install would replace: the window names up to five of them (and how many more) before it installs. |
 | `close_app`, `error_close_app` | "Close and continue", and what it says when the app won't close. |
-| `requirement_title`, `requirement_subtitle`, `requirement_button` (all `{requirement}`) | The page for a missing requirement. |
+| `support_save`, `support_saved`, `support_failed` | The failed page's button "Save support info", what it says once the file is on the desktop, and when it couldn't be saved. The button writes `<app id>-support.txt` to the desktop: the app's name, version and id, Bach's version, the Windows build, the processor type, whether setup is elevated, the install folder, the free space, the failure's sentence and setup's log, with the user's name and profile folder replaced and no key and no app files. Nothing is sent. |
+| `requirement_title`, `requirement_subtitle`, `requirement_button` (all `{requirement}`), `requirement_skip` | The page for a missing requirement, and its "Continue anyway" button. |
 | `step_downloading`, `error_download` (`{error}`) | Updating from the app. |
 | `step_finding`, `step_fetching`, `error_fetch` (`{error}`) | The online installer's labels, and what it says when it can't download. |
 | `access_title`, `access_subtitle`, `access_hint`, `access_button`, `access_paste`, `access_get`, `access_wrong` | The access key page. |
@@ -652,7 +768,7 @@ files there every translation.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `data` | none | Folders the app keeps its data in. The uninstaller offers "Also delete my data" (unticked) and deletes them only when the user ticks it. Each must start with `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%`, followed by your app's own folder, so the uninstaller can only ever delete inside the user's profile. |
+| `data` | none | Folders the app keeps its data in. The uninstaller offers "Also delete my data" (unticked) and deletes them only when the user ticks it. Each must start with `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%`, followed by your app's own folder, so the uninstaller can only ever delete inside the user's profile. A profile folder itself (`Documents`, `Desktop`, `Downloads`, `Pictures`, `Music`, `Videos`, `OneDrive`, `AppData`, `AppData\Roaming`, `AppData\Local`, `Programs`, `Temp`) is refused, and so is anything inside `.ssh`, `.aws`, `.azure`, `.gnupg`, `.kube` or a `Microsoft` folder; a folder inside one (`%USERPROFILE%\Documents\My Game`) is fine. `bach check` names the setting and the reason, and setup files that break the rule are refused when they start. The uninstaller also never deletes a folder that is, or contains, the install folder. |
 | `data_description` | a generic line | What lives in those folders, in a few words, shown under the checkbox. Text or `{ en = "…", de = "…" }`. |
 | `feedback_url` | none | An `https` page the uninstaller's last page links to ("Tell us why"). |
 
@@ -741,6 +857,14 @@ $p = Start-Process .\Hello-Setup-1.4.0.exe -ArgumentList '--silent' -Wait -PassT
 $p.ExitCode        # 0: done
 ```
 
+Exit codes of a setup file and its uninstaller (a test keeps them from
+changing): `0` done, or nothing to do; `1` failed (a missing requirement, a
+refused downgrade or overwrite, the app is open, a full disk, a file that
+couldn't be written, a failed step, a declined administrator prompt; the reason
+is printed and logged); `2` a mistake in the command line or a missing access
+key; `10` from `--check-update` and `--download-update`: a newer version is
+available.
+
 A setup file is a windowed program, so a shell doesn't wait for it: running
 `.\Hello-Setup-1.4.0.exe --silent` directly installs but returns at once,
 without an exit code. `Start-Process -Wait -PassThru` waits and hands you the
@@ -755,6 +879,21 @@ own quotes:
 Start-Process .\Hello-Setup-1.4.0.exe -Wait -PassThru -ArgumentList '--silent', '--dir', '"D:\My Apps\Hello"', '--with', 'samples,path'
 ```
 
+A value can follow the flag after a space or be attached with an equals sign:
+`--dir "D:\My Apps\Hello"` and `--dir="D:\My Apps\Hello"` are the same, and
+every flag also works with a slash (`/DIR=D:\Apps\Hello`). Flag names ignore
+case. `--with` and `--without` can be given several times and add up; another
+flag given twice keeps its last value.
+
+A mistake in the command line is never guessed at: an unknown flag, a stray
+word, a flag that needs a value and gets none (or gets another flag, as in
+`--dir --silent`), a value on a flag that takes none, a `--theme` that isn't
+`light`, `dark` or `system` and a `--wait-for` that isn't a number all stop
+setup with exit code 2 and a sentence that names the flag, before anything is
+installed. A terminal gets the sentence on its error output; a double-clicked
+file gets a message box; a service or deployment tool (session 0) only gets
+the exit code. `--help` always works, whatever else is on the line.
+
 | Flag | Meaning |
 | --- | --- |
 | `--silent` (also `/S`, `/quiet`) | No window. Exit code 0 when done, 1 when it failed (the reason is printed in a terminal), 2 for a command-line mistake. |
@@ -762,8 +901,11 @@ Start-Process .\Hello-Setup-1.4.0.exe -Wait -PassThru -ArgumentList '--silent', 
 | `--with a,b` / `--without a,b` | Tick or untick options: `desktop-shortcut`, `start-menu`, `autostart`, `path`, `auto-update`, and component ids. Only options the install page would offer. |
 | `--lang CODE` | The language for messages, instead of Windows' own. |
 | `--allow-downgrade` | Install over a newer version (refused otherwise, with exit code 1). |
+| `--skip-requirements` | A silent install goes on although a [`[[requirements]]`](#requirements) entry isn't detected (it stops with exit code 1 otherwise). Setup says which ones, in the terminal and in the log, and that the app may not start without them. Use it when the detection is wrong for a computer, for example a .NET runtime on an unusual drive. |
+| `--repair` | With `--silent`, run the setup file of the version that is installed with this flag, and setup checks every file against the SHA-256 in its manifest and writes back the ones that are missing or changed, then redoes shortcuts and registration. Nothing else in the folder and no user data is touched. A different version, or nothing installed, stops with exit code 1 and says so. The log lists what was written. |
+| `--overwrite` | A first install into a folder that already holds files of the same names as the setup file's (and no earlier install of this app) is refused with exit code 1, naming up to five of them; this installs over them anyway. |
 | `--key-file FILE` | The access key (first line of the file) for a setup file with [`[access]`](#access). The `BACH_ACCESS_KEY` environment variable does the same. Without a key a silent run exits with code 2. |
-| `--log FILE` | Where the log goes. By default every run writes `%TEMP%\<app id>-setup.log`. |
+| `--log FILE` | Where the log goes. By default every run writes `%TEMP%\<app id>-setup.log`; a space in the app id is written `%20` in file and folder names (`My App` gives `My%20App-setup.log`), so two ids never share one. |
 | `--help` (also `-h`, `/?`) | Prints every option. |
 
 A silent run accepts the license on the user's behalf and stops when a
@@ -802,6 +944,7 @@ process API and wait for it.
 | `--update` | Downloads it (or uses the one kept ready) and opens its setup window. |
 | `--update --silent` | Installs it without a window and exits with the setup's own code. |
 | `--auto-update` | One background round: check, download, and install if the app isn't running. This is what the "Automatic updates" scheduled task runs. |
+| `--channel beta\|stable\|show` | Follow the beta or the stable update feed from now on, or say which one this is. Needs `[updates] beta_feed` for `beta`. |
 
 Updating in the background, so closing the app is all the user does: run
 `--download-update` when the app starts, and `--apply-update --wait-for
@@ -824,6 +967,22 @@ update or removal. Every run logs to `%TEMP%\<app id>-update.log`.
 so editors with TOML support (VS Code with Even Better TOML, Zed, JetBrains
 with Taplo) complete every setting and flag typos as you type.
 
+## What compressing costs
+
+Measured with a Release build on 300 MB of mixed files (half random, half
+text), 12 cores; the setup file's size does not change with the thread count:
+
+| Level | Threads | Peak memory | Time |
+| --- | --- | --- | --- |
+| best (zstd 19) | 1 / 4 / 12 | 291 / 714 / 961 MB | 172 / 76 / 68 s |
+| normal (zstd 9) | 1 / 4 / 12 | 156 / 299 / 443 MB | 2.1 / 1.4 / 1.5 s |
+| fast (zstd 3) | 1 / 4 / 12 | 83 / 140 / 268 MB | 1.2 / 1.1 / 1.1 s |
+
+`best` takes the most memory, so by default a build keeps it under
+`compression_memory` (1024 MB) by using fewer threads: 6 of 12 here, with a
+peak of 880 MB. In a container with a memory limit, set `compression_memory`
+below it, or `compression_threads = 1`.
+
 ## Listing your app in winget
 
 ```bash
@@ -832,7 +991,31 @@ bach winget dist/Hello-Setup-1.4.0.exe --url https://example.com/Hello-Setup-1.4
 
 writes the three manifests the Windows Package Manager needs; check them
 with `winget validate` and open a pull request to microsoft/winget-pkgs.
-The manifests say `Scope: machine` for a setup file with
+CI checks them with `winget validate` (`scripts/test-winget.ps1`), also for an
+app whose id is 50 characters long. They name the oldest supported Windows
+(`MinimumOSVersion: 10.0.17763.0`) and quote every link, so a `#` in it stays
+part of it. The manifests say `Scope: machine` for a setup file with
 `installer.scope = "machine"` (otherwise `user`), and list it under the
 architecture of its runtime: `x64`, or `arm64` for a setup file built with the
 ARM64 runtime.
+
+Bach's own release workflow opens the winget pull request for each normal
+release with `wingetcreate` (never for a pre-release, a draft or a dry run),
+when the repository has the secret `WINGET_TOKEN` and the variable
+`WINGET_PACKAGE`. The package has to be listed already: the first pull request
+is made by hand.
+
+## Listing your app in Chocolatey
+
+```bash
+bach choco dist/Hello-Setup-1.4.0.exe --url https://example.com/Hello-Setup-1.4.0.exe --license MIT
+```
+
+writes a Chocolatey package into `choco/<id>/<version>` next to the setup
+file: `<id>.nuspec`, `tools/chocolateyInstall.ps1` (downloads the file, checks
+its SHA-256, runs it with `--silent`) and `tools/chocolateyUninstall.ps1` (runs
+the app's own uninstaller from its Settings › Apps entry). The id is the app
+id in lowercase. Build it with `choco pack` in that folder. Chocolatey runs as
+an administrator, so a per-user app is installed for that account only; the
+command warns, and `installer.scope = "machine"` fixes it. `--license` takes a
+link or a name like `MIT`; `--out` picks the folder.

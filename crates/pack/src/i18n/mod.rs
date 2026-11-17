@@ -15,6 +15,7 @@ mod asian;
 mod eastern;
 mod en;
 mod germanic;
+mod more;
 mod romance;
 
 use std::collections::BTreeMap;
@@ -84,11 +85,13 @@ texts! {
     error_delete_data, error_not_found, error_open_failed,
     problem_title, problem_damaged,
     downgrade_title, downgrade_subtitle, downgrade_button, close_app, error_close_app,
-    requirement_title, requirement_subtitle, requirement_button, step_downloading, error_download,
+    support_save, support_saved, support_failed,
+    requirement_title, requirement_subtitle, requirement_button, requirement_skip, step_downloading, error_download,
     website, feedback,
     step_finding, step_fetching, error_fetch,
     access_title, access_subtitle, access_hint, access_button, access_paste, access_wrong, access_get,
     step_running, error_run, step_migrating, error_patch_base,
+    overwrite_title, overwrite_subtitle, error_unsafe_folder,
 }
 
 /// A language the setup window speaks.
@@ -115,6 +118,12 @@ pub const LANGUAGES: &[Language] = &[
     Language { code: "ja", name: "日本語", strings: &asian::JA },
     Language { code: "ko", name: "한국어", strings: &asian::KO },
     Language { code: "zh", name: "简体中文", strings: &asian::ZH },
+    Language { code: "zh-tw", name: "繁體中文", strings: &asian::ZH_TW },
+    Language { code: "sv", name: "Svenska", strings: &more::SV },
+    Language { code: "cs", name: "Čeština", strings: &more::CS },
+    Language { code: "vi", name: "Tiếng Việt", strings: &more::VI },
+    Language { code: "id", name: "Bahasa Indonesia", strings: &more::ID },
+    Language { code: "hi", name: "हिन्दी", strings: &more::HI },
 ];
 
 /// The built-in language with this code, if Bach speaks it.
@@ -125,7 +134,8 @@ pub fn language(code: &str) -> Option<&'static Language> {
 /// Placeholders every text may use.
 pub const COMMON_PLACEHOLDERS: &[&str] = &["name", "version", "publisher"];
 /// Placeholders some texts fill in; harmless (left as is) elsewhere.
-pub const OTHER_PLACEHOLDERS: &[&str] = &["old_version", "path", "size", "free", "error", "description", "requirement", "task", "code"];
+pub const OTHER_PLACEHOLDERS: &[&str] =
+    &["old_version", "path", "size", "free", "error", "description", "requirement", "task", "code", "files"];
 
 /// Picks the language to show: the first of the user's `preferred`
 /// languages (like `de-DE`, most preferred first) that the app `offers`,
@@ -142,9 +152,13 @@ pub fn pick(offers: &[String], preferred: &[String]) -> &'static Language {
     for wanted in preferred {
         let wanted = wanted.trim().replace('_', "-").to_ascii_lowercase();
         let primary = wanted.split('-').next().unwrap_or_default();
-        let found = offers
-            .iter()
-            .find(|code| code.eq_ignore_ascii_case(&wanted))
+        // Chinese as written in Taiwan, Hong Kong and Macau (or any Hant tag) is
+        // Traditional; every other Chinese tag reads Simplified.
+        let traditional = primary == "zh" && wanted.split('-').skip(1).any(|part| matches!(part, "tw" | "hk" | "mo" | "hant"));
+        let found = traditional
+            .then(|| offers.iter().find(|code| code.eq_ignore_ascii_case("zh-tw")))
+            .flatten()
+            .or_else(|| offers.iter().find(|code| code.eq_ignore_ascii_case(&wanted)))
             .or_else(|| offers.iter().find(|code| code.eq_ignore_ascii_case(primary)))
             .and_then(|code| language(code));
         if let Some(found) = found {
@@ -263,11 +277,33 @@ mod tests {
     }
 
     #[test]
+    fn chinese_follows_how_it_is_written() {
+        let all: Vec<String> = Vec::new();
+        let pick_for = |tag: &str| pick(&all, &[tag.to_string()]).code;
+        for tag in ["zh-TW", "zh-HK", "zh-MO", "zh-Hant", "zh-Hant-TW", "zh_tw"] {
+            assert_eq!(pick_for(tag), "zh-tw", "{tag}");
+        }
+        for tag in ["zh", "zh-CN", "zh-SG", "zh-Hans", "zh-Hans-CN"] {
+            assert_eq!(pick_for(tag), "zh", "{tag}");
+        }
+        // An app that offers only one of them still speaks Chinese to both.
+        let only_simplified = vec!["en".to_string(), "zh".to_string()];
+        assert_eq!(pick(&only_simplified, &["zh-TW".to_string()]).code, "zh");
+        let only_traditional = vec!["en".to_string(), "zh-tw".to_string()];
+        assert_eq!(pick(&only_traditional, &["zh-CN".to_string()]).code, "en", "Simplified isn't offered: next best is the app's first");
+        assert_eq!(language("ZH-tw").unwrap().name, "繁體中文");
+    }
+
+    #[test]
     fn languages_are_picked_like_windows_would() {
         assert_eq!(pick(&[], &codes(&["de-DE"])).code, "de");
         assert_eq!(pick(&[], &codes(&["pt-BR", "en-US"])).code, "pt");
-        assert_eq!(pick(&[], &codes(&["sv-SE", "fr-FR"])).code, "fr");
-        assert_eq!(pick(&[], &codes(&["sv-SE"])).code, "en");
+        // The newer languages are picked by their Windows tags like the rest.
+        for (tag, code) in [("sv-SE", "sv"), ("cs-CZ", "cs"), ("vi-VN", "vi"), ("id-ID", "id"), ("hi-IN", "hi")] {
+            assert_eq!(pick(&[], &codes(&[tag, "en-US"])).code, code, "{tag}");
+        }
+        assert_eq!(pick(&[], &codes(&["da-DK", "fr-FR"])).code, "fr");
+        assert_eq!(pick(&[], &codes(&["da-DK"])).code, "en");
         // An app that only speaks German speaks German to everyone.
         assert_eq!(pick(&codes(&["de"]), &codes(&["en-US"])).code, "de");
         assert_eq!(pick(&codes(&["fr", "de"]), &codes(&["de-AT"])).code, "de");

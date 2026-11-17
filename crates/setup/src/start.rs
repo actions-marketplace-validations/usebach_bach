@@ -20,6 +20,20 @@ pub struct Start {
     pub downgrade: bool,
 }
 
+/// Why `--repair` can't go on, or None when it can: repair writes back what is
+/// missing or changed of the version that is installed, so that version has to
+/// be this setup file's own.
+pub fn repair_problem(manifest: &Manifest, start: &Start) -> Option<String> {
+    match &start.existing {
+        None => Some(format!("{} isn't installed, so there is nothing to repair. Run this setup file without --repair to install it.", manifest.app.name)),
+        Some(installed) if installed.version != manifest.app.version => Some(format!(
+            "{} {} is installed, but this setup file is version {}. --repair needs the setup file of the installed version; run this one without --repair to update.",
+            manifest.app.name, installed.version, manifest.app.version
+        )),
+        Some(_) => None,
+    }
+}
+
 /// The requirements this computer doesn't meet yet, by index.
 pub fn missing_requirements(manifest: &Manifest) -> Vec<usize> {
     manifest
@@ -33,10 +47,7 @@ pub fn missing_requirements(manifest: &Manifest) -> Vec<usize> {
 
 pub fn install(manifest: &Manifest) -> Start {
     let existing = system::installed(manifest);
-    let dir = existing
-        .as_ref()
-        .map(|installed| installed.dir.clone())
-        .unwrap_or_else(|| system::default_install_dir(manifest));
+    let dir = existing.as_ref().map(|installed| installed.dir.clone()).unwrap_or_else(|| system::default_install_dir(manifest));
     let previous = existing.as_ref().and_then(|_| work::previous_install(&dir, manifest));
     let choices = match &previous {
         Some(previous) => {

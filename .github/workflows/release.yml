@@ -72,8 +72,14 @@ jobs:
       github.triggering_actor == 'leifiyoo'
     runs-on: windows-latest
     timeout-minutes: 120
+    # id-token and attestations: the signed provenance of the files below.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     outputs:
       version: ${{ steps.version.outputs.version }}
+      runtime_sha256: ${{ steps.build.outputs.runtime_sha256 }}
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -123,16 +129,20 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Build the download and the example installer
+        id: build
         shell: pwsh
         run: |
           ./scripts/build-release.ps1
+          # The runtime to publish is the one this bach has the hash of built in.
+          $runtimeHash = $env:BACH_RUNTIME_SHA256
           ./scripts/build-example.ps1
           $zip = "dist/bach-${{ steps.version.outputs.version }}-windows-x64.zip"
           if (-not (Test-Path $zip)) { throw "The zip wasn't built." }
           $example = "dist/Hello-Setup-1.0.0.exe"
           if (-not (Test-Path $example)) { throw "The example installer wasn't built." }
           $runtime = "dist/bach-setup.exe"
-          Copy-Item target/release/bach-setup.exe $runtime
+          if ((Get-FileHash -Algorithm SHA256 $runtime).Hash.ToLower() -ne $runtimeHash) { throw 'dist/bach-setup.exe is not the runtime bach was built for.' }
+          "runtime_sha256=$runtimeHash" >> $env:GITHUB_OUTPUT
           foreach ($file in @($zip, $example, $runtime)) {
             $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
             "$hash  $(Split-Path -Leaf $file)" | Set-Content -NoNewline "$file.sha256"
@@ -145,6 +155,15 @@ jobs:
           $scoop.hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
           ($scoop | ConvertTo-Json -Depth 5) + "`n" | Set-Content -NoNewline -Encoding utf8NoBOM scoop/bach.json
 
+      - name: List what each program is built from (SBOM)
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          bun scripts/sbom.mjs bach-cli "dist/bach-$version-sbom-cli.cdx.json"
+          if ($LASTEXITCODE -ne 0) { throw "The bach SBOM wasn't written." }
+          bun scripts/sbom.mjs bach-setup "dist/bach-$version-sbom-setup.cdx.json" --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "The bach-setup SBOM wasn't written." }
+
       - name: Keep the dry run's files
         if: inputs.dry_run
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -154,8 +173,28 @@ jobs:
             dist/*.zip
             dist/*.exe
             dist/*.sha256
+            dist/*.cdx.json
             dist/release-notes.md
             CHANGELOG.md
+
+      # A signed statement, kept by GitHub, of which commit and workflow built
+      # each file: `gh attestation verify FILE --repo usebach/bach`.
+      - name: Attest where the files come from
+        if: ${{ !inputs.dry_run }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/bach-${{ steps.version.outputs.version }}-windows-x64.zip
+            dist/bach-setup.exe
+            dist/Hello-Setup-1.0.0.exe
+            dist/bach-${{ steps.version.outputs.version }}-sbom-*.cdx.json
+
+      - name: Attach the bach-setup SBOM to the runtime
+        if: ${{ !inputs.dry_run }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/bach-setup.exe
+          sbom-path: dist/bach-${{ steps.version.outputs.version }}-sbom-setup.cdx.json
 
       - name: Commit and tag the release
         if: ${{ !inputs.dry_run }}
@@ -196,6 +235,8 @@ jobs:
             "dist/bach-setup.exe.sha256" `
             "dist/Hello-Setup-1.0.0.exe" `
             "dist/Hello-Setup-1.0.0.exe.sha256" `
+            "dist/bach-$version-sbom-cli.cdx.json" `
+            "dist/bach-$version-sbom-setup.cdx.json" `
             --title "Bach $version" `
             --notes-file dist/release-notes.md `
             @flags
@@ -226,6 +267,10 @@ jobs:
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -242,6 +287,9 @@ jobs:
 
       - name: Build and pack bach
         shell: bash
+        env:
+          # The published runtime's hash, so this bach accepts only that file.
+          BACH_RUNTIME_SHA256: ${{ needs.release.outputs.runtime_sha256 }}
         run: |
           cargo build --release -p bach-cli --target ${{ matrix.target }}
           name="bach-${{ needs.release.outputs.version }}-${{ matrix.name }}"
@@ -249,6 +297,11 @@ jobs:
           cp "target/${{ matrix.target }}/release/bach" LICENSE "dist/$name/"
           tar -czf "dist/$name.tar.gz" -C dist "$name"
           (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
+
+      - name: Attest where it comes from
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/bach-${{ needs.release.outputs.version }}-${{ matrix.name }}.tar.gz
 
       - name: Add it to the release
         shell: bash
@@ -265,6 +318,10 @@ jobs:
     if: ${{ !inputs.dry_run }}
     runs-on: windows-11-arm
     timeout-minutes: 120
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -280,6 +337,9 @@ jobs:
       - name: Build and pack bach
         shell: pwsh
         run: |
+          cargo build --release -p bach-setup
+          if ($LASTEXITCODE -ne 0) { throw 'The ARM64 runtime build failed.' }
+          $env:BACH_RUNTIME_SHA256 = (Get-FileHash -Algorithm SHA256 target/release/bach-setup.exe).Hash.ToLower()
           cargo build --release -p bach-cli -p bach-setup
           if ($LASTEXITCODE -ne 0) { throw 'The ARM64 build failed.' }
           $name = "bach-${{ needs.release.outputs.version }}-windows-arm64"
@@ -288,6 +348,11 @@ jobs:
           Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
           $hash = (Get-FileHash -Algorithm SHA256 "dist/$name.zip").Hash.ToLower()
           "$hash  $name.zip" | Set-Content -NoNewline "dist/$name.zip.sha256"
+
+      - name: Attest where it comes from
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/bach-${{ needs.release.outputs.version }}-windows-arm64.zip
 
       - name: Add it to the release
         shell: pwsh
@@ -420,3 +485,45 @@ jobs:
             git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic" push --force origin "refs/tags/$tag"
             echo "$tag now points at v$VERSION"
           done
+
+  # Opens the pull request that moves Bach's winget listing to this release,
+  # with Microsoft's wingetcreate. It runs only for a normal release (not a
+  # pre-release or draft), and only when two things are set in the
+  # repository: the secret WINGET_TOKEN (a classic token with public_repo
+  # scope, for a fork of microsoft/winget-pkgs) and the variable
+  # WINGET_PACKAGE (the package id, like Publisher.Bach). The package has to
+  # be listed already: wingetcreate updates a listing, the first one is made
+  # by hand. Without them the job says so and passes.
+  winget:
+    name: Update winget
+    needs: [release, cli, windows-arm64]
+    if: ${{ !inputs.dry_run && !inputs.prerelease && !inputs.draft }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+      PACKAGE: ${{ vars.WINGET_PACKAGE }}
+      HAS_TOKEN: ${{ secrets.WINGET_TOKEN != '' }}
+    steps:
+      - name: Say so when winget isn't set up
+        if: ${{ env.HAS_TOKEN != 'true' || env.PACKAGE == '' }}
+        shell: pwsh
+        run: |
+          Write-Host "::notice::winget was not updated. Set the WINGET_TOKEN secret and the WINGET_PACKAGE variable to open the pull request for v$env:VERSION."
+
+      - name: Open the pull request
+        if: ${{ env.HAS_TOKEN == 'true' && env.PACKAGE != '' }}
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          # A pinned version of Microsoft's tool, checked before it runs.
+          $url = 'https://github.com/microsoft/winget-create/releases/download/v1.28.1.0/wingetcreate.exe'
+          Invoke-WebRequest -Uri $url -OutFile wingetcreate.exe
+          $hash = (Get-FileHash -Algorithm SHA256 wingetcreate.exe).Hash.ToLower()
+          if ($hash -ne '63d980ba79e97042395bd6eb5992c2db9e01e9e7a8a22958a95c288f27310413') { throw "wingetcreate.exe isn't the expected file ($hash)." }
+          $zip = "https://github.com/${{ github.repository }}/releases/download/v$env:VERSION/bach-$env:VERSION-windows-x64.zip"
+          ./wingetcreate.exe update $env:PACKAGE --version $env:VERSION --urls "$zip" --submit --token $env:WINGET_TOKEN
+          if ($LASTEXITCODE -ne 0) { throw "wingetcreate couldn't open the pull request." }

@@ -6,7 +6,7 @@ description: Build a modern Windows installer (Setup.exe) for any desktop app wi
 # Bach: Windows installers from one bach.toml
 
 Bach turns a folder with an app into one `Setup.exe`: a calm, native-looking
-install window (light and dark, 13 languages, follows Windows' language), a
+install window (light and dark, 19 languages, follows Windows' language), a
 built-in updater (a newer setup over an install updates it in place) and a
 clean uninstaller in Settings › Apps. Installs are per user by default, so
 there is no administrator prompt; `installer.scope = "machine"` installs for
@@ -64,13 +64,16 @@ next to it (DLLs, resources). Find or produce that folder first, for example:
 | Electron (electron-builder / forge) | `dist/win-unpacked` or `out/<name>-win32-x64` |
 | Tauri | copy `src-tauri/target/release/<app>.exe` (and any resources) into a folder |
 | .NET | `dotnet publish -c Release -r win-x64 --self-contained` output (`bin/Release/<tfm>/win-x64/publish`) |
-| Go | a folder with the built `.exe` |
+| Go with Wails | `build/bin` |
+| Go (other) | a folder with the built `.exe` |
+| Flutter | `build/windows/x64/runner/Release` |
 | PyInstaller | `dist/<name>` (one-folder mode) |
+| Qt | the folder `windeployqt` filled, often `build/Release` |
 
 ## 3. Write bach.toml
 
 Run `bach init` (it won't overwrite an existing file). In a Rust, Tauri,
-Electron or .NET project it fills in name, version, publisher, the program,
+Wails, Electron, .NET, Flutter, PyInstaller or Qt project it fills in name, version, publisher, the program,
 the build folder, leftovers to exclude and needed runtimes (WebView2, .NET)
 from the project's own files; check them, then edit. Minimal by hand:
 
@@ -84,6 +87,7 @@ executable = "my-app.exe"        # relative to [files] source
 [files]
 source = "build"                 # relative to bach.toml
 exclude = ["*.pdb"]
+# allow_secrets = [".env"]   # only for a file that looks like a secret but must ship
 ```
 
 In a git checkout whose `origin` is on GitHub, `bach init` also wrote
@@ -114,7 +118,7 @@ icon = "assets/app.ico"                   # setup file icon; also the logo if it
 [installer]
 accent = "#2563eb"
 logo = "assets/logo.png"                  # .svg (one colour), .png, or "none"
-languages = ["en", "de"]                  # default: all 13; one entry = always that language
+languages = ["en", "de"]                  # default: all 19; one entry = always that language
 license = "LICENSE.txt"                   # accept page before installing
 # options: true (offered, ticked) | false (offered, unticked) | "always" | "never"
 desktop_shortcut = true
@@ -157,6 +161,7 @@ success_codes = [0, 3010]
 
 [access]                                  # private app: asks for a key, encrypts the files with it
 # The key is never written here: `bach key --out key.txt`, then `bach build --key-file key.txt`
+# (a key file with many lines = one setup file that each key opens; remove a line to revoke on the next build)
 # get_key_url = "https://example.com/buy"
 
 [updates]                                 # the installed app can update itself
@@ -165,9 +170,12 @@ github = "owner/repo"                     # from that repo's GitHub releases; or
 # download_url = "https://example.com/myapp/{file}"
 # auto = true                             # offer "Automatic updates" (false / "always" / "never")
 # mirrors = ["https://mirror.example/myapp/latest.json"]   # fallback feeds
+# public_key = "..."   # from `bach feed-key`: the app then accepts only feeds signed with it (BACH_FEED_KEY signs)
+# beta_feed = "https://.../latest-beta.json"   # beta channel: `uninstall.exe --channel beta|stable|show`
+# next_public_key = "..."   # to hand over to a new key: both are trusted (see docs/updates.md "Changing the key")
 
 [uninstall]
-data = ['%APPDATA%\My App']               # single quotes keep backslashes
+data = ['%APPDATA%\My App']               # single quotes keep backslashes; your own folder, never Documents or AppData itself
 data_description = "Your settings."
 feedback_url = "https://example.com/why"  # "Tell us why" after removing
 ```
@@ -190,6 +198,9 @@ bach preview --lang de --theme dark
 bach preview --uninstall
 bach build                 # writes dist/<name>-Setup-<version>.exe
 bach inspect dist/My\ App-Setup-1.0.0.exe
+# In scripts, add --json to check, build, inspect, feed, doctor or version: stdout is one
+# JSON object ({"ok", "setup", "version", "sha256", "size", "warnings", ...}),
+# never text to parse. Fields: schema/bach-output.schema.json.
 ```
 
 Treat every `warning:` line from `bach check` as something to fix or to
@@ -210,8 +221,9 @@ window speaks several).
   printed); 2 a flag mistake.
 - Silent flags: `--dir PATH`, `--with a,b`, `--without a,b` (ids:
   `desktop-shortcut`, `start-menu`, `autostart`, `path`, component ids),
-  `--lang de`, `--allow-downgrade`, `--log FILE`, and `--delete-data` for the
-  uninstaller.
+  `--lang de`, `--allow-downgrade`, `--overwrite` (a first install into a folder
+  that already holds files of the same names is refused without it), `--log FILE`,
+  and `--delete-data` for the uninstaller.
 - Every run logs to `%TEMP%\<app id>-setup.log`; read it when something
   fails instead of guessing.
 - In the Bach repository itself, `scripts\e2e.ps1` installs, updates and
@@ -272,6 +284,9 @@ window speaks several).
   the user's disk: for real protection check a license inside the app.
 - To list the app in winget: `bach winget SETUP.exe --url URL --license MIT`,
   then `winget validate` and a pull request to microsoft/winget-pkgs.
+- To make a Chocolatey package: `bach choco SETUP.exe --url URL --license MIT`,
+  then `choco pack` in the folder it writes (use `installer.scope = "machine"`,
+  since Chocolatey installs as an administrator).
 
 ## Troubleshooting
 

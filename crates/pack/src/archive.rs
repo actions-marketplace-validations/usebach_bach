@@ -14,11 +14,41 @@ use std::io::{self, BufReader, Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
+use sha2::{Digest, Sha256};
 
 use crate::paths;
 
 const FILE: u8 = b'F';
 const END: u8 = b'E';
+
+/// The memory budget for compressing when `installer.compression_memory`
+/// isn't set, in MiB.
+pub const DEFAULT_MEMORY_MIB: u32 = 1024;
+
+// What compressing costs, from measurements of a Release build on 300 MB of
+// mixed files (peak working set, in MiB). A level's memory grows with each
+// thread by about the per-thread figure and starts at about the base; the
+// estimate is on the high side on purpose, because the budget is a ceiling.
+//   best:   1 thread 291, 4 threads 714, 12 threads 961
+//   normal: 1 thread 156, 4 threads 299, 12 threads 443
+//   fast:   1 thread  83, 4 threads 140, 12 threads 268
+const MIB_PER_THREAD_BEST: u32 = 140;
+const MIB_BASE_BEST: u32 = 150;
+const MIB_PER_THREAD_NORMAL: u32 = 45;
+const MIB_BASE_NORMAL: u32 = 110;
+const MIB_PER_THREAD_FAST: u32 = 20;
+const MIB_BASE_FAST: u32 = 60;
+
+/// How many threads a build compresses with, and about how much memory that
+/// takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Plan {
+    pub threads: u32,
+    /// An estimate, in MiB, of what compressing takes besides reading files.
+    pub estimated_mib: u32,
+    /// Fewer threads than processor cores because of the memory budget.
+    pub limited_by_memory: bool,
+}
 
 /// How hard the builder compresses.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -41,6 +71,42 @@ impl Compression {
         }
     }
 
+    /// What compressing with this level costs, and so how many threads fit in
+    /// `memory_mib` of memory: `requested` threads when asked for (never more
+    /// than there are processor cores), otherwise as many as the memory budget
+    /// allows, at least one. One thread is always allowed, whatever the budget.
+    pub fn plan(self, requested: Option<u32>, memory_mib: u32) -> Plan {
+        let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as u32;
+        self.plan_for(requested, memory_mib, cores)
+    }
+
+    fn plan_for(self, requested: Option<u32>, memory_mib: u32, cores: u32) -> Plan {
+        let per_thread = self.mib_per_thread();
+        let fits = (memory_mib.saturating_sub(self.mib_base()) / per_thread).max(1);
+        let threads = match requested {
+            Some(requested) => requested.clamp(1, cores.max(1)),
+            None => fits.min(cores.max(1)),
+        };
+        Plan { threads, estimated_mib: self.mib_base() + per_thread * threads, limited_by_memory: requested.is_none() && fits < cores }
+    }
+
+    /// Memory one compression thread needs besides the shared part, in MiB.
+    fn mib_per_thread(self) -> u32 {
+        match self {
+            Self::Best => MIB_PER_THREAD_BEST,
+            Self::Normal => MIB_PER_THREAD_NORMAL,
+            Self::Fast => MIB_PER_THREAD_FAST,
+        }
+    }
+
+    fn mib_base(self) -> u32 {
+        match self {
+            Self::Best => MIB_BASE_BEST,
+            Self::Normal => MIB_BASE_NORMAL,
+            Self::Fast => MIB_BASE_FAST,
+        }
+    }
+
     fn level(self) -> i32 {
         match self {
             Self::Best => 19,
@@ -60,28 +126,41 @@ pub struct Source {
 
 /// Compresses `sources` into `out`, calling `progress` with the bytes read
 /// so far. Returns `out` once the stream is finished.
-pub fn write<W: Write>(
+pub fn write<W: Write>(out: W, sources: &[Source], compression: Compression, progress: &mut dyn FnMut(u64)) -> Result<W> {
+    let threads = compression.plan(None, DEFAULT_MEMORY_MIB).threads;
+    write_hashed(out, sources, compression, threads, progress).map(|(out, _)| out)
+}
+
+/// Like [`write`], and also gives the SHA-256 (hex) of every source file's
+/// bytes, in the order of `sources`. The hash is taken from the very bytes
+/// that go into the archive, so the build reads each file once, not twice.
+///
+/// `threads` is how many compression threads to use (see [`Compression::plan`]).
+/// It only changes how fast and how big in memory the build is: the bytes are
+/// the same for every number, so a build gives the same setup file on any
+/// computer.
+pub fn write_hashed<W: Write>(
     out: W,
     sources: &[Source],
     compression: Compression,
+    threads: u32,
     progress: &mut dyn FnMut(u64),
-) -> Result<W> {
+) -> Result<(W, Vec<String>)> {
     let mut encoder = zstd::stream::Encoder::new(out, compression.level())?;
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()) as u32;
     // Multithreading only changes speed, never the format; ignore a build
     // of zstd without it.
     let _ = encoder.multithread(threads);
     encoder.include_checksum(true)?;
 
     let mut done = 0u64;
+    let mut hashes = Vec::with_capacity(sources.len());
     for source in sources {
         let packaged = paths::normalize(&source.packaged)?;
         let name = packaged.as_bytes();
         let Ok(name_len) = u16::try_from(name.len()) else {
             bail!("\"{packaged}\" is too long a path to package");
         };
-        let mut file = File::open(&source.path)
-            .with_context(|| format!("couldn't open {}", source.path.display()))?;
+        let mut file = File::open(&source.path).with_context(|| format!("couldn't open {}", source.path.display()))?;
         let size = file.metadata()?.len();
         if size != source.size {
             bail!("{} changed size while it was being packaged", source.path.display());
@@ -90,7 +169,8 @@ pub fn write<W: Write>(
         encoder.write_all(&name_len.to_le_bytes())?;
         encoder.write_all(name)?;
         encoder.write_all(&size.to_le_bytes())?;
-        let copied = copy_counting(&mut file, &mut encoder, &mut |n| {
+        let mut hasher = Sha256::new();
+        let copied = copy_with(&mut file, &mut encoder, Some(&mut hasher), &mut |n| {
             done = done.saturating_add(n);
             progress(done);
         })
@@ -98,18 +178,16 @@ pub fn write<W: Write>(
         if copied != size {
             bail!("{} changed size while it was being packaged", source.path.display());
         }
+        hashes.push(crate::protect::hex(&hasher.finalize()));
     }
     encoder.write_all(&[END])?;
-    Ok(encoder.finish()?)
+    Ok((encoder.finish()?, hashes))
 }
 
 /// Reads an archive front to back, handing each file to `visit` with its
 /// packaged path, its size and a reader over exactly its bytes. Whatever
 /// `visit` leaves unread is skipped.
-pub fn read<R: Read>(
-    input: R,
-    visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -> Result<()>,
-) -> Result<()> {
+pub fn read<R: Read>(input: R, visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -> Result<()>) -> Result<()> {
     let mut decoder = zstd::stream::Decoder::new(BufReader::new(input))?;
     loop {
         let mut kind = [0u8; 1];
@@ -142,11 +220,12 @@ pub fn read<R: Read>(
 }
 
 /// `io::copy` that reports each chunk as it goes.
-pub fn copy_counting(
-    from: &mut dyn Read,
-    to: &mut dyn Write,
-    progress: &mut dyn FnMut(u64),
-) -> io::Result<u64> {
+pub fn copy_counting(from: &mut dyn Read, to: &mut dyn Write, progress: &mut dyn FnMut(u64)) -> io::Result<u64> {
+    copy_with(from, to, None, progress)
+}
+
+/// [`copy_counting`] that can also feed a hasher with the very bytes it copies.
+fn copy_with(from: &mut dyn Read, to: &mut dyn Write, mut hasher: Option<&mut Sha256>, progress: &mut dyn FnMut(u64)) -> io::Result<u64> {
     let mut buffer = vec![0u8; 256 * 1024];
     let mut total = 0u64;
     loop {
@@ -157,6 +236,9 @@ pub fn copy_counting(
             Err(err) => return Err(err),
         };
         to.write_all(&buffer[..read])?;
+        if let Some(hasher) = hasher.as_mut() {
+            hasher.update(&buffer[..read]);
+        }
         total = total.saturating_add(read as u64);
         progress(read as u64);
     }
@@ -190,8 +272,13 @@ mod tests {
             .collect();
 
         let mut last = 0;
-        let bytes = write(Vec::new(), &sources, Compression::Fast, &mut |done| last = done).unwrap();
+        let (bytes, hashes) = write_hashed(Vec::new(), &sources, Compression::Fast, 2, &mut |done| last = done).unwrap();
         assert_eq!(last, big.len() as u64 + 5);
+        // One checksum per file, of exactly the file's bytes (the SHA-256 of "hello" and of nothing).
+        assert_eq!(hashes.len(), 3);
+        assert_eq!(hashes[0], crate::protect::sha256_hex(big.as_slice()).unwrap());
+        assert_eq!(hashes[1], "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        assert_eq!(hashes[2], "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
         assert!(bytes.len() < big.len() / 10, "the pattern should compress");
 
         let mut seen = Vec::new();
@@ -208,6 +295,58 @@ mod tests {
         assert_eq!(seen[0].1, big);
         assert_eq!(seen[1].1, b"hello");
         assert!(seen[2].1.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_memory_budget_decides_how_many_threads_compress() {
+        // A 12-core computer with the default 1 GiB: "best" is held back, the others aren't.
+        let best = Compression::Best.plan_for(None, DEFAULT_MEMORY_MIB, 12);
+        assert_eq!(best.threads, 6);
+        assert!(best.limited_by_memory && best.estimated_mib <= DEFAULT_MEMORY_MIB, "{best:?}");
+        assert_eq!(Compression::Normal.plan_for(None, DEFAULT_MEMORY_MIB, 12).threads, 12);
+        assert_eq!(Compression::Fast.plan_for(None, DEFAULT_MEMORY_MIB, 12).threads, 12);
+        // A small container: one thread, never none, whatever the budget.
+        assert_eq!(Compression::Best.plan_for(None, 64, 12).threads, 1);
+        assert_eq!(Compression::Best.plan_for(None, 2048, 2).threads, 2);
+        assert!(!Compression::Best.plan_for(None, 2048, 2).limited_by_memory);
+        // A bigger budget lets all cores work.
+        assert_eq!(Compression::Best.plan_for(None, 4096, 12).threads, 12);
+        // Asking for a number wins over the budget, but not over the cores.
+        assert_eq!(Compression::Best.plan_for(Some(3), 64, 12).threads, 3);
+        assert_eq!(Compression::Best.plan_for(Some(99), 4096, 8).threads, 8);
+        assert_eq!(Compression::Best.plan_for(Some(0), 4096, 8).threads, 1);
+    }
+
+    #[test]
+    fn the_archive_is_the_same_whatever_the_number_of_threads() {
+        // Larger than one compression job, so the threads really split the work.
+        let dir = temp_dir("threads");
+        let mut state = 12345u32;
+        let data: Vec<u8> = (0..12_000_000u32)
+            .map(|i| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                // Half noise, half pattern: something for the compressor to do.
+                if i % 2 == 0 {
+                    (state >> 24) as u8
+                } else {
+                    (i % 97) as u8
+                }
+            })
+            .collect();
+        std::fs::write(dir.join("big.bin"), &data).unwrap();
+        std::fs::write(dir.join("small.txt"), b"small").unwrap();
+        let sources = vec![
+            Source { packaged: "big.bin".into(), path: dir.join("big.bin"), size: data.len() as u64 },
+            Source { packaged: "small.txt".into(), path: dir.join("small.txt"), size: 5 },
+        ];
+        for level in [Compression::Fast, Compression::Normal] {
+            let make = |threads| write_hashed(Vec::new(), &sources, level, threads, &mut |_| {}).unwrap().0;
+            let one = make(1);
+            assert_eq!(one, make(2), "{level:?}: 1 and 2 threads");
+            assert_eq!(one, make(7), "{level:?}: 1 and 7 threads");
+            assert_eq!(one, make(1), "{level:?}: and again");
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

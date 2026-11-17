@@ -10,6 +10,13 @@
     "files"
   ],
   "properties": {
+    "config_version": {
+      "type": "integer",
+      "enum": [
+        1
+      ],
+      "description": "The version of the bach.toml format this file is written for. Optional; left out means the current one."
+    },
     "app": {
       "type": "object",
       "additionalProperties": false,
@@ -71,6 +78,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "allow_secrets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Patterns for files that look like secrets (.env, keys, .git, bach.toml) but are meant to ship."
         }
       }
     },
@@ -120,6 +134,18 @@
             "fast"
           ]
         },
+        "compression_threads": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256,
+          "description": "How many threads compress the files. Default: as many as the memory budget allows, up to the number of processor cores. The setup file is the same whatever the number."
+        },
+        "compression_memory": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 65536,
+          "description": "The memory budget for compressing, in MiB (default 1024). It limits the number of threads; one thread is always used."
+        },
         "languages": {
           "type": "array",
           "items": {
@@ -136,7 +162,13 @@
               "tr",
               "ja",
               "ko",
-              "zh"
+              "zh",
+              "zh-tw",
+              "sv",
+              "cs",
+              "vi",
+              "id",
+              "hi"
             ]
           },
           "minItems": 1,
@@ -163,7 +195,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -291,7 +329,13 @@
                     "tr",
                     "ja",
                     "ko",
-                    "zh"
+                    "zh",
+                    "zh-tw",
+                    "sv",
+                    "cs",
+                    "vi",
+                    "id",
+                    "hi"
                   ]
                 },
                 "additionalProperties": {
@@ -323,7 +367,13 @@
                     "tr",
                     "ja",
                     "ko",
-                    "zh"
+                    "zh",
+                    "zh-tw",
+                    "sv",
+                    "cs",
+                    "vi",
+                    "id",
+                    "hi"
                   ]
                 },
                 "additionalProperties": {
@@ -503,6 +553,13 @@
           "elevated": {
             "type": "boolean",
             "description": "Run this step with administrator rights: Windows asks once when it starts."
+          },
+          "timeout_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120,
+            "default": 15,
+            "description": "Minutes before setup ends the step and everything it started. 15 by default, 120 at most."
           }
         }
       }
@@ -540,6 +597,14 @@
               "integer"
             ],
             "description": "The data. {app} stands for the install folder."
+          },
+          "view": {
+            "enum": [
+              "64",
+              "32",
+              "both"
+            ],
+            "description": "Which registry view on a 64-bit Windows: 64 (default), 32 (what a 32-bit program reads, WOW6432Node under HKLM) or both."
           }
         }
       }
@@ -557,11 +622,16 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Letters, digits and _. Names Windows uses (PATH, TEMP, ...) are refused."
+            "description": "Letters, digits and _, starting with the app id in capitals (Hello gives HELLO_) unless allow is true. Names Windows uses (PATH, TEMP, ...) and variables that inject code or redirect traffic (COR_PROFILER, NODE_OPTIONS, HTTPS_PROXY, ...) are refused."
           },
           "value": {
             "type": "string",
             "description": "The value. {app} stands for the install folder."
+          },
+          "allow": {
+            "type": "boolean",
+            "default": false,
+            "description": "Lets the name differ from the app id prefix. bach check warns about it."
           }
         }
       }
@@ -681,6 +751,26 @@
               ]
             }
           ]
+        },
+        "public_key": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$",
+          "description": "The publisher's Ed25519 public key (bach feed-key makes one). With it, the installed app accepts only feed entries signed with the private key, whichever host or mirror served them."
+        },
+        "next_public_key": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$",
+          "description": "A second Ed25519 public key that is trusted too, to hand over to a new key (needs public_key): entries signed with either key are accepted."
+        },
+        "beta_feed": {
+          "type": "string",
+          "pattern": "^https://",
+          "description": "The https link of the beta channel's feed. An installation that chose beta versions (uninstall.exe --channel beta) asks this feed instead of feed and mirrors. The same keys and signer apply."
+        },
+        "signer": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "The publisher a downloaded update has to be signed by (Authenticode): the common name or organisation of the signing certificate, like Example Inc., or its whole subject (CN=..., O=..., L=..., C=...), which has to match exactly. An update that is unsigned, not valid for Windows or signed by anyone else is refused."
         }
       }
     },
@@ -710,7 +800,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -742,7 +838,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -774,7 +876,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -806,7 +914,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -838,7 +952,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -870,7 +990,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -902,7 +1028,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -934,7 +1066,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -966,7 +1104,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -998,7 +1142,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1030,7 +1180,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1062,7 +1218,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1094,7 +1256,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1126,7 +1294,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1158,7 +1332,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1190,7 +1370,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1222,7 +1408,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1254,7 +1446,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1286,7 +1484,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1318,7 +1522,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1350,7 +1560,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1382,7 +1598,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1414,7 +1636,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1446,7 +1674,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1478,7 +1712,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1510,7 +1750,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1542,7 +1788,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1574,7 +1826,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1606,7 +1864,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1638,7 +1902,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1670,7 +1940,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1702,7 +1978,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1734,7 +2016,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1766,7 +2054,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1798,7 +2092,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1830,7 +2130,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1862,7 +2168,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1894,7 +2206,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1926,7 +2244,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1958,7 +2282,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -1990,7 +2320,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2022,7 +2358,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2054,7 +2396,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2086,7 +2434,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2118,7 +2472,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2150,7 +2510,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2182,7 +2548,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2214,7 +2586,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2246,7 +2624,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2278,7 +2662,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2310,7 +2700,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2342,7 +2738,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2374,7 +2776,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2406,7 +2814,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2438,7 +2852,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2470,7 +2890,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2502,7 +2928,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2534,7 +2966,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2566,7 +3004,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2598,7 +3042,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2630,7 +3080,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2662,7 +3118,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2694,7 +3156,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2726,7 +3194,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2758,7 +3232,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2790,7 +3270,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2822,7 +3308,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2854,7 +3346,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2886,7 +3384,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2918,7 +3422,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2950,7 +3460,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -2982,7 +3498,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3014,7 +3536,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3046,7 +3574,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3078,7 +3612,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3110,7 +3650,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3142,7 +3688,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3174,7 +3726,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3206,7 +3764,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3238,7 +3802,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3270,7 +3840,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3302,7 +3878,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3334,7 +3916,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3366,7 +3954,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3398,7 +3992,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3430,7 +4030,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3462,7 +4068,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3494,7 +4106,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3526,7 +4144,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3558,7 +4182,127 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "support_save": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "support_saved": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "support_failed": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3590,7 +4334,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3622,7 +4372,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3654,7 +4410,51 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "requirement_skip": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3686,7 +4486,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3718,7 +4524,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3750,7 +4562,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3782,7 +4600,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3814,7 +4638,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3846,7 +4676,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3878,7 +4714,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3910,7 +4752,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3942,7 +4790,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -3974,7 +4828,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -4006,7 +4866,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -4038,7 +4904,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -4070,7 +4942,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -4102,7 +4980,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -4134,7 +5018,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -4166,7 +5056,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -4198,7 +5094,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -4230,7 +5132,127 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "overwrite_title": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "overwrite_subtitle": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "error_unsafe_folder": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {
@@ -4275,7 +5297,13 @@
                   "tr",
                   "ja",
                   "ko",
-                  "zh"
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
                 ]
               },
               "additionalProperties": {

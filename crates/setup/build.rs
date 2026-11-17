@@ -45,11 +45,7 @@ fn embed() {
 fn resource_script(icon: &str, version: &str) -> String {
     // rc string literals use C escapes, so backslashes double.
     let icon = icon.replace('\\', "\\\\");
-    let numbers: Vec<u16> = version
-        .split(['.', '-', '+'])
-        .take(3)
-        .map(|part| part.parse().unwrap_or(0))
-        .collect();
+    let numbers: Vec<u16> = version.split(['.', '-', '+']).take(3).map(|part| part.parse().unwrap_or(0)).collect();
     let number = |index: usize| numbers.get(index).copied().unwrap_or(0);
     let binary = format!("{},{},{},0", number(0), number(1), number(2));
     format!(

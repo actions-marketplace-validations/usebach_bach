@@ -15,8 +15,10 @@
 //! - [`changes`]: registry values, environment variables and right-click entries.
 //! - [`secret`]: an app's access key, sealed for this Windows user.
 
+pub mod acl;
 pub mod apps;
 pub mod changes;
+pub mod channel;
 pub mod elevate;
 pub mod env_path;
 pub mod folders;
@@ -30,14 +32,15 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Context, Result};
 use bach_pack::manifest::{Manifest, Scope, UNINSTALLER};
 use windows::core::{Interface, GUID, HSTRING};
+use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
+use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IPersistFile,
-    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+    CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
 };
+use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 use windows::Win32::UI::Shell::{
-    FOLDERID_CommonPrograms, FOLDERID_Desktop, FOLDERID_ProgramFiles, FOLDERID_Programs, FOLDERID_PublicDesktop,
-    FOLDERID_UserProgramFiles, IShellLinkW, SHChangeNotify,
-    SHGetKnownFolderPath, ShellLink, KF_FLAG_DEFAULT, SHCNE_ASSOCCHANGED, SHCNF_IDLIST,
+    FOLDERID_CommonPrograms, FOLDERID_Desktop, FOLDERID_ProgramFiles, FOLDERID_Programs, FOLDERID_PublicDesktop, FOLDERID_UserProgramFiles,
+    IShellLinkW, SHChangeNotify, SHGetKnownFolderPath, ShellLink, KF_FLAG_DEFAULT, SHCNE_ASSOCCHANGED, SHCNF_IDLIST,
 };
 use windows_registry::{Key, CURRENT_USER, LOCAL_MACHINE};
 
@@ -67,10 +70,7 @@ pub fn installed(manifest: &Manifest) -> Option<Installed> {
     let key = hive(manifest).open(uninstall_key(manifest)).ok()?;
     let dir = PathBuf::from(key.get_string("InstallLocation").ok()?);
     let version = key.get_string("DisplayVersion").unwrap_or_default();
-    manifest
-        .executable_in(&dir)
-        .is_file()
-        .then_some(Installed { dir, version })
+    manifest.executable_in(&dir).is_file().then_some(Installed { dir, version })
 }
 
 /// `%LOCALAPPDATA%\Programs\<folder>`, where per-user apps go, or
@@ -82,11 +82,7 @@ pub fn default_install_dir(manifest: &Manifest) -> PathBuf {
         Scope::Machine => (&FOLDERID_ProgramFiles, "ProgramFiles", ""),
     };
     known_folder(id)
-        .or_else(|_| {
-            std::env::var_os(variable)
-                .map(|base| PathBuf::from(base).join(below))
-                .ok_or_else(|| anyhow!("{variable} isn't set"))
-        })
+        .or_else(|_| std::env::var_os(variable).map(|base| PathBuf::from(base).join(below)).ok_or_else(|| anyhow!("{variable} isn't set")))
         .map(|programs| programs.join(folder))
         .unwrap_or_else(|_| PathBuf::from(r"C:\").join(folder))
 }
@@ -94,10 +90,7 @@ pub fn default_install_dir(manifest: &Manifest) -> PathBuf {
 /// A shortcut's file name: `name`, minus anything Windows doesn't allow in
 /// a file name (or the app id, if nothing is left).
 fn link_name(name: &str, fallback: &str) -> String {
-    let name: String = name
-        .chars()
-        .map(|c| if r#"<>:"/\|?*"#.contains(c) || c.is_control() { ' ' } else { c })
-        .collect();
+    let name: String = name.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) || c.is_control() { ' ' } else { c }).collect();
     let name = name.trim().trim_end_matches('.');
     let name = if name.is_empty() { fallback } else { name };
     format!("{name}.lnk")
@@ -130,11 +123,7 @@ pub fn extra_shortcuts(manifest: &Manifest) -> Vec<(PathBuf, &bach_pack::manifes
     let Ok(folder) = start_menu_folder(manifest) else {
         return Vec::new();
     };
-    manifest
-        .shortcuts
-        .iter()
-        .map(|shortcut| (folder.join(link_name(&shortcut.name, &manifest.app.id)), shortcut))
-        .collect()
+    manifest.shortcuts.iter().map(|shortcut| (folder.join(link_name(&shortcut.name, &manifest.app.id)), shortcut)).collect()
 }
 
 /// Where the desktop shortcut goes (the desktop may live in OneDrive).
@@ -146,25 +135,40 @@ pub fn desktop_shortcut(manifest: &Manifest) -> Result<PathBuf> {
     Ok(known_folder(desktop)?.join(shortcut_name(manifest)))
 }
 
+/// The current user's desktop folder (it may live in OneDrive).
+pub fn user_desktop() -> Result<PathBuf> {
+    known_folder(&FOLDERID_Desktop)
+}
+
 fn known_folder(id: &GUID) -> Result<PathBuf> {
     // Safety: the returned buffer is ours to free, which we do once it's
     // copied into a PathBuf.
     unsafe {
-        let raw = SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None)
-            .context("Windows didn't say where that folder is")?;
+        let raw = SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None).context("Windows didn't say where that folder is")?;
         let path = raw.to_string().map(PathBuf::from);
         CoTaskMemFree(Some(raw.0 as *const _));
         path.context("Windows returned a folder name that isn't valid text")
     }
 }
 
-/// Writes a `.lnk` at `link` that starts `target` in its own folder.
-pub fn create_shortcut(link: &Path, target: &Path, description: &str) -> Result<()> {
-    create_shortcut_with(link, target, None, description)
+/// The app's AppUserModelID: its app id, in the characters Windows allows
+/// (no spaces; at most 128). The shortcuts carry it, so the taskbar groups the
+/// windows of the app under them and notifications are traced back to the app.
+/// It never changes with the version, so an update keeps the grouping.
+pub fn app_user_model_id(manifest: &Manifest) -> String {
+    let id: String =
+        manifest.app.id.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '.' }).collect();
+    id.chars().take(128).collect()
+}
+
+/// Writes a `.lnk` at `link` that starts `target` in its own folder, carrying
+/// the app's AppUserModelID.
+pub fn create_shortcut(link: &Path, target: &Path, description: &str, app_id: &str) -> Result<()> {
+    create_shortcut_with(link, target, None, description, app_id)
 }
 
 /// [`create_shortcut`] with command-line arguments.
-pub fn create_shortcut_with(link: &Path, target: &Path, arguments: Option<&str>, description: &str) -> Result<()> {
+pub fn create_shortcut_with(link: &Path, target: &Path, arguments: Option<&str>, description: &str, app_id: &str) -> Result<()> {
     if let Some(parent) = link.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -182,6 +186,11 @@ pub fn create_shortcut_with(link: &Path, target: &Path, arguments: Option<&str>,
             shell_link.SetArguments(&HSTRING::from(arguments))?;
         }
         shell_link.SetIconLocation(&HSTRING::from(target.as_os_str()), 0)?;
+        if !app_id.is_empty() {
+            let store: IPropertyStore = shell_link.cast()?;
+            store.SetValue(&PKEY_AppUserModel_ID, &PROPVARIANT::from(app_id))?;
+            store.Commit()?;
+        }
         let file: IPersistFile = shell_link.cast()?;
         file.Save(&HSTRING::from(link.as_os_str()), true)?;
     }
@@ -249,5 +258,64 @@ impl Drop for ComThread {
             // Safety: this thread's own successful CoInitializeEx.
             unsafe { CoUninitialize() };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::core::BSTR;
+
+    fn manifest(id: &str) -> Manifest {
+        let json = format!(
+            r#"{{"format":1,"builder":"t","app":{{"id":"{id}","name":"Hello","version":"1.0.0","publisher":"P","executable":"hello.exe"}},
+            "install":{{"folder":"Hello","desktop_shortcut":true}},"uninstall":{{"data":[],"data_description":null}},
+            "look":{{"theme":"system","accent":null,"logo":null}},"files":[{{"path":"hello.exe","size":1}}]}}"#
+        );
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn the_id_is_made_of_what_windows_allows() {
+        assert_eq!(app_user_model_id(&manifest("Hello")), "Hello");
+        assert_eq!(app_user_model_id(&manifest("My App (beta)")), "My.App..beta.");
+        let long = "a".repeat(200);
+        assert_eq!(app_user_model_id(&manifest(&long)).len(), 128);
+        assert!(!app_user_model_id(&manifest("a b")).contains(' '));
+    }
+
+    /// What a shortcut says its AppUserModelID is, read back the way Explorer does.
+    fn read_back(link: &Path) -> Option<String> {
+        let _com = ComThread::enter();
+        // Safety: COM calls on interfaces we own, on a thread with COM initialised.
+        unsafe {
+            let shell_link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).ok()?;
+            let file: IPersistFile = shell_link.cast().ok()?;
+            file.Load(&HSTRING::from(link.as_os_str()), windows::Win32::System::Com::STGM_READ).ok()?;
+            let store: IPropertyStore = shell_link.cast().ok()?;
+            let value = store.GetValue(&PKEY_AppUserModel_ID).ok()?;
+            BSTR::try_from(&value).ok().map(|text| text.to_string())
+        }
+    }
+
+    #[test]
+    fn a_shortcut_carries_the_app_user_model_id() {
+        let dir = std::env::temp_dir().join(format!("bach-aumid-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("hello.exe");
+        std::fs::write(&target, b"MZ").unwrap();
+        let link = dir.join("Hello.lnk");
+        let id = app_user_model_id(&manifest("BachQA.Aumid Test"));
+        create_shortcut(&link, &target, "Says hello", &id).unwrap();
+        assert_eq!(read_back(&link).as_deref(), Some("BachQA.Aumid.Test"));
+        // An update writes the shortcut again with the same id.
+        create_shortcut(&link, &target, "Says hello", &id).unwrap();
+        assert_eq!(read_back(&link).as_deref(), Some("BachQA.Aumid.Test"));
+        // Without an id nothing is written.
+        let plain = dir.join("Plain.lnk");
+        create_shortcut(&plain, &target, "Says hello", "").unwrap();
+        assert_eq!(read_back(&plain).filter(|id| !id.is_empty()), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

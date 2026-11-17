@@ -16,10 +16,7 @@ use bach_pack::i18n::Key;
 use bach_pack::manifest::{Choice, Manifest, UNINSTALLER};
 use bach_pack::paths;
 
-use super::{
-    delete_after_exit, describe, failed, plain, remove_empty_parents, remove_file_if_present, remove_waiting, same_file,
-    Report,
-};
+use super::{delete_after_exit, describe, failed, plain, remove_empty_parents, remove_file_if_present, remove_waiting, same_file, Report};
 use crate::package::Package;
 use crate::system::{self, changes, env_path, host, integration, task};
 use crate::texts::Texts;
@@ -36,6 +33,7 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     let texts = &plan.texts;
     let dir = &plan.dir;
     check_install_dir(dir, manifest, texts)?;
+    super::install::check_elevated_folder(manifest, dir, texts)?;
     let _lock = host::SetupLock::acquire(&manifest.app.id).ok_or_else(|| texts.get(Key::error_busy))?;
     let uninstaller = dir.join(UNINSTALLER);
     let current = std::env::current_exe().ok();
@@ -48,20 +46,29 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     super::steps::run_removal_steps(manifest, dir, texts, report, 0.05);
     report(0.1, &texts.get(Key::step_removing));
     let program = manifest.executable_in(dir);
-    remove_waiting(&program, texts, Key::error_still_open)?;
+    wait_until_closed(&program, texts)?;
+    // All or nothing: every file steps aside first (a rename, which is quick
+    // and can be undone), and only when all of them have are they deleted. A
+    // file that can't move leaves the app as it was, still working.
+    let mut wanted = Vec::new();
     for file in &manifest.files {
         let path = paths::under(dir, &file.path);
-        remove_file_if_present(&path).map_err(|err| failed(texts, Key::error_delete, &path, &err))?;
+        if super::conflicts::changed_since_install(&path, file) {
+            // Not the file setup wrote any more: it holds the user's changes.
+            crate::log::line(&format!("Kept {}: it changed after it was installed.", file.path));
+            continue;
+        }
+        wanted.push(path);
     }
-    remove_empty_parents(dir, manifest.files.iter().map(|file| file.path.as_str()));
+    let aside = set_aside(&wanted).map_err(|(path, err)| failed(texts, Key::error_delete, &path, &err))?;
+    let put_back = |problem: String| {
+        restore(&aside);
+        problem
+    };
 
     report(0.4, &texts.get(Key::step_removing_shortcuts));
     let extra = system::extra_shortcuts(manifest).into_iter().map(|(link, _)| link);
-    for shortcut in [system::start_menu_shortcut(manifest), system::desktop_shortcut(manifest)]
-        .into_iter()
-        .flatten()
-        .chain(extra)
-    {
+    for shortcut in [system::start_menu_shortcut(manifest), system::desktop_shortcut(manifest)].into_iter().flatten().chain(extra) {
         let _ = remove_file_if_present(&shortcut);
     }
     if manifest.install.start_menu_folder.is_some() {
@@ -70,16 +77,22 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
             let _ = fs::remove_dir(folder);
         }
     }
-    undo_integration(manifest, dir, &program, texts)?;
+    undo_integration(manifest, dir, &program, texts).map_err(put_back)?;
 
     report(0.6, &texts.get(Key::step_unregistering));
-    system::unregister(manifest).map_err(|err| format!("{} {}", texts.get(Key::error_unregister), plain(&err)))?;
+    system::unregister(manifest).map_err(|err| put_back(format!("{} {}", texts.get(Key::error_unregister), plain(&err))))?;
+    // From here on the app is gone from Windows' point of view: finish the job.
+    for (_, moved) in &aside {
+        let _ = remove_file_if_present(moved);
+    }
+    remove_empty_parents(dir, manifest.files.iter().map(|file| file.path.as_str()));
     // The access key kept for updates goes with the app.
     system::secret::forget(&manifest.app.id);
+    system::channel::forget(&manifest.app.id);
 
     if plan.delete_data {
         report(0.75, &texts.get(Key::step_deleting_data));
-        delete_data(manifest, texts)?;
+        delete_data(manifest, dir, texts)?;
     }
 
     report(0.9, &texts.get(Key::step_cleaning));
@@ -134,6 +147,47 @@ fn undo_integration(manifest: &Manifest, dir: &Path, program: &Path, texts: &Tex
     Ok(())
 }
 
+/// Waits a moment for the app to close; an app that still runs from its
+/// program file can't be removed, and Windows would let the file be renamed
+/// anyway, so it is looked for explicitly.
+fn wait_until_closed(program: &Path, texts: &Texts) -> Result<(), String> {
+    for _ in 0..20 {
+        if !super::is_running(program) {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    Err(texts.get(Key::error_still_open))
+}
+
+/// Renames each file to `<name>.bach-old`. If one can't be renamed, those
+/// already moved go back and the file at fault is reported.
+fn set_aside(files: &[PathBuf]) -> Result<Vec<(PathBuf, PathBuf)>, (PathBuf, std::io::Error)> {
+    let mut done: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(files.len());
+    for path in files {
+        if fs::symlink_metadata(path).is_err() {
+            continue; // already gone
+        }
+        let moved = super::place::with_suffix(path, ".bach-old");
+        let _ = fs::remove_file(&moved);
+        match fs::rename(path, &moved) {
+            Ok(()) => done.push((path.clone(), moved)),
+            Err(err) => {
+                restore(&done);
+                return Err((path.clone(), err));
+            }
+        }
+    }
+    Ok(done)
+}
+
+/// Undoes [`set_aside`], last file first.
+fn restore(done: &[(PathBuf, PathBuf)]) {
+    for (path, moved) in done.iter().rev() {
+        let _ = fs::rename(moved, path);
+    }
+}
+
 /// Refuses a folder that isn't plainly this app's install, so a wrong
 /// `--install-dir` can never send the uninstaller anywhere else.
 fn check_install_dir(dir: &Path, manifest: &Manifest, texts: &Texts) -> Result<(), String> {
@@ -148,11 +202,17 @@ fn check_install_dir(dir: &Path, manifest: &Manifest, texts: &Texts) -> Result<(
 
 /// The folders the app keeps its data in (checked when the setup file was
 /// built and again when it was read, so they're inside the user's profile).
-fn delete_data(manifest: &Manifest, texts: &Texts) -> Result<(), String> {
+///
+/// A setup file isn't trusted, so a folder that is, or holds, the install
+/// folder is skipped here even though the manifest check let it through.
+fn delete_data(manifest: &Manifest, install_dir: &Path, texts: &Texts) -> Result<(), String> {
     for template in &manifest.uninstall.data {
         let Some(folder) = paths::expand_data_folder(template, |name| std::env::var(name).ok()) else {
             continue;
         };
+        if paths::is_same_or_inside(install_dir, &folder) {
+            continue;
+        }
         match fs::remove_dir_all(&folder) {
             Ok(()) => {}
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}

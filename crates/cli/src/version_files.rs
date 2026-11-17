@@ -322,11 +322,7 @@ impl Scan<'_> {
             let key = self.string()?;
             self.eat(b':')?;
             if &self.bytes[key] == path[0].as_bytes() {
-                return if path.len() == 1 {
-                    self.string()
-                } else {
-                    self.find(&path[1..])
-                };
+                return if path.len() == 1 { self.string() } else { self.find(&path[1..]) };
             }
             self.skip()?;
             self.space();
@@ -376,7 +372,8 @@ mod tests {
 
     #[test]
     fn toml_versions_keep_their_quotes_comments_and_line_endings() {
-        let text = "# bach\r\n[app]\r\nname = \"x\"\r\nversion = \"1.0.0\" # keep\r\n\r\n[files]\r\nsource = \"build\"\r\nversion = \"nope\"\r\n";
+        let text =
+            "# bach\r\n[app]\r\nname = \"x\"\r\nversion = \"1.0.0\" # keep\r\n\r\n[files]\r\nsource = \"build\"\r\nversion = \"nope\"\r\n";
         let (edited, olds) = rewrite(&Kind::Toml(&["app"]), text, "1.1.0");
         assert_eq!(olds, ["1.0.0"]);
         assert_eq!(edited, text.replace("1.0.0", "1.1.0"));
@@ -415,7 +412,10 @@ mod tests {
         let lock = "version = 4\n\n[[package]]\nname = \"app\"\nversion = \"0.3.0\"\ndependencies = [\"dep\"]\n\n[[package]]\nname = \"dep\"\nversion = \"0.3.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"abc\"\n\n[[package]]\nname = \"member\"\nversion = \"0.3.0\"\n";
         let dir = folder(
             "cargo",
-            &[("Cargo.toml", "[workspace.package]\nversion = \"0.3.0\"\n\n[package]\nname = \"app\"\nversion.workspace = true\n"), ("Cargo.lock", lock)],
+            &[
+                ("Cargo.toml", "[workspace.package]\nversion = \"0.3.0\"\n\n[package]\nname = \"app\"\nversion.workspace = true\n"),
+                ("Cargo.lock", lock),
+            ],
         );
         let changes = write_all(&dir, "0.3.0", "0.4.0", false).unwrap();
         assert_eq!(changes.iter().map(|c| c.file.as_str()).collect::<Vec<_>>(), ["Cargo.toml", "Cargo.lock"]);

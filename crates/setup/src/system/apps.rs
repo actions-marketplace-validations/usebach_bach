@@ -6,9 +6,7 @@ use std::path::{Path, PathBuf};
 use bach_pack::manifest::Check;
 use windows::core::{HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::ERROR_SUCCESS;
-use windows::Win32::System::RestartManager::{
-    RmEndSession, RmRegisterResources, RmShutdown, RmStartSession, CCH_RM_SESSION_KEY,
-};
+use windows::Win32::System::RestartManager::{RmEndSession, RmRegisterResources, RmShutdown, RmStartSession, CCH_RM_SESSION_KEY};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows_registry::{CURRENT_USER, LOCAL_MACHINE};
@@ -53,34 +51,27 @@ pub fn is_present(check: &Check) -> bool {
     match check {
         Check::Webview2 => {
             const CLIENT: &str = r"Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
-            [format!(r"SOFTWARE\WOW6432Node\{CLIENT}"), format!(r"SOFTWARE\{CLIENT}")]
-                .iter()
-                .any(|key| has_version(LOCAL_MACHINE, key))
+            [format!(r"SOFTWARE\WOW6432Node\{CLIENT}"), format!(r"SOFTWARE\{CLIENT}")].iter().any(|key| has_version(LOCAL_MACHINE, key))
                 || has_version(CURRENT_USER, &format!(r"Software\{CLIENT}"))
         }
-        Check::Vcredist => LOCAL_MACHINE
-            .open(r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64")
-            .and_then(|key| key.get_u32("Installed"))
-            .is_ok_and(|installed| installed == 1),
-        Check::Dotnet { version, desktop } => {
-            let runtime = if *desktop { "Microsoft.WindowsDesktop.App" } else { "Microsoft.NETCore.App" };
-            let roots = [std::env::var_os("ProgramFiles"), std::env::var_os("ProgramW6432")];
-            roots.into_iter().flatten().any(|root| {
-                let shared = Path::new(&root).join("dotnet").join("shared").join(runtime);
-                std::fs::read_dir(shared).is_ok_and(|entries| {
-                    entries.flatten().any(|entry| {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        name == *version || name.starts_with(&format!("{version}."))
-                    })
-                })
+        Check::Vcredist => {
+            // On ARM64 Windows both the native and the emulated x64 runtime serve apps.
+            let arches: &[&str] = if std::env::consts::ARCH == "aarch64" { &["arm64", "x64"] } else { &["x64"] };
+            arches.iter().any(|arch| {
+                LOCAL_MACHINE
+                    .open(format!(r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\{arch}"))
+                    .and_then(|key| key.get_u32("Installed"))
+                    .is_ok_and(|installed| installed == 1)
             })
         }
+        Check::Dotnet { version, desktop } => dotnet_installed(version, *desktop),
         Check::Windows { build } => windows_build().is_some_and(|installed| installed >= *build),
         Check::File { path } => expand(path).is_some_and(|path| path.exists()),
         Check::Registry { key } => {
             let (hive, rest) = key.split_once('\\').unwrap_or((key, ""));
             match hive.to_ascii_uppercase().as_str() {
-                "HKLM" => LOCAL_MACHINE.open(rest).is_ok(),
+                // A 32-bit program's keys live under WOW6432Node: look there too.
+                "HKLM" => LOCAL_MACHINE.open(rest).is_ok() || wow64_variant(rest).is_some_and(|other| LOCAL_MACHINE.open(other).is_ok()),
                 "HKCU" => CURRENT_USER.open(rest).is_ok(),
                 _ => false,
             }
@@ -88,23 +79,85 @@ pub fn is_present(check: &Check) -> bool {
     }
 }
 
+/// Whether a .NET runtime of `version` (like "8.0") is installed: the .NET
+/// host's own registry record first, then the folders it can live in
+/// (`DOTNET_ROOT`, Program Files, the 32-bit Program Files). A copy on another
+/// drive is found through the registry or `DOTNET_ROOT`.
+fn dotnet_installed(version: &str, desktop: bool) -> bool {
+    let runtime = if desktop { "Microsoft.WindowsDesktop.App" } else { "Microsoft.NETCore.App" };
+    let registered = ["x64", "x86", "arm64"].iter().any(|arch| {
+        LOCAL_MACHINE
+            .open(format!(r"SOFTWARE\dotnet\Setup\InstalledVersions\{arch}\sharedfx\{runtime}"))
+            .is_ok_and(|key| key.values().is_ok_and(|mut values| values.any(|(name, _)| version_matches(&name, version))))
+    });
+    registered || dotnet_roots().iter().any(|root| runtime_folder_has(root, runtime, version))
+}
+
+fn dotnet_roots() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = ["DOTNET_ROOT", "DOTNET_ROOT(x86)"].iter().filter_map(std::env::var_os).map(PathBuf::from).collect();
+    for variable in ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"] {
+        if let Some(files) = std::env::var_os(variable) {
+            roots.push(Path::new(&files).join("dotnet"));
+        }
+    }
+    roots
+}
+
+/// Whether `<root>\shared\<runtime>` has a folder for `version`.
+fn runtime_folder_has(root: &Path, runtime: &str, version: &str) -> bool {
+    std::fs::read_dir(root.join("shared").join(runtime))
+        .is_ok_and(|entries| entries.flatten().any(|entry| version_matches(&entry.file_name().to_string_lossy(), version)))
+}
+
+/// `8.0.4` and `8.0.4-preview` are the version `8.0`; `80.0.1` is not.
+fn version_matches(installed: &str, version: &str) -> bool {
+    installed == version || installed.strip_prefix(version).is_some_and(|rest| rest.starts_with('.'))
+}
+
 /// The build number of this Windows (22631 for Windows 11 23H2), which is
 /// what tells versions apart; `CurrentVersion` stays "6.3" for all of them.
 pub fn windows_build() -> Option<u32> {
-    LOCAL_MACHINE
-        .open(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
-        .ok()?
-        .get_string("CurrentBuildNumber")
-        .ok()?
-        .trim()
-        .parse()
-        .ok()
+    LOCAL_MACHINE.open(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion").ok()?.get_string("CurrentBuildNumber").ok()?.trim().parse().ok()
+}
+
+/// `SOFTWARE\Vendor\App` as `SOFTWARE\WOW6432Node\Vendor\App`.
+fn wow64_variant(key: &str) -> Option<String> {
+    let rest = key.strip_prefix("SOFTWARE\\").or_else(|| key.strip_prefix("Software\\"))?;
+    (!rest.to_ascii_lowercase().starts_with("wow6432node\\")).then(|| format!("SOFTWARE\\WOW6432Node\\{rest}"))
 }
 
 fn has_version(hive: &windows_registry::Key, key: &str) -> bool {
-    hive.open(key)
-        .and_then(|key| key.get_string("pv"))
-        .is_ok_and(|version| !version.is_empty() && version != "0.0.0.0")
+    hive.open(key).and_then(|key| key.get_string("pv")).is_ok_and(|version| !version.is_empty() && version != "0.0.0.0")
+}
+
+#[cfg(test)]
+mod detection_tests {
+    use super::*;
+
+    #[test]
+    fn dotnet_versions_match_by_major_minor() {
+        assert!(version_matches("8.0.4", "8.0"));
+        assert!(version_matches("8.0", "8.0"));
+        assert!(!version_matches("80.0.1", "8.0"));
+        assert!(!version_matches("8.1.0", "8.0"));
+    }
+
+    #[test]
+    fn a_runtime_folder_anywhere_is_found() {
+        let root = std::env::temp_dir().join(format!("bach-dotnet-{}", std::process::id()));
+        std::fs::create_dir_all(root.join(r"shared\Microsoft.NETCore.App\8.0.4")).unwrap();
+        assert!(runtime_folder_has(&root, "Microsoft.NETCore.App", "8.0"));
+        assert!(!runtime_folder_has(&root, "Microsoft.NETCore.App", "9.0"));
+        assert!(!runtime_folder_has(&root, "Microsoft.WindowsDesktop.App", "8.0"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn registry_keys_get_a_32_bit_twin() {
+        assert_eq!(wow64_variant(r"SOFTWARE\Vendor\App").as_deref(), Some(r"SOFTWARE\WOW6432Node\Vendor\App"));
+        assert_eq!(wow64_variant(r"SOFTWARE\WOW6432Node\Vendor"), None);
+        assert_eq!(wow64_variant(r"SYSTEM\Thing"), None);
+    }
 }
 
 /// `%SystemRoot%\System32\x.dll` with the environment filled in. None when

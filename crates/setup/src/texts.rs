@@ -26,10 +26,8 @@ impl Texts {
     }
 
     pub fn in_language(manifest: &Manifest, language: &'static Language) -> Self {
-        let custom = Key::ALL
-            .iter()
-            .filter_map(|key| manifest.custom_text(*key, language.code).map(|text| (*key, text.to_string())))
-            .collect();
+        let custom =
+            Key::ALL.iter().filter_map(|key| manifest.custom_text(*key, language.code).map(|text| (*key, text.to_string()))).collect();
         let app = &manifest.app;
         let values = vec![
             ("name", app.name.clone()),
@@ -59,11 +57,7 @@ impl Texts {
         let fallbacks = &manifest.locale.languages;
         let fill = |text: &str| i18n::fill(text, &self.values.iter().map(|(k, v)| (*k, v.as_str())).collect::<Vec<_>>());
         let title = i18n::resolve(&component.title, code, fallbacks).map(fill).unwrap_or_else(|| component.id.clone());
-        let description = component
-            .description
-            .as_ref()
-            .and_then(|text| i18n::resolve(text, code, fallbacks))
-            .map(fill);
+        let description = component.description.as_ref().and_then(|text| i18n::resolve(text, code, fallbacks)).map(fill);
         (title, description)
     }
 }

@@ -183,6 +183,12 @@ yourself, use `--key-file FILE` or the `BACH_ACCESS_KEY` environment variable.
 
 Everything the updater does is logged to `%TEMP%\<app id>-update.log`.
 
+A download failure is reported from the HTTP status the server really sent,
+not from digits in curl's message: "the server refused the access key" appears
+only for a real 401 or 403, and a resumed download counts as complete only on a
+real 416. A key with a space, a quote or a backslash is refused with a sentence
+instead of being cleaned up and sent as a different key.
+
 ## It survives interruptions
 
 - **The setup window is closed:** nothing was changed. The download stays,
@@ -239,6 +245,127 @@ trust. When the main feed is down, the first mirror that answers is trusted
 like the main feed would be, so list only mirrors you run as carefully as the
 main one, and sign your setup files.
 
+## Signed feeds
+
+A feed names a download and its SHA-256, and both come from the same host, so
+whoever controls that host controls the update. A publisher key takes that
+away:
+
+```bash
+bach feed-key
+```
+
+writes the private key to `feed-key.private` (it must not exist yet; on Linux
+and macOS it is readable by you alone, on Windows it has the rights of its
+folder, so keep it in one only you can read, and out of Git) and prints the line for `bach.toml`:
+
+```toml bach.toml
+[updates]
+public_key = "3f9a…64 hex digits…"
+```
+
+The public key goes into every setup file built from then on. `bach feed` signs
+each entry with the private key, which it reads from the `BACH_FEED_KEY`
+environment variable (the key itself) or `BACH_FEED_KEY_FILE` (a file whose
+first line is the key). Without the key `bach feed` refuses, and `bach build`
+still builds but warns that `latest.json` is unsigned. A key that doesn't belong
+to the public key is refused too.
+
+An installed app whose setup file has a public key accepts only feed entries
+with a valid signature, whichever feed or mirror served them: a changed link,
+SHA-256, size, rollout or patch, an unsigned entry or one signed by another key
+is ignored with a line in the log. Release notes are not signed. Old feeds without
+a signature keep working for apps without a `public_key`. An app that has one
+and receives an unsigned feed stops updating, so run `bach feed` with the key
+before you publish. An app only trusts the keys its own setup file carries, so
+keep the private key safe, and change it in two steps (below) if you must.
+
+### Beta versions
+
+An app can offer pre-release versions to the people who ask for them:
+
+```toml bach.toml
+[updates]
+feed = "https://example.com/hello/latest.json"            # stable
+beta_feed = "https://example.com/hello/latest-beta.json"  # beta
+```
+
+Build the beta (`version = "2.0.0-beta.1"`) and write its feed to its own file:
+`bach feed dist/Hello-Setup-2.0.0-beta.1.exe --out latest-beta.json`. The stable
+feed stays as it is, so nobody gets a beta by accident. Each installation
+chooses for itself, with the installed `uninstall.exe` (your app can run it):
+
+```bash
+uninstall.exe --channel beta      # follow the beta feed from now on
+uninstall.exe --channel stable    # back to the stable feed
+uninstall.exe --channel show      # say which one this is
+```
+
+The choice lives under the user's own `HKCU\Software\Bach\Channel`, survives
+updates and repairs, and is deleted when the app is removed. The next
+`--check-update`, `--download-update` or `--update` (and the background task)
+asks only the beta feed (no mirrors), with the same `public_key` and `signer`
+checks. An app without `beta_feed` answers `--channel beta` with exit code `1`.
+Going back to stable never installs an older version by itself: a beta that is
+installed stays until a stable version newer than it is out.
+
+### Signed updates (Authenticode)
+
+`public_key` signs the feed. `signer` checks the *file*: with
+
+```toml bach.toml
+[updates]
+signer = "Example Inc."     # as the signing certificate shows it
+```
+
+the installed app runs a downloaded update only when Windows says its
+Authenticode signature is valid and the certificate's common name or
+organisation is that text (case ignored, the whole name). It asks Windows'
+own PowerShell (`Get-AuthenticodeSignature`) right before it installs, and
+again before it opens an update's window. An unsigned file, a signature Windows
+doesn't trust or a file signed by anyone else is deleted from the download
+folder and not run, with the reason in the log. This also protects against a
+feed host that was taken over: it can name any file, but not sign as you.
+
+A plain name matches any certificate that has it as its common name or
+organisation, and a certificate authority can issue that to another company of
+the same name. To pin the company, give the whole subject (the certificate's
+"Issued to" details, as `Get-AuthenticodeSignature FILE | % { $_.SignerCertificate.Subject }`
+prints it): `signer = "CN=Example Inc., O=Example, L=Berlin, C=DE"` has to match
+the certificate's subject pair for pair, so another company of the same name,
+in another place, doesn't. A renewed certificate keeps its subject, so the
+setting survives renewals; a new company name needs a release that carries
+both, which is not supported yet: change `signer` in a version that you
+distribute by hand.
+
+`bach build --sign` and `bach sign` check the same thing after signing: if the
+signed file's certificate isn't the `signer`, the build stops, because every
+installed copy would refuse the update. Use it together with `[signing]` and sign
+every setup file you publish, patches too. A build without `--sign` still
+works; its update would be refused by apps that have a `signer`. The first
+version with `signer` has to be installed by hand (older copies don't know the
+setting).
+
+### Changing the key
+
+A key has to be replaced when it leaks, or is lost. Because installed copies only
+trust what they were built with, the new key has to reach them while the old one
+still works:
+
+1. Make the new key with `bach feed-key` and keep the old one. Build a release
+   whose `bach.toml` has both, the old key as `public_key` and the new one as
+   `next_public_key`, and sign its feed with the **old** private key. Computers
+   that update to it now trust both keys.
+2. Wait until most computers have that release. Then build the next one with
+   `public_key` set to the new key (and no `next_public_key`) and sign its feed
+   with the **new** private key. Computers on the release from step 1 accept it.
+   Computers that never took step 1 still hold only the old key and refuse it,
+   so they need a new download of the setup file.
+
+If the old key leaked, step 1's feed can be forged by whoever has it until
+everyone has moved on; the key cannot be revoked remotely. `bach feed` accepts
+a private key that belongs to either of the two keys.
+
 ## Staged rollouts
 
 To ship a risky release to few people first, write the feed with a rollout:
@@ -251,8 +378,10 @@ bach feed "dist/Hello-Setup-1.4.0.exe" --rollout 10
 { "version": "1.4.0", "url": "…", "sha256": "…", "rollout": 10 }
 ```
 
-Each computer has a fixed number from 0 to 99 (made from Windows' machine id and
-the app's id), and takes the update by itself when that number is below the
+Each computer has a fixed number from 0 to 99 for each version (made from Windows'
+machine id, the app's id and the version, so the first computers differ from
+release to release and are not always the same test group; installed copies
+built by an older Bach keep using the number without the version), and takes the update by itself when that number is below the
 rollout. Raise it (`--rollout 50`), then write the feed again without
 `--rollout` for everybody. A computer that was in the first ten percent stays
 in all later steps. Computers outside it say "up to date" for
@@ -320,6 +449,10 @@ Things to know:
   `bach feed dist/Hello-Setup-1.4.0.exe --patch dist/Hello-Setup-1.4.0-patch-from-1.3.0.exe`
   (the patch's link comes from `bach.toml`, or `--patch-url`). With `--sign`,
   `bach build` signs the patch too.
+- With the GitHub Action, pass `args: --patch-from OLD.exe`. The action signs
+  the patch with `sign-command` like the setup file, writes the feed again with
+  `--patch` (so a signed or annotated feed keeps offering it), uploads it to the
+  release next to the setup file and gives its path as the `patch` output.
 - An app with `[access]` gets a patch that is encrypted with the same key.
 - The online installer and a first install always use the full file.
 

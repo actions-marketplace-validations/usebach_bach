@@ -30,6 +30,13 @@ Run `bach workflow` again whenever you want the newest version of the
 workflow. It only replaces a file that starts with Bach's own first line; any
 other file with that name is left alone unless you pass `--force`.
 
+The workflow publishes with a write token, so it names Bach's action by the
+commit of the Bach release you ran, as `usebach/bach@<40-digit commit> # v0.x.y`
+(looked up with `git ls-remote`; without network it writes `@v0`, says so, and
+pins the next time you run it online). The file explains how to keep the pin
+current with Dependabot (`package-ecosystem: github-actions`). `bach workflow
+--pin float` writes `usebach/bach@v0`, which moves with every release.
+
 ## The inputs
 
 | Input | Meaning |

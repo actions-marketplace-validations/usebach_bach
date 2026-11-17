@@ -24,11 +24,7 @@ pub struct Spinner {
 
 impl Spinner {
     pub fn new() -> Self {
-        Self {
-            size: 16.0,
-            stroke: None,
-            color: None,
-        }
+        Self { size: 16.0, stroke: None, color: None }
     }
 
     pub fn size(mut self, size: f32) -> Self {
@@ -56,10 +52,7 @@ impl Default for Spinner {
 /// The spin angle right now, shared by every loader.
 pub fn spin_degrees() -> f32 {
     let period = SPIN.as_millis().max(1);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|since| since.as_millis())
-        .unwrap_or(0);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|since| since.as_millis()).unwrap_or(0);
     (now % period) as f32 / period as f32 * 360.0
 }
 
@@ -75,12 +68,6 @@ impl RenderOnce for Spinner {
         // Spinning never settles; the frame request stops once the spinner
         // is no longer rendered.
         window.request_animation_frame();
-        div()
-            .flex_none()
-            .size(px(self.size))
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(icon)
+        div().flex_none().size(px(self.size)).flex().items_center().justify_center().child(icon)
     }
 }

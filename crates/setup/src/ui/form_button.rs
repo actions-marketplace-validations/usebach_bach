@@ -13,8 +13,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, px, App, ClickEvent, CursorStyle, ElementId, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px, App, ClickEvent, CursorStyle, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
+    StatefulInteractiveElement, Styled, Window,
 };
 
 use super::color::{clear, mix};
@@ -84,10 +84,7 @@ impl FormButton {
         self
     }
 
-    pub fn on_click(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Rc::new(handler));
         self
     }
@@ -105,21 +102,9 @@ impl RenderOnce for FormButton {
         };
         let theme = cx.theme();
         let (bg, fg, border) = match self.variant {
-            Variant::Primary => (
-                mix(theme.primary, theme.primary_hover, hover),
-                theme.primary_foreground,
-                None,
-            ),
-            Variant::Destructive => (
-                mix(theme.destructive, theme.destructive.opacity(0.88), hover),
-                gpui::white(),
-                None,
-            ),
-            Variant::Outline => (
-                mix(clear(theme.hover), theme.hover, hover),
-                theme.foreground,
-                Some(theme.border),
-            ),
+            Variant::Primary => (mix(theme.primary, theme.primary_hover, hover), theme.primary_foreground, None),
+            Variant::Destructive => (mix(theme.destructive, theme.destructive.opacity(0.88), hover), gpui::white(), None),
+            Variant::Outline => (mix(clear(theme.hover), theme.hover, hover), theme.foreground, Some(theme.border)),
         };
 
         let mut button = div()

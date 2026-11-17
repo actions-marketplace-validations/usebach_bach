@@ -25,15 +25,12 @@ pub struct MotionPreferences {
 impl Global for MotionPreferences {}
 
 pub fn reduced_motion(cx: &App) -> bool {
-    cx.try_global::<MotionPreferences>()
-        .is_some_and(|prefs| prefs.reduced)
+    cx.try_global::<MotionPreferences>().is_some_and(|prefs| prefs.reduced)
 }
 
 /// Reads the OS setting into the global.
 pub fn init(cx: &mut App) {
-    cx.set_global(MotionPreferences {
-        reduced: os::reduced_motion_requested(),
-    });
+    cx.set_global(MotionPreferences { reduced: os::reduced_motion_requested() });
 }
 
 /// Asks for another frame while anything is still moving. Once everything

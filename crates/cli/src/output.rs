@@ -2,6 +2,10 @@
 //! sentence per cause.
 
 use std::io::{IsTerminal, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+
+use serde_json::Value;
 
 /// `1536` → "1.5 KB".
 pub fn size(bytes: u64) -> String {
@@ -18,15 +22,66 @@ pub fn size(bytes: u64) -> String {
     format!("{value:.1} {}", UNITS[unit])
 }
 
-/// A labelled line: `  Output   dist\Hello-Setup-1.0.0.exe`.
-pub fn field(label: &str, value: impl std::fmt::Display) {
-    println!("  {label:<12} {value}");
+static JSON: AtomicBool = AtomicBool::new(false);
+static RESULT: Mutex<Vec<(String, Value)>> = Mutex::new(Vec::new());
+static WARNINGS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Turns on `--json`: text for people is not printed, and the command ends with
+/// one JSON object ([`finish`]).
+pub fn set_json(on: bool) {
+    JSON.store(on, Ordering::Relaxed);
 }
 
-/// Prints what builds but probably isn't meant, one line each.
+pub fn json() -> bool {
+    JSON.load(Ordering::Relaxed)
+}
+
+/// Adds a field to the JSON result, in the order given. Always recorded, shown
+/// only with `--json`. Fields are stable: see schema/bach-output.schema.json.
+pub fn result(key: &str, value: impl Into<Value>) {
+    if let Ok(mut fields) = RESULT.lock() {
+        fields.retain(|(known, _)| known != key);
+        fields.push((key.to_string(), value.into()));
+    }
+}
+
+/// With `--json`, prints the result object: `ok`, what the command recorded,
+/// and `warnings`. An error is `{"ok": false, "error": ...}`.
+pub fn finish(error: Option<&anyhow::Error>) {
+    if !json() {
+        return;
+    }
+    let mut object = serde_json::Map::new();
+    object.insert("ok".into(), Value::Bool(error.is_none()));
+    if let Some(error) = error {
+        let causes: Vec<String> = error.chain().map(|cause| sentence(&cause.to_string())).collect();
+        object.insert("error".into(), Value::String(causes.first().cloned().unwrap_or_default()));
+        object.insert("causes".into(), Value::from(causes.into_iter().skip(1).collect::<Vec<_>>()));
+    } else if let Ok(fields) = RESULT.lock() {
+        for (key, value) in fields.iter() {
+            object.insert(key.clone(), value.clone());
+        }
+    }
+    let warnings = WARNINGS.lock().map(|warnings| warnings.clone()).unwrap_or_default();
+    object.insert("warnings".into(), Value::from(warnings));
+    println!("{}", Value::Object(object));
+}
+
+/// A labelled line: `  Output   dist\Hello-Setup-1.0.0.exe`.
+pub fn field(label: &str, value: impl std::fmt::Display) {
+    if !json() {
+        println!("  {label:<12} {value}");
+    }
+}
+
+/// Prints what builds but probably isn't meant, one line each (on stderr, and
+/// also in the `warnings` of the JSON result).
 pub fn warnings(warnings: &[String]) {
     for warning in warnings {
         eprintln!("warning: {}", sentence(warning));
+        if let Ok(mut all) = WARNINGS.lock() {
+            all.push(sentence(warning));
+        }
     }
 }
 

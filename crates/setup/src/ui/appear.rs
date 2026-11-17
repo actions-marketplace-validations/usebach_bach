@@ -16,10 +16,7 @@
 
 use std::time::{Duration, Instant};
 
-use gpui::{
-    div, px, AnyElement, App, Div, ElementId, IntoElement, ParentElement, RenderOnce,
-    StyleRefinement, Styled, Window,
-};
+use gpui::{div, px, AnyElement, App, Div, ElementId, IntoElement, ParentElement, RenderOnce, StyleRefinement, Styled, Window};
 
 use super::motion::Transition;
 
@@ -35,14 +32,7 @@ pub struct Appear {
 
 impl Appear {
     pub fn new(id: impl Into<ElementId>, transition: Transition, child: impl IntoElement) -> Self {
-        Self {
-            id: id.into(),
-            transition,
-            animate_entrance: true,
-            exiting: None,
-            base: div(),
-            child: child.into_any_element(),
-        }
+        Self { id: id.into(), transition, animate_entrance: true, exiting: None, base: div(), child: child.into_any_element() }
     }
 
     /// `false` mounts at rest, like `AnimatePresence initial={false}`.
@@ -77,12 +67,7 @@ struct AppearState {
 
 /// Opacity and y offset of a transition right now, and whether it is still
 /// moving (keep requesting frames while it is).
-pub fn transition_frame(
-    transition: &Transition,
-    mounted: Instant,
-    animate: bool,
-    exiting: Option<Instant>,
-) -> ((f32, f32), bool) {
+pub fn transition_frame(transition: &Transition, mounted: Instant, animate: bool, exiting: Option<Instant>) -> ((f32, f32), bool) {
     let length = transition.duration();
     match exiting {
         Some(since) => {
@@ -104,24 +89,16 @@ pub fn transition_frame(
 impl RenderOnce for Appear {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let animate = self.animate_entrance;
-        let state = window.use_keyed_state(self.id, cx, move |_, _| AppearState {
-            mounted: Instant::now(),
-            animate,
-        });
+        let state = window.use_keyed_state(self.id, cx, move |_, _| AppearState { mounted: Instant::now(), animate });
         let (mounted, animate) = {
             let state = state.read(cx);
             (state.mounted, state.animate)
         };
-        let ((opacity, y), moving) =
-            transition_frame(&self.transition, mounted, animate, self.exiting);
+        let ((opacity, y), moving) = transition_frame(&self.transition, mounted, animate, self.exiting);
         if moving {
             window.request_animation_frame();
         }
-        self.base
-            .relative()
-            .top(px(y))
-            .opacity(opacity.clamp(0.0, 1.0))
-            .child(self.child)
+        self.base.relative().top(px(y)).opacity(opacity.clamp(0.0, 1.0)).child(self.child)
     }
 }
 

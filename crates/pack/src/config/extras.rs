@@ -40,6 +40,8 @@ pub struct RunSection {
     /// Run with administrator rights (Windows asks once).
     #[serde(default)]
     elevated: bool,
+    /// Minutes before setup ends the step; 15 by default, 120 at most.
+    timeout_minutes: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,6 +69,15 @@ pub struct UpdatesSection {
     /// More feeds to ask when the main one can't be reached.
     #[serde(default)]
     mirrors: Vec<String>,
+    /// The publisher's Ed25519 public key (`bach feed-key` makes one): the
+    /// installed app then accepts only feed entries signed with its private half.
+    public_key: Option<String>,
+    /// A second key to trust as well, for handing over to a new key.
+    next_public_key: Option<String>,
+    /// The publisher a downloaded update must be signed by (Authenticode).
+    signer: Option<String>,
+    /// The feed of the beta channel.
+    beta_feed: Option<String>,
 }
 
 /// The environment variable the access key is read from unless `key_env`
@@ -143,9 +154,9 @@ pub fn requirements(sections: &[RequirementSection]) -> Result<Vec<Requirement>>
                     };
                     Check::Windows { build }
                 }
-                other => bail!(
-                    "{at}.kind is \"{other}\"; use \"webview2\", \"dotnet\", \"vcredist\", \"file\", \"registry\" or \"windows\""
-                ),
+                other => {
+                    bail!("{at}.kind is \"{other}\"; use \"webview2\", \"dotnet\", \"vcredist\", \"file\", \"registry\" or \"windows\"")
+                }
             };
             let defaults = check.defaults();
             let name = section.name.clone().or_else(|| match &check {
@@ -203,6 +214,11 @@ pub fn run_steps(sections: &[RunSection], files: &[FileEntry], components: &[Com
             let Some(entry) = files.iter().find(|entry| entry.path.eq_ignore_ascii_case(&file)) else {
                 bail!("{at}.file is \"{file}\", but no installed file has that path (is it excluded?)");
             };
+            if let Some(minutes) = section.timeout_minutes {
+                if !(1..=crate::manifest::extras::MAX_TIMEOUT_MINUTES).contains(&minutes) {
+                    bail!("{at}.timeout_minutes is {minutes}; use 1 to {} minutes", crate::manifest::extras::MAX_TIMEOUT_MINUTES);
+                }
+            }
             let name = match section.name.as_deref().map(str::trim) {
                 Some(name) if !name.is_empty() => name.to_string(),
                 _ => file.rsplit('/').next().unwrap_or(&file).trim_end_matches(".exe").trim_end_matches(".EXE").to_string(),
@@ -241,7 +257,17 @@ pub fn run_steps(sections: &[RunSection], files: &[FileEntry], components: &[Com
                 Some(id) if components.iter().any(|known| known.id == id) => Some(id.to_string()),
                 Some(id) => bail!("{at}.component is \"{id}\", but no [[components]] has that id"),
             };
-            Ok(RunStep { name, file, arguments, when, success_codes, ignore_errors: section.ignore_errors, component, elevated: section.elevated })
+            Ok(RunStep {
+                name,
+                file,
+                arguments,
+                when,
+                success_codes,
+                ignore_errors: section.ignore_errors,
+                component,
+                elevated: section.elevated,
+                timeout_minutes: section.timeout_minutes,
+            })
         })
         .collect()
 }
@@ -306,7 +332,49 @@ pub fn updates(section: Option<&UpdatesSection>, machine: bool) -> Result<Option
         }
         mirrors.push(mirror.to_string());
     }
-    Ok(Some(UpdateSettings { updates: Updates { feed, auto, mirrors }, download_url: download, github }))
+    let public_key = match section.public_key.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(key) => {
+            crate::feedsig::check_public(key).map_err(|err| anyhow::anyhow!("updates.public_key: {err:#}"))?;
+            Some(key.to_ascii_lowercase())
+        }
+    };
+    let next_public_key = match section.next_public_key.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(_) if public_key.is_none() => {
+            bail!("updates.next_public_key needs updates.public_key: it is the second key to trust, beside the first")
+        }
+        Some(key) => {
+            crate::feedsig::check_public(key).map_err(|err| anyhow::anyhow!("updates.next_public_key: {err:#}"))?;
+            let key = key.to_ascii_lowercase();
+            if Some(&key) == public_key.as_ref() {
+                bail!("updates.next_public_key is the same key as updates.public_key; give the new key");
+            }
+            Some(key)
+        }
+    };
+    let beta_feed = match section.beta_feed.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(link) if !is_https(link) => {
+            bail!("updates.beta_feed is \"{link}\"; it must be the https link of a feed, like https://example.com/hello/latest-beta.json")
+        }
+        Some(link) if link == feed || mirrors.iter().any(|mirror| mirror == link) => {
+            bail!("updates.beta_feed is the same as the stable feed; give the beta versions a feed of their own")
+        }
+        Some(link) => Some(link.to_string()),
+    };
+    let signer = match section.signer.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(name) if name.chars().count() > 300 || name.chars().any(char::is_control) => {
+            bail!("updates.signer is \"{name}\"; give the publisher's name as the signing certificate shows it, like \"Example Inc.\", or its whole subject (CN=..., O=..., C=...), in at most 300 characters")
+        }
+        Some(name) => Some(name.to_string()),
+    };
+    Ok(Some(UpdateSettings {
+        updates: Updates { feed, auto, mirrors, public_key, next_public_key, signer, beta_feed },
+        download_url: download,
+        github,
+    }))
 }
 
 /// `[access]`: an access key the installer asks for.
@@ -331,17 +399,12 @@ pub fn access(section: Option<&AccessSection>, has_updates: bool) -> Result<Opti
         Some(name) => bail!("access.key_env is \"{name}\"; use an environment variable's name, like \"{DEFAULT_KEY_ENV}\""),
     };
     let get_key_url = https(&section.get_key_url, "access.get_key_url")?;
-    Ok(Some(AccessSettings {
-        manifest: Access { get_key_url, send_key, encryption: None },
-        encrypt,
-        key_env,
-    }))
+    Ok(Some(AccessSettings { manifest: Access { get_key_url, send_key, encryption: None }, encrypt, key_env }))
 }
 
 fn is_env_name(name: &str) -> bool {
     let mut chars = name.chars();
-    chars.next().is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    chars.next().is_some_and(|first| first.is_ascii_alphabetic() || first == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// `owner/name`, as GitHub allows them.

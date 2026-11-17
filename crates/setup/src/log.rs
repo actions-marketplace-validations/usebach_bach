@@ -10,17 +10,23 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static LOG: Mutex<Option<File>> = Mutex::new(None);
+static PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Where this run's log is, once it has started.
+pub fn path() -> Option<PathBuf> {
+    PATH.lock().ok().and_then(|path| path.clone())
+}
 
 /// Where a run's log goes when `--log` doesn't say.
 pub fn default_path(app_id: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("{}-setup.log", app_id.replace(' ', "-")))
+    std::env::temp_dir().join(format!("{}-setup.log", bach_pack::paths::safe_dir_name(app_id)))
 }
 
 /// Where an update run's log goes (`--check-update`, `--update`, ...): not
 /// the install log's file, because the setup file an update starts writes
 /// that one while this log is still open.
 pub fn update_path(app_id: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("{}-update.log", app_id.replace(' ', "-")))
+    std::env::temp_dir().join(format!("{}-update.log", bach_pack::paths::safe_dir_name(app_id)))
 }
 
 /// Starts the log at `path`, with a first line naming the run.
@@ -32,6 +38,9 @@ pub fn start(path: &Path, first_line: &str) {
     let _ = file.write_all("\u{feff}".as_bytes());
     if let Ok(mut log) = LOG.lock() {
         *log = Some(file);
+    }
+    if let Ok(mut remembered) = PATH.lock() {
+        *remembered = Some(path.to_path_buf());
     }
     line(first_line);
 }

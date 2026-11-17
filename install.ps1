@@ -10,6 +10,11 @@
 # it again to update. Nothing else on your computer changes: if that folder
 # holds anything but Bach's own two files, it stops instead of writing.
 #
+# For tests: $env:BACH_INSTALL_FROM = a folder installs from the files in it
+# (bach-VERSION-windows-x64.zip and its .sha256, as on a release) instead of
+# downloading them, for exactly the BACH_VERSION given, and never contacts
+# GitHub.
+#
 # It never asks for administrator rights unless you ask for a system-wide
 # install: set $env:BACH_SCOPE = 'system' first. Then bach goes to
 # %ProgramFiles%\bach-cli for every user, and Windows' own prompt (UAC) asks
@@ -41,7 +46,7 @@ $target = Get-Target
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($scope -eq 'system' -and -not $isAdmin) {
     $safe = '^[\w .:\\/()-]*$'
-    foreach ($name in 'BACH_VERSION', 'BACH_INSTALL_DIR', 'BACH_NO_PATH') {
+    foreach ($name in 'BACH_VERSION', 'BACH_INSTALL_DIR', 'BACH_NO_PATH', 'BACH_INSTALL_FROM') {
         if ("$([Environment]::GetEnvironmentVariable($name))" -notmatch $safe) { throw "$name has characters that can't be handed to an elevated install." }
     }
     # The elevated copy is given this script's text itself (compressed into its
@@ -60,7 +65,7 @@ if ($scope -eq 'system' -and -not $isAdmin) {
     $zip.Write($bytes, 0, $bytes.Length)
     $zip.Close()
     $packed = [Convert]::ToBase64String($memory.ToArray())
-    $settings = ('BACH_VERSION', 'BACH_INSTALL_DIR', 'BACH_NO_PATH' | ForEach-Object {
+    $settings = ('BACH_VERSION', 'BACH_INSTALL_DIR', 'BACH_NO_PATH', 'BACH_INSTALL_FROM' | ForEach-Object {
         $value = [Environment]::GetEnvironmentVariable($_)
         if ($value) { "`$env:$_ = '$($value -replace "'", "''")'; " }
     }) -join ''
@@ -106,7 +111,12 @@ $headers = @{ 'User-Agent' = 'bach-install' }
 if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
 $release = $null
 
-if ($wanted -match '^\d+(\.\d+)?$') {
+if ($env:BACH_INSTALL_FROM) {
+    if (-not $wanted) { throw "BACH_INSTALL_FROM needs BACH_VERSION: the version of the files in $($env:BACH_INSTALL_FROM)." }
+    if (-not (Test-Path -LiteralPath $env:BACH_INSTALL_FROM -PathType Container)) { throw "BACH_INSTALL_FROM is $($env:BACH_INSTALL_FROM), which isn't a folder." }
+    $assets = @(Get-ChildItem -LiteralPath $env:BACH_INSTALL_FROM -File | ForEach-Object { [pscustomobject]@{ name = $_.Name; browser_download_url = $_.FullName } })
+    $release = [pscustomobject]@{ tag_name = "v$wanted"; assets = $assets }
+} elseif ($wanted -match '^\d+(\.\d+)?$') {
     # "0" or "0.2": the newest release of that line. 0.2 is 0.2.0, 0.2.1, ...
     # and never 0.20; a pre-release is only taken when the line has no other.
     try {
@@ -165,17 +175,27 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ("bach-install-" + [Guid]::NewGuid(
 New-Item -ItemType Directory -Path $work | Out-Null
 try {
     $zipPath = Join-Path $work $zip.name
-    Write-Host "Downloading $($zip.name)"
-    Invoke-WebRequest -UseBasicParsing -Uri $zip.browser_download_url -OutFile $zipPath
-    # Saved to a file: Windows PowerShell hands back binary downloads as bytes.
     $sumPath = Join-Path $work "$($zip.name).sha256"
-    Invoke-WebRequest -UseBasicParsing -Uri $sum.browser_download_url -OutFile $sumPath
+    if ($env:BACH_INSTALL_FROM) {
+        Write-Host "Using $($zip.browser_download_url)"
+        Copy-Item -LiteralPath $zip.browser_download_url -Destination $zipPath
+        Copy-Item -LiteralPath $sum.browser_download_url -Destination $sumPath
+    } else {
+        Write-Host "Downloading $($zip.name)"
+        Invoke-WebRequest -UseBasicParsing -Uri $zip.browser_download_url -OutFile $zipPath
+        # Saved to a file: Windows PowerShell hands back binary downloads as bytes.
+        Invoke-WebRequest -UseBasicParsing -Uri $sum.browser_download_url -OutFile $sumPath
+    }
     $expected = ((Get-Content -Raw $sumPath).Trim() -split '\s+')[0].ToLower()
     $actual = (Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLower()
     if ($expected -ne $actual) { throw "The download doesn't match its published SHA-256; nothing was installed." }
 
     $unpacked = Join-Path $work 'unpacked'
-    Expand-Archive -Path $zipPath -DestinationPath $unpacked
+    try {
+        Expand-Archive -Path $zipPath -DestinationPath $unpacked
+    } catch {
+        throw "The download isn't a readable archive; nothing was installed."
+    }
     New-Item -ItemType Directory -Force -Path $target | Out-Null
     Set-Content -Path (Join-Path $target $mark) -Value 'Installed by https://github.com/usebach/bach/blob/main/install.ps1'
     foreach ($file in $ours) {

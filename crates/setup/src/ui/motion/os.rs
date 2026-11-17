@@ -7,9 +7,7 @@
 pub fn reduced_motion_requested() -> bool {
     use std::ffi::c_void;
 
-    use windows::Win32::UI::WindowsAndMessaging::{
-        SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-    };
+    use windows::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS};
 
     let mut animations_on: i32 = 1;
     // SAFETY: SPI_GETCLIENTAREAANIMATION writes one BOOL (an i32) into the

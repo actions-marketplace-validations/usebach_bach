@@ -19,6 +19,7 @@
 pub mod archive;
 pub mod config;
 pub mod container;
+pub mod feedsig;
 pub mod i18n;
 pub mod manifest;
 pub mod paths;

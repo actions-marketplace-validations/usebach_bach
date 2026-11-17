@@ -10,8 +10,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, px, App, ClickEvent, CursorStyle, ElementId, InteractiveElement, IntoElement,
-    ParentElement, RenderOnce, StatefulInteractiveElement, Styled, Window,
+    div, px, App, ClickEvent, CursorStyle, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    StatefulInteractiveElement, Styled, Window,
 };
 
 use super::color::{clear, mix};
@@ -31,17 +31,10 @@ pub struct Checkbox {
 
 impl Checkbox {
     pub fn new(id: impl Into<ElementId>, checked: bool) -> Self {
-        Self {
-            id: id.into(),
-            checked,
-            on_toggle: None,
-        }
+        Self { id: id.into(), checked, on_toggle: None }
     }
 
-    pub fn on_toggle(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_toggle(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_toggle = Some(Rc::new(handler));
         self
     }
@@ -53,9 +46,7 @@ struct Fill(AnimatedValue);
 /// it lives only while the box keeps rendering.
 fn use_fill(id: ElementId, on: bool, window: &mut Window, cx: &mut App) -> f32 {
     let target = if on { 1.0 } else { 0.0 };
-    let state = window.use_keyed_state(id, cx, move |_, _| {
-        Fill(AnimatedValue::new(target, COLOR_FADE).with_precision(0.001))
-    });
+    let state = window.use_keyed_state(id, cx, move |_, _| Fill(AnimatedValue::new(target, COLOR_FADE).with_precision(0.001)));
     let (value, moving) = state.update(cx, |fill, _| {
         fill.0.set(target);
         (fill.0.value(), fill.0.is_animating())
@@ -83,12 +74,7 @@ impl RenderOnce for Checkbox {
             .border(px(1.5))
             .border_color(mix(edge, theme.primary, fill))
             .bg(mix(clear(theme.primary), theme.primary, fill))
-            .child(
-                Icon::new("check")
-                    .size(12.)
-                    .stroke(3.)
-                    .color(theme.primary_foreground.opacity(fill)),
-            );
+            .child(Icon::new("check").size(12.).stroke(3.).color(theme.primary_foreground.opacity(fill)));
 
         let hit = div()
             .id(self.id)
