@@ -196,6 +196,7 @@ bach check                 # validates and lists every file; prints warnings
 bach preview               # opens the real window; installs nothing (Windows only)
 bach preview --lang de --theme dark
 bach preview --uninstall
+bach watch                 # for people: like preview, reopens it on every save; never exits, so agents must not run it
 bach build                 # writes dist/<name>-Setup-<version>.exe
 bach inspect dist/My\ App-Setup-1.0.0.exe
 # In scripts, add --json to check, build, inspect, feed, doctor or version: stdout is one
@@ -287,6 +288,13 @@ window speaks several).
 - To make a Chocolatey package: `bach choco SETUP.exe --url URL --license MIT`,
   then `choco pack` in the folder it writes (use `installer.scope = "machine"`,
   since Chocolatey installs as an administrator).
+- To deploy with Microsoft Intune: `bach intune SETUP.exe` writes the install and
+  uninstall commands and the detection rule (`intune.md`) and a detection script
+  (`detect.ps1`); use `installer.scope = "machine"` for devices.
+- To check a setup file without installing it: `bach verify SETUP.exe` (add
+  `--key-file FILE` for an encrypted one; `--json` gives `verified` and `signature`).
+- For a download page: `bach page SETUP.exe --url URL` writes `download/index.html`.
+- In CI, `bach check --strict` (or `BACH_STRICT=1`) fails on any warning.
 
 ## Troubleshooting
 

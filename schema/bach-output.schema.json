@@ -33,7 +33,15 @@
     "latest": { "type": "string", "description": "update: the release looked at (the newest, or the version asked for)." },
     "update_available": { "type": "boolean", "description": "update: whether that release is newer than this bach." },
     "updated": { "type": "boolean", "description": "update: whether bach was replaced. Not there with --check." },
-    "install": { "type": "string", "enum": ["standalone", "npm", "scoop", "winget", "cargo", "checkout"], "description": "update: how this bach was installed; only a standalone copy replaces itself." }
+    "install": { "type": "string", "enum": ["standalone", "npm", "scoop", "winget", "cargo", "checkout"], "description": "update: how this bach was installed; only a standalone copy replaces itself." },
+    "page": { "type": "string", "description": "page: the download page (index.html) that was written." },
+    "verified": { "type": "boolean", "description": "verify: whether the setup file is intact (a damaged file is an error instead)." },
+    "signature": { "type": "string", "enum": ["signed", "unsigned"], "description": "verify: whether the file carries a signature (Windows decides whether it is valid)." },
+    "install_command": { "type": "string", "description": "intune: the command that installs the setup file silently." },
+    "uninstall_command": { "type": "string", "description": "intune: the command that removes the installed app silently." },
+    "run_as": { "type": "string", "enum": ["system", "user"], "description": "intune: the install behavior to choose (a machine-wide app runs as the system account)." },
+    "detection_key": { "type": "string", "description": "intune: the registry key whose DisplayVersion says the app is installed (machine-wide apps only)." },
+    "detection_script": { "type": "string", "description": "intune: the detection script that was written." }
   },
   "additionalProperties": false
 }

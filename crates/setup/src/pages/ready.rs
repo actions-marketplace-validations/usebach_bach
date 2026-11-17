@@ -3,13 +3,14 @@
 use bach_pack::i18n::Key;
 use bach_pack::manifest::{choices_auto_update, Manifest};
 use gpui::{
-    div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Pixels, SharedString, StatefulInteractiveElement, Styled,
+    div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled,
 };
 
 use super::{footer, subtitle_text, PageLayout};
 use crate::keyboard::Target;
 use crate::theme::{ActiveTheme, Theme, RADIUS};
 use crate::ui::prelude::*;
+use crate::ui::scroll::Thumb;
 use crate::view::{SetupView, Toggle};
 
 /// One row of the card before it's drawn.
@@ -46,38 +47,6 @@ pub fn row_count(manifest: &Manifest, removing: bool) -> usize {
 }
 
 impl SetupView {
-    pub(super) fn license_page(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme().clone();
-        let texts = &self.texts;
-        let license = self.package.manifest.license(texts.language.code).unwrap_or_default().to_string();
-        let paragraphs = license
-            .split("\n\n")
-            .map(|paragraph| div().text_size(px(13.)).line_height(px(19.)).child(SharedString::from(paragraph.trim().to_string())));
-        let text = div().id("setup-license").size_full().overflow_y_scroll().p(px(16.)).flex().flex_col().gap(px(10.)).children(paragraphs);
-        // The card fills the room left, so a short license and a long one
-        // make the same calm page; a long one scrolls inside it.
-        let content = div().mt(px(24.)).flex_1().min_h_0().rounded(RADIUS).border_1().border_color(theme.border).child(text);
-        let buttons = vec![
-            FormButton::new("setup-cancel", texts.get(Key::cancel))
-                .outline()
-                .focused(self.is_focused(Target::Cancel))
-                .on_click(cx.listener(|this, _, _, cx| this.close(cx)))
-                .into_any_element(),
-            FormButton::new("setup-accept", texts.get(Key::license_accept))
-                .focused(self.is_focused(Target::Primary))
-                .on_click(cx.listener(|this, _, _, cx| this.accept_license(cx)))
-                .into_any_element(),
-        ];
-        PageLayout {
-            mark: self.mark(false, &theme),
-            subtitle: Some(subtitle_text(texts.get(Key::license_subtitle), &theme)),
-            content: Some(content.into_any_element()),
-            grow: true,
-            ..PageLayout::new(texts.get(Key::license_title), footer(Some(self.meta()), buttons, &theme))
-        }
-        .render()
-    }
-
     pub(super) fn ready_page(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let choices = self.choices();
@@ -129,24 +98,15 @@ impl SetupView {
     /// A thin thumb showing where the card is scrolled, when it scrolls.
     fn scrollbar(&self, theme: &Theme) -> Option<AnyElement> {
         let handle = &self.choices_scroll;
-        let hidden = handle.max_offset().height;
-        let visible = handle.bounds().size.height;
-        if hidden < px(1.) || visible < px(1.) {
-            return None;
-        }
-        let total = visible + hidden;
-        let thumb = (visible * (visible / total)).max(px(24.));
-        let scrolled = (-handle.offset().y).max(px(0.)).min(hidden);
-        let inset = px(6.);
-        let track = visible - inset * 2. - thumb;
-        let top: Pixels = inset + track.max(px(0.)) * (scrolled / hidden);
+        let thumb =
+            Thumb::new(f32::from(handle.bounds().size.height), f32::from(handle.max_offset().height), f32::from(-handle.offset().y))?;
         Some(
             div()
                 .absolute()
-                .top(top)
+                .top(px(thumb.top))
                 .right(px(3.))
                 .w(px(4.))
-                .h(thumb)
+                .h(px(thumb.height))
                 .rounded(px(2.))
                 .bg(theme.muted_foreground.opacity(0.45))
                 .into_any_element(),

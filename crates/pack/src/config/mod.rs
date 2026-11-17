@@ -12,6 +12,7 @@ mod options;
 mod secrets;
 mod system;
 mod text;
+mod unsigned;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -387,6 +388,9 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     let sources = gather::gather(&source_dir, &file.files.exclude, &output)?;
     secrets::check(&sources, &file.files.allow_secrets, &mut warnings)?;
     long_paths(&sources, &install, &mut warnings);
+    if file.signing.is_some() {
+        warnings.extend(unsigned::warning(&sources));
+    }
     let requirements = extras::requirements(&file.requirements)?;
     for requirement in &requirements {
         if let manifest::extras::Check::Windows { build } = requirement.check {

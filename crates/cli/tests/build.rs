@@ -759,6 +759,187 @@ fn a_chocolatey_package_carries_the_checksum_of_the_setup_file() {
 }
 
 #[test]
+fn intune_settings_come_from_the_setup_file() {
+    need_runtime!();
+    let dir = project("intune", &config("[installer]\nscope = \"machine\"\n"));
+    let built = run(&dir, &["build", "--fast"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+    let made = run(&dir, &["intune", setup.to_str().unwrap(), "--json"]);
+    assert!(made.status.success(), "{}", text(&made.stderr));
+    let made = json_of(&made);
+    assert_eq!(made["install_command"], "Hello-Setup-1.0.0.exe --silent");
+    assert_eq!(made["run_as"], "system");
+    assert!(made["uninstall_command"].as_str().unwrap().contains(r"%ProgramFiles%\BachIntegrationTest-Hello\uninstall.exe"));
+    assert!(made["detection_key"].as_str().unwrap().ends_with(r"Uninstall\BachIntegrationTest-Hello"));
+    let folder = dir.join("dist/intune/BachIntegrationTest-Hello");
+    let script = std::fs::read_to_string(folder.join("detect.ps1")).unwrap();
+    assert!(script.contains("$id = 'BachIntegrationTest-Hello'") && script.contains("$wanted = '1.0.0'"), "{script}");
+    let sheet = std::fs::read_to_string(folder.join("intune.md")).unwrap();
+    assert!(sheet.contains("IntuneWinAppUtil.exe") && sheet.contains("DisplayVersion"), "{sheet}");
+
+    // A per-user app says so, and a file that isn't a setup file is refused.
+    let per_user = project("intune-user", &config(""));
+    assert!(run(&per_user, &["build", "--fast"]).status.success());
+    let user_setup = per_user.join("dist/Hello-Setup-1.0.0.exe");
+    let user = run(&per_user, &["intune", user_setup.to_str().unwrap(), "--out", per_user.join("out").to_str().unwrap()]);
+    assert!(user.status.success(), "{}", text(&user.stderr));
+    assert!(text(&user.stderr).contains("install behavior User"), "{}", text(&user.stderr));
+    assert!(per_user.join("out/detect.ps1").is_file());
+    let missing = run(&dir, &["intune", dir.join("nowhere.exe").to_str().unwrap()]);
+    assert!(!missing.status.success());
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&per_user).unwrap();
+}
+
+#[test]
+fn verify_tells_an_intact_setup_file_from_a_damaged_one() {
+    need_runtime!();
+    let dir = project("verify", &config(""));
+    let built = run(&dir, &["build", "--fast"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+
+    let ok = run(&dir, &["verify", setup.to_str().unwrap(), "--json"]);
+    assert!(ok.status.success(), "{}", text(&ok.stderr));
+    let ok = json_of(&ok);
+    assert_eq!(
+        (ok["verified"].clone(), ok["signature"].as_str(), ok["files"].as_u64()),
+        (serde_json::Value::Bool(true), Some("unsigned"), Some(2))
+    );
+
+    // One flipped byte in the middle of the archive is found, and says so.
+    let mut bytes = std::fs::read(&setup).unwrap();
+    let layout = {
+        let mut file = std::fs::File::open(&setup).unwrap();
+        bach_pack::container::locate(&mut file).unwrap().unwrap()
+    };
+    let middle = (layout.archive.offset + layout.archive.len / 2) as usize;
+    bytes[middle] ^= 0xFF;
+    let damaged = dir.join("damaged.exe");
+    std::fs::write(&damaged, &bytes).unwrap();
+    let bad = run(&dir, &["verify", damaged.to_str().unwrap()]);
+    assert!(!bad.status.success());
+    assert!(text(&bad.stderr).contains("is damaged"), "{}", text(&bad.stderr));
+
+    // A file cut short, and a file that isn't a setup file, are refused too.
+    let short = dir.join("short.exe");
+    std::fs::write(&short, &bytes[..bytes.len() - 100]).unwrap();
+    assert!(!run(&dir, &["verify", short.to_str().unwrap()]).status.success());
+    assert!(!run(&dir, &["verify", dir.join("bach.toml").to_str().unwrap()]).status.success());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn verify_opens_an_encrypted_setup_file_only_with_its_key() {
+    need_runtime!();
+    let dir = project("verify-key", &config(ACCESS));
+    let made = run(&dir, &["key", "--out", "key.txt"]);
+    assert!(made.status.success(), "{}", text(&made.stderr));
+    let built = run(&dir, &["build", "--fast", "--key-file", "key.txt"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+
+    // Without the key the archive is still checked as a whole, and it says the files stayed shut.
+    let without = run(&dir, &["verify", setup.to_str().unwrap()]);
+    assert!(without.status.success(), "{}", text(&without.stderr));
+    assert!(text(&without.stdout).contains("encrypted"), "{}", text(&without.stdout));
+    let with = run(&dir, &["verify", setup.to_str().unwrap(), "--key-file", "key.txt"]);
+    assert!(with.status.success(), "{}", text(&with.stderr));
+    assert!(text(&with.stdout).contains("2 checked against the manifest"), "{}", text(&with.stdout));
+    // A wrong key is refused, not mistaken for damage.
+    std::fs::write(
+        dir.join("wrong.txt"),
+        "D9XJ-4PQA-7TMN-2KRF-8HWB
+",
+    )
+    .unwrap();
+    let wrong = run(&dir, &["verify", setup.to_str().unwrap(), "--key-file", "wrong.txt"]);
+    assert!(!wrong.status.success());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn strict_turns_a_warning_into_an_error() {
+    need_runtime!();
+    // add_to_path with a folder that holds no file: a warning, not an error.
+    let dir = project(
+        "strict",
+        &config(
+            "[installer]
+add_to_path = \"always\"
+path_folder = \"bin\"
+",
+        ),
+    );
+    let plain = run(&dir, &["check"]);
+    assert!(plain.status.success() && text(&plain.stderr).contains("warning:"), "{}", text(&plain.stderr));
+    let strict = run(&dir, &["check", "--strict"]);
+    assert!(!strict.status.success());
+    assert!(text(&strict.stderr).contains("--strict treats it as an error"), "{}", text(&strict.stderr));
+    let build = run(&dir, &["build", "--fast", "--strict"]);
+    assert!(!build.status.success() && !dir.join("dist/Hello-Setup-1.0.0.exe").exists(), "nothing is built");
+    assert!(run(&dir, &["build", "--fast"]).status.success(), "without --strict it builds");
+    // A clean config passes either way.
+    let clean = project("strict-clean", &config(""));
+    assert!(run(&clean, &["check", "--strict"]).status.success());
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&clean).unwrap();
+}
+
+#[test]
+fn a_download_page_carries_the_numbers_of_the_setup_file() {
+    need_runtime!();
+    let dir = project("page", &config(""));
+    let built = run(&dir, &["build", "--fast"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+    std::fs::write(
+        dir.join("notes.txt"),
+        "- Faster
+- <b>Safer</b>
+",
+    )
+    .unwrap();
+    let made = run(
+        &dir,
+        &[
+            "page",
+            setup.to_str().unwrap(),
+            "--url",
+            "https://bach-test.invalid/Hello-Setup-1.0.0.exe",
+            "--notes-file",
+            "notes.txt",
+            "--winget",
+            "Example.Hello",
+            "--json",
+        ],
+    );
+    assert!(made.status.success(), "{}", text(&made.stderr));
+    let made = json_of(&made);
+    let sha = bach_pack::protect::sha256_hex(std::fs::File::open(&setup).unwrap()).unwrap();
+    assert_eq!(made["sha256"], sha.as_str());
+    let page = std::fs::read_to_string(dir.join("dist/download/index.html")).unwrap();
+    assert!(
+        page.contains(&sha) && page.contains("Version 1.0.0") && page.contains("href=\"https://bach-test.invalid/Hello-Setup-1.0.0.exe\""),
+        "{page}"
+    );
+    assert!(
+        page.contains("winget install Example.Hello") && page.contains("<li>Faster</li>") && page.contains("&lt;b&gt;Safer&lt;/b&gt;"),
+        "{page}"
+    );
+    assert!(!page.contains("<script"), "no script in the page");
+
+    // Not over http, not a bad winget id, and not a file that isn't a full setup file.
+    assert!(!run(&dir, &["page", setup.to_str().unwrap(), "--url", "http://bach-test.invalid/x.exe"]).status.success());
+    assert!(!run(&dir, &["page", setup.to_str().unwrap(), "--url", "https://bach-test.invalid/x.exe", "--winget", "no dot"])
+        .status
+        .success());
+    assert!(!run(&dir, &["page", dir.join("bach.toml").to_str().unwrap(), "--url", "https://bach-test.invalid/x.exe"]).status.success());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn a_key_file_with_many_keys_gives_each_its_own_slot() {
     need_runtime!();
     let dir = secret_project("slots", &config(ACCESS));

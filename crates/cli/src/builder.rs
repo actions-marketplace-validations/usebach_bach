@@ -22,7 +22,23 @@ fn load(config_path: &Path, version: Option<&str>) -> Result<Project> {
     config::load_with(config_path, &Overrides { version: version.map(String::from) })
 }
 
-pub fn check(config_path: &Path, version: Option<&str>) -> Result<()> {
+/// With `--strict`, a warning is an error: the build is held back until the
+/// config has none, so a pipeline can't ship what `bach check` complained about.
+fn strict_gate(warnings: &[String], strict: bool) -> Result<()> {
+    if strict && !warnings.is_empty() {
+        let count = warnings.len();
+        bail!(
+            "bach.toml has {count} {}, and --strict treats {} as {}: fix {}, or run without --strict",
+            if count == 1 { "warning" } else { "warnings" },
+            if count == 1 { "it" } else { "them" },
+            if count == 1 { "an error" } else { "errors" },
+            if count == 1 { "it" } else { "them" },
+        );
+    }
+    Ok(())
+}
+
+pub fn check(config_path: &Path, version: Option<&str>, strict: bool) -> Result<()> {
     let project = load(config_path, version)?;
     let manifest = &project.manifest;
     output::result("name", manifest.app.name.clone());
@@ -37,7 +53,7 @@ pub fn check(config_path: &Path, version: Option<&str>) -> Result<()> {
         say!("  {:>10}  {}{component}", output::size(file.size), file.path);
     }
     output::warnings(&project.warnings);
-    Ok(())
+    strict_gate(&project.warnings, strict)
 }
 
 /// What `bach build` was asked for.
@@ -57,10 +73,12 @@ pub struct BuildOptions<'a> {
     /// An older setup file of this app: also write an update patch from it,
     /// holding only the files that changed since.
     pub patch_from: Option<&'a Path>,
+    /// Stop when `bach check` would warn (see [`strict_gate`]).
+    pub strict: bool,
 }
 
 /// The key the files are locked with, and what it unlocks while building.
-struct Sealing {
+pub(crate) struct Sealing {
     encryption: Encryption,
     unlocked: Unlocked,
 }
@@ -68,7 +86,7 @@ struct Sealing {
 /// Locks the project's files when `[access]` asks for it: reads the key,
 /// makes fresh protection data and records it in the manifest. `key` is the
 /// key to use when it isn't read from the environment (a preview's).
-fn seal(project: &mut Project, key_file: Option<&Path>, key: Option<&str>) -> Result<Option<Sealing>> {
+pub(crate) fn seal(project: &mut Project, key_file: Option<&Path>, key: Option<&str>) -> Result<Option<Sealing>> {
     if !project.encrypt {
         return Ok(None);
     }
@@ -111,7 +129,7 @@ fn read_keys(env: &str, key_file: Option<&Path>) -> Result<Vec<String>> {
 }
 
 pub fn build(options: BuildOptions) -> Result<PathBuf> {
-    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file, sign, patch_from } = options;
+    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file, sign, patch_from, strict } = options;
     let started = Instant::now();
     let mut project = load(config_path, version)?;
     if fast {
@@ -132,6 +150,7 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     summary(&project);
 
     output::warnings(&project.warnings);
+    strict_gate(&project.warnings, strict)?;
 
     let sealing = seal(&mut project, key_file, None)?;
     if sealing.is_some() {
@@ -206,7 +225,7 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
 
 /// What writing a setup file gives back: the archive's packed size and the
 /// SHA-256 of each packaged file (in the order of `project.sources`).
-struct Written {
+pub(crate) struct Written {
     packed: u64,
     hashes: Vec<String>,
 }
@@ -275,64 +294,6 @@ fn write_patch(project: &Project, old: &Path, runtime: &Path, output: &Path, key
     Ok((target, earlier.app.version))
 }
 
-pub struct PreviewOptions<'a> {
-    pub uninstall: bool,
-    pub theme: Option<&'a str>,
-    pub lang: Option<&'a str>,
-    pub runtime: Option<&'a Path>,
-}
-
-pub fn preview(config_path: &Path, options: PreviewOptions) -> Result<()> {
-    let PreviewOptions { uninstall, theme, lang, runtime } = options;
-    let mut project = config::load(config_path)?;
-    project.compression = Compression::Fast;
-    // A preview opens the key page too; any key passes there.
-    let sealing = seal(&mut project, None, Some("preview-only-key"))?;
-    if let Some(theme) = theme {
-        if bach_pack::manifest::Theme::parse(theme).is_none() {
-            bail!("--theme is \"{theme}\"; use system, light or dark");
-        }
-    }
-    if let Some(lang) = lang {
-        if bach_pack::i18n::language(lang).is_none() {
-            let known: Vec<&str> = bach_pack::i18n::LANGUAGES.iter().map(|language| language.code).collect();
-            bail!("--lang is \"{lang}\"; use one of {}", known.join(", "));
-        }
-    }
-    if !cfg!(windows) {
-        bail!("bach preview opens a Windows window, so it needs Windows; `bach check` works everywhere");
-    }
-    output::warnings(&project.warnings);
-    let runtime = runtime::find(runtime)?;
-    let dir = std::env::temp_dir().join("bach-preview");
-    fs::create_dir_all(&dir)?;
-    // Earlier previews go, except the ones still open; each preview gets a
-    // file of its own, so an open window never blocks the next one.
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let _ = fs::remove_file(entry.path());
-        }
-    }
-    let output =
-        dir.join(format!("{}-Setup-preview-{}.exe", bach_pack::paths::safe_dir_name(&project.manifest.app.id), std::process::id()));
-    write_setup(&project, &runtime, &output, sealing.as_ref())?;
-
-    let mut command = std::process::Command::new(&output);
-    command.arg("--preview");
-    if uninstall {
-        command.arg("--uninstall");
-    }
-    if let Some(theme) = theme {
-        command.args(["--theme", theme]);
-    }
-    if let Some(lang) = lang {
-        command.args(["--lang", lang]);
-    }
-    command.spawn().with_context(|| format!("couldn't start {}", output.display()))?;
-    say!("Opened the {} preview. Nothing is installed or removed.", if uninstall { "uninstaller" } else { "installer" });
-    Ok(())
-}
-
 fn summary(project: &Project) {
     crate::inspect::details(&project.manifest, project.encrypt);
 }
@@ -361,7 +322,7 @@ fn tidy(path: &Path) -> PathBuf {
 /// Writes the setup file through a `.partial` file, so a failed build never
 /// leaves a half-written installer where the real one belongs. Returns the
 /// archive's packed size.
-fn write_setup(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>) -> Result<Written> {
+pub(crate) fn write_setup(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>) -> Result<Written> {
     write_file(project, runtime_path, output, sealing, write_into)
 }
 

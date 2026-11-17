@@ -290,8 +290,9 @@ update` stops and names the command that updates it.
 
 The "new version available" line comes from a small file,
 `update-check.json` in the cache folder above, that a detached
-`bach update-refresh` writes at most once a day. A command only reads it, so
-it never waits on the network. `BACH_NO_UPDATE_CHECK` (any value) turns the
+`bach update-refresh` writes, started by every command (not again within
+10 seconds). A command only reads it, so it never waits on the network, and a
+check that fails, offline for example, changes nothing. `BACH_NO_UPDATE_CHECK` (any value) turns the
 check off; it is also off when `CI` is set, with `--json`, when stderr isn't a
 terminal, and in a build from a checkout (`target\debug` or `target\release`).
 `BACH_UPDATE_FROM=DIR` makes `bach update VERSION` read the release files from

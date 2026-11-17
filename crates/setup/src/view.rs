@@ -12,6 +12,7 @@ use futures::StreamExt;
 use gpui::{Context, FocusHandle, ScrollHandle, SharedString, Task, Window};
 
 use crate::launch::Mode;
+use crate::license::LicenseView;
 use crate::package::Package;
 use crate::system::Installed;
 use crate::texts::Texts;
@@ -95,6 +96,8 @@ pub struct SetupView {
     /// The card of choices, for its scrollbar and for keeping the focused
     /// row in view.
     pub choices_scroll: ScrollHandle,
+    /// The license page: its text, scroll position and selection.
+    pub license: LicenseView,
     job: Option<Task<()>>,
     picker: Option<Task<()>>,
     pub(crate) closer: Option<Task<()>>,
@@ -147,6 +150,7 @@ impl SetupView {
             None if license_pending => Stage::License,
             None => Stage::Ready,
         };
+        let license = LicenseView::new(manifest.license(texts.language.code).unwrap_or_default());
         let mut view = Self {
             package,
             texts,
@@ -171,6 +175,7 @@ impl SetupView {
             focus_handle: cx.focus_handle(),
             focused: None,
             choices_scroll: ScrollHandle::new(),
+            license,
             job: None,
             picker: None,
             closer: None,

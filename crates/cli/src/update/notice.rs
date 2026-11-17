@@ -3,10 +3,11 @@
 //! A command must never wait on the network for this. So the check runs in a
 //! separate, detached `bach update-refresh` that writes what it found to a
 //! small file in the user's cache; a command only reads that file. The first
-//! run after a release therefore says nothing, and the next one does. The
-//! check happens at most once a day, and only when a person is looking:
-//! stderr is a terminal, `--json` is off, and neither `CI` nor
-//! `BACH_NO_UPDATE_CHECK` is set.
+//! run after a release therefore says nothing, and the next one does. Every
+//! command starts a check, and one that fails (no network, GitHub down) is
+//! simply forgotten. It happens only when a person is looking: stderr is a
+//! terminal, `--json` is off, and neither `CI` nor `BACH_NO_UPDATE_CHECK` is
+//! set.
 
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -21,8 +22,9 @@ use super::{current, Method};
 use crate::runtime;
 use crate::version::Version;
 
-/// How long a check stays fresh.
-const DAY: u64 = 24 * 60 * 60;
+/// Commands run within this many seconds of a started check don't start
+/// another: a script that runs bach in a loop shouldn't fire a request each time.
+const GAP: u64 = 10;
 
 /// What the last check found.
 struct Seen {
@@ -60,10 +62,10 @@ fn write(seen: &Seen) {
     let _ = std::fs::write(file, text.to_string());
 }
 
-/// Whether the cache is old enough (or missing) that a new check is due. A
+/// Whether the last check started long enough ago (or never) for a new one. A
 /// time in the future counts as old, so a wrong clock can't stop checks forever.
 fn due(checked: Option<u64>, now: u64) -> bool {
-    checked.is_none_or(|checked| checked > now || now - checked >= DAY)
+    checked.is_none_or(|checked| checked > now || now - checked >= GAP)
 }
 
 /// What `bach update --check` and `bach update` learned, kept for the notice.
@@ -84,7 +86,7 @@ fn wanted() -> bool {
 }
 
 /// Runs after a command: says so when a newer release is known, and starts a
-/// background check when the last one is a day old.
+/// background check (unless one started a moment ago).
 pub fn show() {
     if !wanted() {
         return;
@@ -146,10 +148,10 @@ mod tests {
     }
 
     #[test]
-    fn a_check_is_due_once_a_day() {
+    fn a_check_is_due_for_every_command_but_not_every_instant() {
         assert!(due(None, 1_000_000));
-        assert!(!due(Some(1_000_000), 1_000_000 + DAY - 1));
-        assert!(due(Some(1_000_000), 1_000_000 + DAY));
+        assert!(!due(Some(1_000_000), 1_000_000 + GAP - 1));
+        assert!(due(Some(1_000_000), 1_000_000 + GAP));
         assert!(due(Some(2_000_000), 1_000_000), "a clock set back doesn't stop checks");
     }
 

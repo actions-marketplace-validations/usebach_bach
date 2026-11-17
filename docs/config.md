@@ -24,7 +24,9 @@ default, so a five-line config already builds a complete installer.
 - [`[signing]`](#signing): sign the setup files while building (optional)
 - [A complete example](#a-complete-example)
 - [Silent installs](#silent-installs) and [updating from the app](#updating-from-the-app)
-- [Editor support](#editor-support) and [listing your app in winget](#listing-your-app-in-winget)
+- [Editor support](#editor-support), [listing your app in winget](#listing-your-app-in-winget) and [Chocolatey](#listing-your-app-in-chocolatey)
+- [Deploying with Intune](#deploying-with-intune)
+- [Checking a setup file](#checking-a-setup-file), [a download page](#a-download-page) and [failing on warnings](#failing-on-warnings)
 
 ## config_version
 
@@ -244,7 +246,7 @@ and unticking one takes the shortcut, PATH entry or autostart away again.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `languages` | every built-in language | The languages the window may speak, like `["en", "de"]`. The window follows the user's Windows display language when it's in this list, and otherwise uses the first one. With a single language, like `["de"]`, the window always speaks it. |
-| `license` | none | A UTF-8 text file the user accepts before the install page, like `"LICENSE.txt"`, or one per language: `{ en = "LICENSE.txt", de = "LIZENZ.txt" }`. An update shows it again only when it changed. |
+| `license` | none | A UTF-8 text file the user accepts before the install page, like `"LICENSE.txt"`, or one per language: `{ en = "LICENSE.txt", de = "LIZENZ.txt" }`. An update shows it again only when it changed. The window shows it in a card that scrolls smoothly, with a scrollbar, and the text can be selected and copied. |
 
 Built-in languages: `en` English, `de` Deutsch, `nl` Nederlands, `fr`
 Français, `es` Español, `it` Italiano, `pt` Português (Brazilian), `pl` Polski, `ru`
@@ -826,6 +828,12 @@ update feed is written. Details,
 and why the installed `uninstall.exe` stays unsigned, are in
 [signing](signing.md).
 
+With this section, `bach check` and `bach build` also warn when programs or
+libraries inside the setup file aren't signed (`1 of the 2 programs and
+libraries in the setup file aren't signed (helper.exe)`): signing the setup file
+doesn't sign them, and Smart App Control can block an unsigned program. Sign
+them in your own build.
+
 ## A complete example
 
 ```toml
@@ -1047,3 +1055,138 @@ id in lowercase. Build it with `choco pack` in that folder. Chocolatey runs as
 an administrator, so a per-user app is installed for that account only; the
 command warns, and `installer.scope = "machine"` fixes it. `--license` takes a
 link or a name like `MIT`; `--out` picks the folder.
+
+## Deploying with Intune
+
+Companies hand out apps with Microsoft Intune, Configuration Manager or a
+similar tool. For a setup file that isn't an MSI they ask for three things:
+a silent install command, an uninstall command and a rule that says the app
+is installed. Bach has all three already; one command writes them down:
+
+```bash
+bach intune dist/Hello-Setup-1.4.0.exe
+```
+
+```console
+Wrote the Intune settings for Hello 1.4.0 to dist\intune\Hello
+  Install      Hello-Setup-1.4.0.exe --silent
+  Uninstall    "%ProgramFiles%\Hello\uninstall.exe" --silent
+  Run as       System (installs for every user)
+  Detect       registry HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Hello, DisplayVersion >= 1.4.0
+  Requires     64-bit (x64), Windows 10 1809 or newer
+```
+
+It writes two files into `intune/<app id>` next to the setup file (`--out`
+picks another folder):
+
+| File | What it holds |
+| --- | --- |
+| `intune.md` | The settings sheet: how to wrap the setup file with Microsoft's Win32 Content Prep Tool (`IntuneWinAppUtil.exe`), the program settings, the requirements and the detection rule, ready to copy into Intune. |
+| `detect.ps1` | The same detection as a custom detection script. It reads the app's Settings › Apps entry and says "installed" when this version **or a newer one** is there, so Intune never installs an old version over one Bach has updated. Leave "Run script as 32-bit process" off. |
+
+Things to know:
+
+- A machine-wide app (`installer.scope = "machine"`) is the one for Intune
+  devices: Intune runs setup as the system account, so nothing asks for
+  permission, and the registry rule works. A per-user app is deployed with
+  install behavior **User** and detected with `detect.ps1` (the command warns).
+- The commands use the default install folder. If you install somewhere else
+  with `--dir`, point the uninstall command there too.
+- A version like `2.0.0-beta.1` isn't made of plain numbers, so Intune's
+  registry rule can't compare it; the sheet then says to use `detect.ps1`.
+- A setup file with [`[access]`](#access) needs its key: add `--key-file FILE`
+  to the install command and put the key file in the package.
+- Keep the app id and the scope the same in every release. Windows tells apps
+  apart by them, and a changed scope installs next to the old app.
+- The exit codes are the ones in [silent installs](#silent-installs): `0` is
+  success and `1` a failure, which are Intune's defaults too.
+
+`--json` prints `install_command`, `uninstall_command`, `run_as`,
+`detection_key` (machine-wide apps) and `detection_script`.
+
+## Checking a setup file
+
+```bash
+bach verify dist/Hello-Setup-1.4.0.exe
+```
+
+```console
+Verifying Hello 1.4.0 (dist/Hello-Setup-1.4.0.exe)
+  Signature    not signed
+  Archive      SHA-256 matches (8650123 bytes)
+  Files        12 checked against the manifest
+dist/Hello-Setup-1.4.0.exe is intact.
+```
+
+Use it on a download that may have gone wrong, a copy someone changed, or the
+file a build server hands over. It installs and writes nothing. It reads the
+archive and checks what setup checks while it installs: the archive against the
+SHA-256 recorded when the setup file was built, and every file against the
+size and SHA-256 in the manifest. It also looks for files the manifest lacks
+or the archive doesn't hold. A damaged file stops with exit code 1 and a
+sentence that names the first few files that are wrong.
+
+- `signature` says whether the file carries a signature. Bach reads only the
+  entry in the file's header; Windows decides whether it is valid, and
+  `signtool verify /pa` checks it (see [signing](signing.md)).
+- The runtime part of the file (the program that shows the window) is covered
+  by that signature, not by `bach verify`.
+- A setup file with [`[access]`](#access) has its files encrypted. Without a
+  key `bach verify` still checks the archive as a whole and says the files stayed
+  shut; give the key with `--key-file FILE` (or `BACH_ACCESS_KEY`) to open
+  them and check each one. A wrong key is refused, not reported as damage.
+- An online installer and an uninstaller carry no files, so there is nothing
+  more to check. An update patch is checked too; the files it leaves out are on
+  the computer already.
+
+`--json` prints `verified`, `signature`, `files`, `name` and `version`; a
+damaged file is the usual `{"ok": false, "error": "…"}`.
+
+## A download page
+
+```bash
+bach page dist/Hello-Setup-1.4.0.exe --url https://example.com/downloads/Hello-Setup-1.4.0.exe
+```
+
+writes `download/index.html` next to the setup file (`--out` picks the folder):
+the app's name, version, publisher and size, a download button, how to install
+and update, how to remove it, and the file's SHA-256 with the PowerShell
+command that checks it. The numbers come from the setup file, so they can't
+disagree with the file.
+
+| Flag | Meaning |
+| --- | --- |
+| `--url URL` | Required. The `https` link the setup file is downloaded from. |
+| `--out DIR`, `-o DIR` | The folder for `index.html`. |
+| `--notes-file FILE` | What's new, up to 20 KB. Lines starting with `-` or `*` become a list; nothing else is interpreted, so Markdown and HTML show as written. |
+| `--winget ID` | Shows `winget install ID` (the id looks like `Publisher.AppName`). |
+
+The page is one file with no script and no outside file: it follows the
+reader's light or dark setting, works on a phone, and has a content security
+policy that allows nothing but its own style. The button uses the setup
+file's `accent` colour, and a PNG logo travels inside the page (a logo over
+256 KB, or an SVG one, is left out, and the page shows the name). The
+install text says whether the app installs for one user or, with
+`installer.scope = "machine"`, asks for administrator permission once. Put the
+page where your downloads are; the text is in English.
+
+An online installer or an uninstaller is refused: point `bach page` at the full
+setup file. `--json` adds `page` (the file written), `sha256` and `size`.
+
+## Failing on warnings
+
+`bach check` and `bach build` print a warning for what builds but probably
+isn't meant: a long file list, an elevated step in a per-user install,
+unsigned programs inside a signed setup file and more. In a pipeline that is
+easy to miss. Add `--strict` (or set `BACH_STRICT=1`) and any warning is an
+error:
+
+```console
+$ bach check --strict
+...
+warning: installer.path_folder is "bin", but no installed file is in it.
+error: bach.toml has 1 warning, and --strict treats it as an error: fix it, or run without --strict.
+```
+
+`bach build --strict` stops before it builds, so no file is written. Without
+the flag nothing changes.
