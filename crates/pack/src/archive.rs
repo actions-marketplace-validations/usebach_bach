@@ -189,6 +189,10 @@ pub fn write_hashed<W: Write>(
 /// `visit` leaves unread is skipped.
 pub fn read<R: Read>(input: R, visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -> Result<()>) -> Result<()> {
     let mut decoder = zstd::stream::Decoder::new(BufReader::new(input))?;
+    // The builder writes every file once. A path twice (or two paths Windows takes for
+    // one file) is a damaged or crafted archive, and two writes to one file would
+    // undo each other halfway through an update.
+    let mut seen = std::collections::HashSet::new();
     loop {
         let mut kind = [0u8; 1];
         decoder.read_exact(&mut kind).context("the archive ends early")?;
@@ -206,6 +210,9 @@ pub fn read<R: Read>(input: R, visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -
         if packaged != name {
             bail!("the archive holds \"{name}\", which isn't a canonical path");
         }
+        if !seen.insert(paths::fold_case(&packaged)) {
+            bail!("the archive holds \"{packaged}\" more than once");
+        }
         let mut size = [0u8; 8];
         decoder.read_exact(&mut size)?;
         let size = u64::from_le_bytes(size);
@@ -216,6 +223,35 @@ pub fn read<R: Read>(input: R, visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -
         if body.limit() != 0 {
             bail!("the archive ends in the middle of \"{packaged}\"");
         }
+    }
+}
+
+/// A reader that counts and hashes what passes through it, so a file can be
+/// checked against the size and SHA-256 the manifest records while it is written,
+/// not in a second pass over the disk.
+pub struct Verifying<R: Read> {
+    inner: R,
+    hasher: Sha256,
+    count: u64,
+}
+
+impl<R: Read> Verifying<R> {
+    pub fn new(inner: R) -> Self {
+        Self { inner, hasher: Sha256::new(), count: 0 }
+    }
+
+    /// How many bytes were read and their SHA-256 (lowercase hex), so far.
+    pub fn digest(&self) -> (u64, String) {
+        (self.count, crate::protect::hex(&self.hasher.clone().finalize()))
+    }
+}
+
+impl<R: Read> Read for Verifying<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        self.hasher.update(&buf[..read]);
+        self.count = self.count.saturating_add(read as u64);
+        Ok(read)
     }
 }
 
@@ -422,5 +458,33 @@ mod tests {
         let cut = &bytes[..bytes.len() / 2];
         assert!(read(cut, &mut |_, _, _| Ok(())).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_path_twice_in_an_archive_is_refused() {
+        let dir = temp_dir("twice");
+        std::fs::write(dir.join("a.bin"), b"one").unwrap();
+        let source = |packaged: &str| Source { packaged: packaged.into(), path: dir.join("a.bin"), size: 3 };
+        for pair in [["a.bin", "a.bin"], ["a.bin", "A.BIN"], ["σ.bin", "ς.bin"]] {
+            let sources = [source(pair[0]), source(pair[1])];
+            let (bytes, _) = write_hashed(Vec::new(), &sources, Compression::Fast, 1, &mut |_| {}).unwrap();
+            let mut seen = 0;
+            let err = read(bytes.as_slice(), &mut |_, _, _| {
+                seen += 1;
+                Ok(())
+            })
+            .unwrap_err();
+            assert!(format!("{err:#}").contains("more than once"), "{pair:?}: {err:#}");
+            assert_eq!(seen, 1, "the second one is never handed out");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_verifying_reader_counts_and_hashes() {
+        let mut reader = Verifying::new(&b"hello"[..]);
+        let mut out = Vec::new();
+        reader.read_to_end(&mut out).unwrap();
+        assert_eq!(reader.digest(), (5, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".to_string()));
     }
 }
