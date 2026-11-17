@@ -77,6 +77,15 @@ add weight (`*.pdb`, `*.log`, `Thumbs.db`, `.DS_Store`, and anything in
 `node_modules`, `target` or `__pycache__`) give a warning, not an error. `bach
 init` excludes the first four for the stacks it recognises.
 
+**Long paths.** Windows' classic limit is 260 characters for a whole path.
+Setup writes longer paths fine, but shortcuts, Explorer and many programs stop
+there unless Windows' long path support is on. `bach check` adds up the usual
+install folder (`%LOCALAPPDATA%\Programs\<folder>` for one user, with a
+20-character user name, or `C:\Program Files\<folder>`) and the longest
+packaged path, and warns when the total passes 259 characters; the setup log
+says so too when it happens on a computer. Flatten deep trees such as
+`node_modules`, or build the app so its files sit shallower.
+
 Every name in the source folder, file or folder, has to be one Windows can
 create: at most 255 characters (counted as Windows counts them) and not a
 device name such as `NUL` or `COM1`. `bach check` reports the first one that

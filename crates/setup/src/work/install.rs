@@ -14,6 +14,7 @@
 
 use std::collections::HashSet;
 use std::fs::{self, File};
+use std::os::windows::ffi::OsStrExt;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -91,6 +92,7 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     ensure_closed(&program, texts)?;
     let previous = previous_install(dir, manifest);
     let needed = manifest.selected_size(&choices);
+    log_long_paths(manifest, &choices, dir);
     // An update patch carries only what changed; the rest is in the folder.
     let matching = patch_base(manifest, &choices, dir);
     if previous.is_some() {
@@ -164,6 +166,26 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     system::notify_shell();
     report(1.0, &texts.get(Key::step_done));
     Ok(())
+}
+
+/// Notes in the log when a file will sit at a path longer than classic Windows
+/// handles (260 characters): setup writes it fine, but shortcuts, Explorer and
+/// many programs may not cope, which is a first thing to know when a support
+/// log is read.
+fn log_long_paths(manifest: &Manifest, choices: &Choices, dir: &Path) {
+    const CLASSIC_LIMIT: usize = 259;
+    let longest = manifest
+        .files
+        .iter()
+        .filter(|file| choices.installs(file))
+        .map(|file| (paths::under(dir, &file.path).as_os_str().encode_wide().count(), file.path.as_str()))
+        .max_by_key(|(length, _)| *length);
+    if let Some((length, path)) = longest.filter(|(length, _)| *length > CLASSIC_LIMIT) {
+        crate::log::line(&format!(
+            "{path} will be {length} characters long, more than the {CLASSIC_LIMIT} classic Windows handles; \
+             shortcuts and some programs may not open it unless long path support is on."
+        ));
+    }
 }
 
 /// The installed uninstaller, copied aside while an update runs, so a failed

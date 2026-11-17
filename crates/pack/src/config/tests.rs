@@ -1197,3 +1197,25 @@ fn a_version_that_cannot_be_compared_warns() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_path_that_would_pass_the_classic_windows_limit_warns() {
+    let dir = project_dir("longpath");
+    let project = parse(MINIMAL, &dir).unwrap();
+    assert!(!project.warnings.iter().any(|warning| warning.contains("characters long")), "{:?}", project.warnings);
+    let deep = (0..12).map(|n| format!("directory_number_{n}")).collect::<Vec<_>>().join("/");
+    std::fs::create_dir_all(dir.join("build").join(&deep)).unwrap();
+    std::fs::write(dir.join("build").join(&deep).join("file.txt"), b"x").unwrap();
+    let project = parse(MINIMAL, &dir).unwrap();
+    let warning = project.warnings.iter().find(|warning| warning.contains("characters long")).expect("a warning");
+    assert!(warning.contains("directory_number_11/file.txt") && warning.contains("259"), "{warning}");
+    // Below Program Files there is more room than below a user's profile.
+    let machine = format!("{MINIMAL}\n[installer]\nscope = \"machine\"\n");
+    let shallow = (0..11).map(|n| format!("directory_number_{n}")).collect::<Vec<_>>().join("/");
+    std::fs::remove_dir_all(dir.join("build").join("directory_number_0")).unwrap();
+    std::fs::create_dir_all(dir.join("build").join(&shallow)).unwrap();
+    std::fs::write(dir.join("build").join(&shallow).join("file.txt"), b"x").unwrap();
+    assert!(parse(&machine, &dir).unwrap().warnings.iter().all(|warning| !warning.contains("characters long")));
+    assert!(parse(MINIMAL, &dir).unwrap().warnings.iter().any(|warning| warning.contains("characters long")));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

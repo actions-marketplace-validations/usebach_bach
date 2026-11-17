@@ -380,6 +380,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     }
     let sources = gather::gather(&source_dir, &file.files.exclude, &output)?;
     secrets::check(&sources, &file.files.allow_secrets, &mut warnings)?;
+    long_paths(&sources, &install, &mut warnings);
     let requirements = extras::requirements(&file.requirements)?;
     for requirement in &requirements {
         if let manifest::extras::Check::Windows { build } = requirement.check {
@@ -510,6 +511,36 @@ fn signing(section: Option<&SigningSection>) -> Result<Option<Signing>> {
 
 /// A file name as GitHub keeps it for a release download: letters, digits,
 /// `.`, `-` and `_`; anything else becomes `-`.
+/// What Windows' classic limit allows for a whole path: 260 characters with
+/// the drive and the ending NUL.
+const MAX_PATH_CHARS: usize = 259;
+
+/// Warns when the longest packaged file would pass [`MAX_PATH_CHARS`] below the
+/// usual install folder. Setup writes long paths fine, but shortcuts, Explorer and
+/// many programs stop at 260 characters unless Windows' long path support is on.
+fn long_paths(sources: &[Source], install: &manifest::Install, warnings: &mut Vec<String>) {
+    // `C:\Users\` + a 20 character user name + `\AppData\Local\Programs\`, or `C:\Program Files\`.
+    let base = match install.scope {
+        manifest::Scope::User => 9 + 20 + 24,
+        manifest::Scope::Machine => 19,
+    };
+    let folder = install.folder.encode_utf16().count();
+    let longest = sources
+        .iter()
+        .map(|source| (source.packaged.replace('/', "\\").encode_utf16().count(), source.packaged.as_str()))
+        .max_by_key(|(length, _)| *length);
+    if let Some((length, name)) = longest {
+        let total = base + folder + 1 + length;
+        if total > MAX_PATH_CHARS {
+            warnings.push(format!(
+                "\"{name}\" would be {total} characters long once installed in the usual folder, \
+                 more than the {MAX_PATH_CHARS} that shortcuts, Explorer and many programs handle unless Windows' long path \
+                 support is on. Shorten the path (for example by flattening node_modules or shortening folder names)"
+            ));
+        }
+    }
+}
+
 pub fn github_asset_name(name: &str) -> String {
     name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '-' }).collect()
 }
