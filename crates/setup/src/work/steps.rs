@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bach_pack::i18n::Key;
-use bach_pack::manifest::{Choices, Manifest, RunStep, RunWhen};
+use bach_pack::manifest::{Choices, FileEntry, Manifest, RunStep, RunWhen};
 use bach_pack::paths;
 
 use super::Report;
@@ -71,7 +71,7 @@ pub fn run_install_steps(
     let steps = due_for_install(manifest, first_install, choices);
     for (index, step) in steps.iter().enumerate() {
         report(from + (to - from) * index as f32 / steps.len() as f32, &texts.with(Key::step_running, &[("task", &step.name)]));
-        if let Err(message) = run(step, dir, texts) {
+        if let Err(message) = run(step, manifest_file(manifest, step), dir, texts) {
             crate::log::line(&message);
             if !step.ignore_errors {
                 return Err(message);
@@ -86,7 +86,7 @@ pub fn run_install_steps(
 pub fn run_removal_steps(manifest: &Manifest, dir: &Path, texts: &Texts, report: Report, at: f32) {
     for step in due_for_removal(manifest) {
         report(at, &texts.with(Key::step_running, &[("task", &step.name)]));
-        if let Err(message) = run(step, dir, texts) {
+        if let Err(message) = run(step, manifest_file(manifest, step), dir, texts) {
             crate::log::line(&format!("{message} Removing goes on anyway."));
         }
     }
@@ -130,7 +130,7 @@ pub fn execute(program: &Path, arguments: Option<&str>, elevated: bool, limit: D
                 Ended::Declined
             }
             Outcome::TimedOut => {
-                crate::log::line("It took too long, so setup ended it.");
+                crate::log::line("It took too long, so setup stopped waiting for it.");
                 Ended::TimedOut
             }
             Outcome::Failed(why) => {
@@ -284,10 +284,30 @@ mod tree {
     }
 }
 
-/// Starts the step's program and waits for it.
-pub fn run(step: &RunStep, dir: &Path, texts: &Texts) -> Result<(), String> {
+/// What the manifest records about the step's program, when it is a packaged file.
+fn manifest_file<'a>(manifest: &'a Manifest, step: &RunStep) -> Option<&'a FileEntry> {
+    manifest.files.iter().find(|file| paths::fold_case(&file.path) == paths::fold_case(&step.file))
+}
+
+/// Starts the step's program and waits for it. `recorded` is what the manifest says the
+/// file is: an elevated step starts a program from a folder the user's own programs can
+/// write to (a per-user install), so right before Windows is asked to give it administrator
+/// rights the file is checked to be what setup wrote, and a program that was swapped in the
+/// meantime is not started.
+pub fn run(step: &RunStep, recorded: Option<&FileEntry>, dir: &Path, texts: &Texts) -> Result<(), String> {
     let failed = |code: String| texts.with(Key::error_run, &[("task", &step.name), ("code", &code)]);
     let program = paths::under(dir, &step.file);
+    if step.elevated && !elevate::is_elevated() {
+        if let Some(file) = recorded.filter(|file| file.sha256.is_some()) {
+            if !super::patch::matches_on_disk(&program, file) {
+                crate::log::line(&format!(
+                    "{} isn't what setup wrote (its size or SHA-256 differs from the manifest's), so it isn't started with administrator rights.",
+                    program.display()
+                ));
+                return Err(failed("integrity".into()));
+            }
+        }
+    }
     match execute(&program, step.arguments.as_deref(), step.elevated, step.timeout()) {
         Ended::Code(code) if step.succeeded(code) => Ok(()),
         Ended::Code(code) => Err(failed(code.to_string())),
@@ -366,14 +386,14 @@ mod tests {
     #[test]
     fn a_step_that_succeeds_passes() {
         let dir = folder("ok");
-        assert!(run(&step("/c exit 0"), &dir, &texts()).is_ok());
+        assert!(run(&step("/c exit 0"), None, &dir, &texts()).is_ok());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn a_failing_step_says_which_and_with_what_code() {
         let dir = folder("fail");
-        let message = run(&step("/c exit 7"), &dir, &texts()).unwrap_err();
+        let message = run(&step("/c exit 7"), None, &dir, &texts()).unwrap_err();
         assert!(message.contains("Helper") && message.contains('7'), "{message}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -382,9 +402,9 @@ mod tests {
     fn listed_exit_codes_count_as_success() {
         let dir = folder("codes");
         let mut step = step("/c exit 3010");
-        assert!(run(&step, &dir, &texts()).is_err());
+        assert!(run(&step, None, &dir, &texts()).is_err());
         step.success_codes = vec![0, 3010];
-        assert!(run(&step, &dir, &texts()).is_ok(), "3010 is \"restart needed\", which many installers use");
+        assert!(run(&step, None, &dir, &texts()).is_ok(), "3010 is \"restart needed\", which many installers use");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -392,8 +412,8 @@ mod tests {
     fn arguments_reach_the_program_as_written() {
         let dir = folder("args");
         // cmd's own quoting rules show the quotes arrived intact.
-        assert!(run(&step("/c \"if \"a\"==\"a\" (exit 0) else (exit 9)\""), &dir, &texts()).is_ok());
-        assert!(run(&step("/c \"if \"a\"==\"b\" (exit 0) else (exit 9)\""), &dir, &texts()).is_err());
+        assert!(run(&step("/c \"if \"a\"==\"a\" (exit 0) else (exit 9)\""), None, &dir, &texts()).is_ok());
+        assert!(run(&step("/c \"if \"a\"==\"b\" (exit 0) else (exit 9)\""), None, &dir, &texts()).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -402,7 +422,7 @@ mod tests {
         let dir = folder("missing");
         let mut missing = step("");
         missing.file = "bin/not-there.exe".into();
-        let message = run(&missing, &dir, &texts()).unwrap_err();
+        let message = run(&missing, None, &dir, &texts()).unwrap_err();
         assert!(message.contains("Helper"), "{message}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -412,7 +432,7 @@ mod tests {
         let dir = folder("cwd");
         // The marker file only exists next to the program.
         std::fs::write(dir.join("bin/marker.txt"), "x").unwrap();
-        assert!(run(&step("/c if exist marker.txt (exit 0) else (exit 5)"), &dir, &texts()).is_ok());
+        assert!(run(&step("/c if exist marker.txt (exit 0) else (exit 5)"), None, &dir, &texts()).is_ok());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -483,5 +503,26 @@ mod tests {
         let manifest = manifest_with(vec![failing, step("/c exit 0")]);
         assert!(run_install_steps(&manifest, &dir, true, &choices, &texts(), (0.9, 0.95), &|_, _| {}).is_ok());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_elevated_program_that_was_swapped_is_not_started() {
+        // Elevation is only asked for when setup has none; a test run from an elevated shell
+        // takes the ordinary path, where the check is not needed.
+        if elevate::is_elevated() {
+            return;
+        }
+        let dir = folder("swapped");
+        let program = dir.join("bin/tool.exe");
+        let mut recorded =
+            FileEntry { path: "bin/tool.exe".into(), size: std::fs::metadata(&program).unwrap().len(), sha256: None, component: None };
+        recorded.sha256 = Some(bach_pack::protect::sha256_hex(std::fs::File::open(&program).unwrap()).unwrap());
+        let mut elevated = step("/c exit 0");
+        elevated.elevated = true;
+        // Swap the file for another one of a different size: the step must fail before Windows is asked.
+        std::fs::write(&program, b"MZ not what setup wrote").unwrap();
+        let message = run(&elevated, Some(&recorded), &dir, &texts()).unwrap_err();
+        assert!(message.contains("integrity"), "{message}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -104,18 +104,41 @@ pub fn under(dir: &Path, packaged: &str) -> PathBuf {
     packaged.split('/').fold(dir.to_path_buf(), |path, part| path.join(part))
 }
 
-/// Whether `id` can name a folder and a registry key: letters, digits,
-/// spaces, dots, dashes and underscores, not starting or ending in a space
-/// or dot.
+/// The longest an app id or install folder may be, in characters.
+pub const MAX_ID_CHARS: usize = 64;
+
+/// Why `id` can't name a folder and a registry key, in a sentence that fits
+/// after "is \"<id>\"; it ...": None when it can. An id has letters, digits,
+/// spaces, dots, dashes and underscores, at most [`MAX_ID_CHARS`] characters
+/// (so ones in any script count the same), doesn't start or end with a space
+/// or dot, and isn't a name Windows keeps for devices.
+pub fn id_problem(id: &str) -> Option<String> {
+    let chars = id.chars().count();
+    if id.is_empty() {
+        return Some("is empty".into());
+    }
+    if chars > MAX_ID_CHARS {
+        return Some(format!("is {chars} characters long; at most {MAX_ID_CHARS} are allowed"));
+    }
+    if id.encode_utf16().count() > MAX_NAME_UNITS {
+        return Some(format!("is too long for Windows ({MAX_NAME_UNITS} UTF-16 units at most)"));
+    }
+    if let Some(bad) = id.chars().find(|c| !(c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_'))) {
+        return Some(format!("has \"{}\" in it; use letters, digits, spaces, dots, dashes and underscores", bad.escape_default()));
+    }
+    if id.starts_with([' ', '.']) || id.ends_with([' ', '.']) {
+        return Some("starts or ends with a space or a dot, which Windows drops from folder names".into());
+    }
+    // `nul` and `Com1` make a folder Windows can't create or others can't open.
+    if is_reserved_name(id) {
+        return Some("is a name Windows keeps for devices (CON, PRN, AUX, NUL, COM0 to COM9, LPT0 to LPT9)".into());
+    }
+    None
+}
+
+/// Whether `id` can name a folder and a registry key (see [`id_problem`]).
 pub fn is_valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 64
-        && id.encode_utf16().count() <= MAX_NAME_UNITS
-        && id.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_'))
-        && !id.starts_with([' ', '.'])
-        && !id.ends_with([' ', '.'])
-        // `nul` and `Com1` make a folder Windows can't create or others can't open.
-        && !is_reserved_name(id)
+    id_problem(id).is_none()
 }
 
 /// An app id as one file or folder name, for the places setup keeps scratch
@@ -159,7 +182,57 @@ const SHARED_FOLDERS: &[&str] = &[
 
 /// Folders that are off limits together with everything inside them: keys
 /// and credentials, and Windows' own per-user data. Lower case.
-const PROTECTED_TREES: &[&str] = &[".ssh", ".aws", ".azure", ".gnupg", ".kube", "microsoft"];
+const PROTECTED_TREES: &[&str] = &[".ssh", ".aws", ".azure", ".gnupg", ".kube", ".docker", ".terraform", "microsoft"];
+
+/// Folders directly in the profile that belong to developer tools and the
+/// user's own work, never to an app being uninstalled. Lower case.
+const PROFILE_TOOL_FOLDERS: &[&str] = &[
+    ".config",
+    ".local",
+    ".git",
+    ".vscode",
+    ".npm",
+    ".cargo",
+    ".rustup",
+    ".nuget",
+    ".m2",
+    ".gradle",
+    ".gitconfig",
+    "source",
+    "repos",
+    "projects",
+    "code",
+    "workspace",
+    "workspaces",
+    "src",
+];
+
+/// Other programs' data below `%APPDATA%` and `%LOCALAPPDATA%`: browser and chat
+/// profiles hold the user's logins and history. The folder, or anything below
+/// it, is off limits. Lower case, `/`-separated.
+const OTHER_APPS: &[&str] = &[
+    "google/chrome",
+    "google/chromeos",
+    "mozilla/firefox",
+    "mozilla/thunderbird",
+    "opera software",
+    "bravesoftware",
+    "vivaldi",
+    "microsoft edge",
+    "code",
+    "slack",
+    "discord",
+    "1password",
+    "dropbox",
+    "signal",
+    "whatsapp",
+    "telegram desktop",
+];
+
+/// Company folders that hold many programs' data: the folder itself may not be
+/// a data folder (a program of that company may have one below it). Lower case.
+const VENDOR_FOLDERS: &[&str] =
+    &["google", "mozilla", "adobe", "jetbrains", "nvidia", "nvidia corporation", "intel", "amd", "oracle", "apple computer"];
 
 /// Checks a data folder such as `%APPDATA%\Hello`: one of [`DATA_ROOTS`],
 /// then at least one folder of the app's own, so never a profile folder like
@@ -183,6 +256,19 @@ pub fn check_data_folder(template: &str) -> Result<()> {
     if let Some(tree) = parts.iter().find(|part| PROTECTED_TREES.contains(&part.as_str())) {
         bail!("\"{template}\" is inside \"{tree}\", which holds data that isn't your app's to delete");
     }
+    if root == "USERPROFILE" && PROFILE_TOOL_FOLDERS.contains(&parts[0].as_str()) {
+        bail!("\"{template}\" is a folder of the user's tools or work (\"{}\"), not of your app; name your app's own folder", parts[0]);
+    }
+    let joined = parts.join("/");
+    if let Some(other) = OTHER_APPS.iter().find(|other| joined == **other || joined.starts_with(&format!("{other}/"))) {
+        bail!("\"{template}\" is the data of another program (\"{other}\"), which isn't your app's to delete");
+    }
+    if parts.len() == 1 && VENDOR_FOLDERS.contains(&parts[0].as_str()) {
+        bail!("\"{template}\" is a whole company's folder; name your app's own folder inside it, such as {template}\\YourApp");
+    }
+    if parts.last().is_some_and(|last| last.starts_with("ntuser") || last.starts_with("usrclass")) {
+        bail!("\"{template}\" is part of the user's Windows profile, not a folder of your app");
+    }
     if parts.iter().all(|part| is_shared_folder(part)) {
         bail!(
             "\"{template}\" is a folder of the user or of Windows, not of your app; \
@@ -190,6 +276,22 @@ pub fn check_data_folder(template: &str) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Whether some folder of the data folder `template` looks like it belongs to
+/// the app: its name contains, or is part of, one of `names` (the app's name, id
+/// or publisher), ignoring case and anything that isn't a letter or digit. A
+/// data folder that doesn't is probably someone else's, and `bach check` warns.
+pub fn looks_like_apps_own(template: &str, names: &[&str]) -> bool {
+    let key = |text: &str| text.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect::<String>();
+    let Some((_, rest)) = split_data_folder(template) else {
+        return false;
+    };
+    let wanted: Vec<String> = names.iter().map(|name| key(name)).filter(|name| name.chars().count() >= 3).collect();
+    rest.split(['/', '\\'])
+        .map(key)
+        .filter(|part| !part.is_empty())
+        .any(|part| wanted.iter().any(|name| part.contains(name.as_str()) || (part.chars().count() >= 3 && name.contains(part.as_str()))))
 }
 
 fn is_shared_folder(part: &str) -> bool {
@@ -213,11 +315,30 @@ pub fn expand_data_folder(template: &str, lookup: impl Fn(&str) -> Option<String
     (!holds_a_root).then_some(folder)
 }
 
-/// Whether `inner` is `outer` or lies inside it, ignoring case, trailing
-/// separators and the difference between `/` and `\`.
+/// A key under which two names are the same file on Windows: letters are
+/// compared as Windows does, through their one-to-one upper case (so a
+/// sigma and the final sigma are one letter, like `a` and `A`), not through
+/// `to_lowercase`, which keeps them apart. Characters whose upper case is
+/// several letters (the German sharp s) stay as they are, as on NTFS.
+pub fn fold_case(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            let mut upper = c.to_uppercase();
+            match (upper.next(), upper.next()) {
+                (Some(single), None) => single,
+                _ => c,
+            }
+        })
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Whether `inner` is `outer` or lies inside it, ignoring case (as Windows
+/// does, see [`fold_case`]), trailing separators and the difference between
+/// `/` and `\`.
 pub fn is_same_or_inside(inner: &Path, outer: &Path) -> bool {
     let parts = |path: &Path| -> Vec<String> {
-        path.to_string_lossy().replace('\\', "/").to_lowercase().split('/').filter(|part| !part.is_empty()).map(str::to_string).collect()
+        fold_case(&path.to_string_lossy().replace('\\', "/")).split('/').filter(|part| !part.is_empty()).map(str::to_string).collect()
     };
     let (inner, outer) = (parts(inner), parts(outer));
     inner.len() >= outer.len() && inner[..outer.len()] == outer[..]
@@ -375,6 +496,7 @@ mod tests {
         assert!(normalize(&"\u{1d11e}".repeat(127)).is_ok());
         assert!(normalize(&"\u{1d11e}".repeat(128)).is_err());
         assert!(!is_valid_id(&"a".repeat(65)), "ids stay at 64");
+        assert!(is_valid_id(&"é".repeat(64)), "64 characters, though 128 bytes");
     }
 
     #[test]
@@ -496,5 +618,78 @@ mod tests {
         assert!(matches("docs/*", "docs/b.md"));
         assert!(matches("**/cache/*", "a/b/cache/x"));
         assert!(matches("app?.log", "app1.log"));
+    }
+
+    #[test]
+    fn names_are_compared_as_windows_compares_them() {
+        for (a, b) in [("a.txt", "A.TXT"), ("σ.txt", "ς.txt"), ("Σ.txt", "ς.txt"), ("ǅ", "ǆ"), ("k", "\u{212a}")] {
+            assert_eq!(fold_case(a), fold_case(b), "{a} and {b} are one name");
+        }
+        for (a, b) in [("straße", "STRASSE"), ("i", "İ"), ("e\u{301}", "\u{e9}")] {
+            assert_ne!(fold_case(a), fold_case(b), "{a} and {b} are two names");
+        }
+    }
+
+    #[test]
+    fn an_id_says_what_is_wrong_with_it() {
+        assert_eq!(id_problem("Hello World"), None);
+        assert!(id_problem(&"A".repeat(70)).unwrap().contains("70 characters"));
+        assert_eq!(id_problem(&"日".repeat(64)), None, "characters are counted, not bytes");
+        assert!(id_problem(&"日".repeat(65)).unwrap().contains("65 characters"));
+        assert!(id_problem("a/b").unwrap().contains("\"/\""));
+        assert!(id_problem("nul").unwrap().contains("devices"));
+        assert!(id_problem(" x").unwrap().contains("space or a dot"));
+        assert!(id_problem("").is_some());
+    }
+
+    #[test]
+    fn data_folders_never_name_tools_browsers_or_profile_files() {
+        for template in [
+            r"%USERPROFILE%\.config",
+            r"%USERPROFILE%\.docker\config",
+            r"%USERPROFILE%\.npm",
+            r"%USERPROFILE%\.git",
+            r"%USERPROFILE%\source\repos",
+            r"%USERPROFILE%\Repos\Hello",
+            r"%USERPROFILE%\NTUSER.DAT",
+            r"%USERPROFILE%\ntuser.dat.LOG1",
+            r"%LOCALAPPDATA%\Google",
+            r"%LOCALAPPDATA%\Google\Chrome",
+            r"%LOCALAPPDATA%\Google\Chrome\User Data",
+            r"%APPDATA%\Mozilla\Firefox\Profiles",
+            r"%APPDATA%\Code\User",
+            r"%APPDATA%\Discord",
+            r"%LOCALAPPDATA%\Adobe",
+            r"%USERPROFILE%\.terraform\x",
+        ] {
+            assert!(check_data_folder(template).is_err(), "{template:?} should be rejected");
+        }
+        for template in [
+            r"%USERPROFILE%\.hello",
+            r"%APPDATA%\Hello\.config",
+            r"%LOCALAPPDATA%\Google\HelloApp",
+            r"%APPDATA%\Acme\Hello",
+            r"%USERPROFILE%\Hello\source",
+            r"%APPDATA%\.config\Hello",
+        ] {
+            assert!(check_data_folder(template).is_ok(), "{template:?} should be accepted");
+        }
+    }
+
+    #[test]
+    fn a_data_folder_should_look_like_the_apps_own() {
+        let names = ["Hello World", "HelloWorld", "Acme Inc."];
+        for own in [
+            r"%APPDATA%\Hello World",
+            r"%APPDATA%\HelloWorld\Cache",
+            r"%LOCALAPPDATA%\Acme\Settings",
+            r"%USERPROFILE%\.hello-world",
+            r"%APPDATA%\acme",
+        ] {
+            assert!(looks_like_apps_own(own, &names), "{own}");
+        }
+        for other in [r"%APPDATA%\Notes", r"%USERPROFILE%\Stuff\Cache", r"%LOCALAPPDATA%\ab"] {
+            assert!(!looks_like_apps_own(other, &names), "{other}");
+        }
     }
 }

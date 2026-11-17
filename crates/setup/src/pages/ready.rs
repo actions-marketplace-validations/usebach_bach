@@ -178,9 +178,21 @@ impl SetupView {
         }];
         if self.is_removing() {
             if !manifest.uninstall.data.is_empty() {
+                // The developer's line says what is in the folders; which folders they are is
+                // shown as they are on this computer, so nobody has to take the line on trust.
+                let mut description = texts.get(Key::delete_data_description);
+                for folder in manifest
+                    .uninstall
+                    .data
+                    .iter()
+                    .filter_map(|template| bach_pack::paths::expand_data_folder(template, |name| std::env::var(name).ok()))
+                {
+                    description.push('\n');
+                    description.push_str(&folder.display().to_string());
+                }
                 rows.push(Choice {
                     title: texts.get(Key::delete_data),
-                    description: Some(texts.get(Key::delete_data_description)),
+                    description: Some(description),
                     icon: "trash-filled",
                     action: Action::Toggle(Toggle::DeleteData),
                 });

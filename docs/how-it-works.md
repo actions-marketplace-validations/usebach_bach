@@ -28,6 +28,16 @@ manifest, and shows the install window. `crates/pack/src/container.rs` has
 the exact layout. Fields added to the manifest over time all have defaults,
 so a newer setup file still reads the uninstaller an older one installed.
 
+The manifest is plain JSON, about 120 bytes per file (the path, the size and
+the 64 hex digits of the SHA-256), so an app of 30,000 files has a manifest of
+about 3.5 MB, in the setup file and again in `uninstall.exe`. It is not
+compressed on purpose: an installed app's updater reads the manifest of every
+setup file it downloads with the (older) runtime it was installed with, so
+a new encoding would stop every installed copy from updating. Changing it needs a
+new format version that runtimes read in both forms for a long time first.
+`bach check` warns when the list passes about 2 MB, and the advice is to
+ship fewer, larger files (an asar archive for Electron).
+
 ## Installing
 
 1. Checks before anything changes: what the app needs (requirements) is
@@ -257,6 +267,35 @@ Every setup file contains the runtime, so `bach` is strict about it:
   there is no cache and no fallback to the shared temp folder: `bach build`
   says so and asks for `--runtime` or `BACH_RUNTIME`.
 - `BACH_NO_DOWNLOAD` forbids the download altogether.
+
+## How `bach` updates itself
+
+`bach update` replaces the `bach` that runs it. It asks GitHub for the newest
+release (not a pre-release), takes only its tag and file names from the
+answer, and builds the download address itself
+(`https://github.com/usebach/bach/releases/download/vX.Y.Z/...`). The archive
+for this system is downloaded into a staging folder beside `bach`, checked
+against the `.sha256` published next to it, unpacked with the system's `tar`
+(or PowerShell on a Windows without it), and the new program must start and
+report the version that was asked for. Only then are `bach` and
+`bach-setup.exe` swapped in: each old file is kept as `*.old` until all new
+ones are in place, and put back if one step fails. Windows can't delete a
+running program, so the old `bach.exe.old` is removed the next time `bach`
+starts.
+
+Only a standalone copy (the release download, `install.ps1`, `install.sh`)
+replaces itself. A path inside `node_modules`, `scoop\apps`, `Microsoft\WinGet`
+or `.cargo\bin` (or `$CARGO_HOME\bin`) is managed by that tool, and `bach
+update` stops and names the command that updates it.
+
+The "new version available" line comes from a small file,
+`update-check.json` in the cache folder above, that a detached
+`bach update-refresh` writes at most once a day. A command only reads it, so
+it never waits on the network. `BACH_NO_UPDATE_CHECK` (any value) turns the
+check off; it is also off when `CI` is set, with `--json`, when stderr isn't a
+terminal, and in a build from a checkout (`target\debug` or `target\release`).
+`BACH_UPDATE_FROM=DIR` makes `bach update VERSION` read the release files from
+a folder, as `BACH_INSTALL_FROM` does for the install scripts.
 
 ## Reproducible builds
 

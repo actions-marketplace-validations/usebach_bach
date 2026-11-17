@@ -16,11 +16,11 @@ pub fn manifest(manifest: &Manifest) -> Result<()> {
     if manifest.format != crate::FORMAT_VERSION {
         bail!("this setup file uses payload format {}, but this runtime reads format {}", manifest.format, crate::FORMAT_VERSION);
     }
-    if !paths::is_valid_id(&manifest.app.id) {
-        bail!("the app id \"{}\" can't name a folder", manifest.app.id);
+    if let Some(problem) = paths::id_problem(&manifest.app.id) {
+        bail!("the app id \"{}\" can't name a folder: it {problem}", manifest.app.id);
     }
-    if !paths::is_valid_id(&manifest.install.folder) {
-        bail!("the install folder \"{}\" isn't a plain folder name", manifest.install.folder);
+    if let Some(problem) = paths::id_problem(&manifest.install.folder) {
+        bail!("the install folder \"{}\" isn't a plain folder name: it {problem}", manifest.install.folder);
     }
     if manifest.app.name.trim().is_empty() || manifest.app.version.trim().is_empty() {
         bail!("the app has no name or version");
@@ -164,7 +164,7 @@ fn files(manifest: &Manifest) -> Result<()> {
         if normal.eq_ignore_ascii_case(UNINSTALLER) {
             bail!("the app ships its own {UNINSTALLER}, which would replace Bach's uninstaller");
         }
-        if !seen.insert(normal.to_lowercase()) {
+        if !seen.insert(paths::fold_case(&normal)) {
             bail!("\"{}\" is listed twice", file.path);
         }
         if let Some(component) = &file.component {

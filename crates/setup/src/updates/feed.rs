@@ -15,13 +15,20 @@ pub struct Signer<'a> {
     /// A second key that is trusted too (see `[updates] next_public_key`).
     pub next_public_key: Option<&'a str>,
     pub app_id: &'a str,
+    /// How old a signed entry may be, in days (`[updates] max_age_days`).
+    pub max_age_days: Option<u32>,
 }
 
 /// The signer an installed app asks for: its manifest's key, when it has one.
 pub fn signer_of(manifest: &bach_pack::manifest::Manifest) -> Option<Signer<'_>> {
     let updates = manifest.updates.as_ref()?;
     let public_key = updates.public_key.as_deref()?;
-    Some(Signer { public_key, next_public_key: updates.next_public_key.as_deref(), app_id: &manifest.app.id })
+    Some(Signer {
+        public_key,
+        next_public_key: updates.next_public_key.as_deref(),
+        app_id: &manifest.app.id,
+        max_age_days: updates.max_age_days,
+    })
 }
 
 /// Fetches and checks the feed at `url`. `work` is a folder to keep the
@@ -30,11 +37,28 @@ pub fn fetch(url: &str, work: &Path, bearer: Option<&Bearer>) -> Result<FeedEntr
     std::fs::create_dir_all(work).map_err(|err| err.to_string())?;
     let file = work.join("feed.json");
     let _ = std::fs::remove_file(&file);
-    let result = curl::download_with(url, &file, Fetch::FEED, bearer, &mut |_| {})
-        .and_then(|()| std::fs::read_to_string(&file).map_err(|err| err.to_string()))
-        .and_then(|text| parse(&text));
+    let result =
+        curl::download_with(url, &file, Fetch::FEED, bearer, &mut |_| {}).and_then(|()| read_limited(&file)).and_then(|text| parse(&text));
     let _ = std::fs::remove_file(&file);
     result
+}
+
+/// The most a feed may be: it is a few lines of JSON.
+const MAX_FEED_BYTES: u64 = 1 << 20;
+
+/// Reads the downloaded feed, refusing one bigger than [`MAX_FEED_BYTES`]. curl's own
+/// limit only works when the server says the size up front (and older curl versions
+/// don't stop an answer of unknown length), so the file is measured here, and
+/// at most that much is read, before anything is made of it.
+fn read_limited(file: &Path) -> Result<String, String> {
+    use std::io::Read;
+    let size = std::fs::metadata(file).map_err(|err| err.to_string())?.len();
+    if size > MAX_FEED_BYTES {
+        return Err(format!("the update feed is {size} bytes, more than the {MAX_FEED_BYTES} a feed may be"));
+    }
+    let mut text = String::new();
+    std::fs::File::open(file).and_then(|open| open.take(MAX_FEED_BYTES + 1).read_to_string(&mut text)).map_err(|err| err.to_string())?;
+    Ok(text)
 }
 
 /// Asks every feed (the main one, then its mirrors) and gives what they offer.
@@ -70,18 +94,31 @@ pub fn fetch_offers(urls: &[String], work: &Path, bearer: Option<&Bearer>, signe
 /// the host that served it: a mirror or a changed host can't offer anything the
 /// key didn't sign. An app without a key takes every entry, as before.
 pub fn accepted(entry: FeedEntry, signer: Option<Signer>) -> Result<FeedEntry, String> {
+    accepted_at(entry, signer, now())
+}
+
+/// [`accepted`] at a given time (seconds since 1970).
+fn accepted_at(entry: FeedEntry, signer: Option<Signer>, now: u64) -> Result<FeedEntry, String> {
     match signer {
         Some(signer) => {
             // Either trusted key may have signed it; the first key's complaint is the one to show.
             let first = bach_pack::feedsig::verify(signer.public_key, signer.app_id, &entry);
             match (first, signer.next_public_key) {
-                (Ok(()), _) => Ok(entry),
-                (Err(err), None) => Err(err),
-                (Err(err), Some(next)) => bach_pack::feedsig::verify(next, signer.app_id, &entry).map(|()| entry).map_err(|_| err),
+                (Ok(()), _) => {}
+                (Err(err), None) => return Err(err),
+                (Err(err), Some(next)) => bach_pack::feedsig::verify(next, signer.app_id, &entry).map_err(|_| err)?,
             }
+            // Only a signed time means anything, so freshness is judged after the signature.
+            bach_pack::feedsig::check_fresh(&entry, signer.max_age_days, now)?;
+            Ok(entry)
         }
         None => Ok(entry),
     }
+}
+
+/// Seconds since 1970 on this computer.
+fn now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs())
 }
 
 /// The first entry, then the others that offer the same version with the
@@ -116,6 +153,12 @@ pub fn parse(text: &str) -> Result<FeedEntry, String> {
     if !bach_pack::manifest::extras::is_https(&entry.url) {
         return Err("the update feed points at a link that isn't https".into());
     }
+    // The signed text separates its fields with line breaks and bars, so a link or a version with
+    // control characters in it could be read as another entry's fields.
+    let plain = |text: &str| !text.chars().any(char::is_control);
+    if !plain(&entry.url) || !plain(&entry.version) || entry.published.as_deref().is_some_and(|time| !plain(time)) {
+        return Err("the update feed has control characters in its link or version".into());
+    }
     if !is_sha256(&entry.sha256) {
         return Err("the update feed has no valid SHA-256".into());
     }
@@ -127,6 +170,8 @@ pub fn parse(text: &str) -> Result<FeedEntry, String> {
     let mut entry = entry;
     if let Some(delta) = &entry.delta {
         let usable = bach_pack::version::compare(&delta.from, &delta.from).is_some()
+            && plain(&delta.url)
+            && plain(&delta.from)
             && bach_pack::manifest::extras::is_https(&delta.url)
             && is_sha256(&delta.sha256);
         if !usable {
@@ -209,7 +254,7 @@ mod tests {
     #[test]
     fn a_publisher_key_makes_the_signature_the_only_way_in() {
         let (private, public) = bach_pack::feedsig::generate().unwrap();
-        let signer = Some(Signer { public_key: &public, next_public_key: None, app_id: "Hello" });
+        let signer = Some(Signer { public_key: &public, next_public_key: None, app_id: "Hello", max_age_days: None });
         let mut good = entry("2.0.0", "https://example.com/Hello-2.0.0.exe", &"ab".repeat(32));
         good.signature = Some(bach_pack::feedsig::sign(&private, "Hello", &good).unwrap());
         assert!(accepted(good.clone(), signer).is_ok());
@@ -241,6 +286,7 @@ mod tests {
             next_public_key: Some("cd".repeat(32)),
             signer: None,
             beta_feed: None,
+            max_age_days: None,
         });
         let signer = signer_of(&manifest).unwrap();
         assert_eq!((signer.public_key, signer.app_id), ("ab".repeat(32).as_str(), manifest.app.id.as_str()));
@@ -260,17 +306,18 @@ mod tests {
 
         // Copies that know both keys take a feed signed with either: the old
         // key keeps working while the new one takes over.
-        let both = Some(Signer { public_key: &old_public, next_public_key: Some(&new_public), app_id: "Hello" });
+        let both = Some(Signer { public_key: &old_public, next_public_key: Some(&new_public), app_id: "Hello", max_age_days: None });
         assert!(accepted(signed_by(&old_private), both).is_ok());
         assert!(accepted(signed_by(&new_private), both).is_ok());
         assert!(accepted(signed_by(&other_private), both).is_err(), "a third key is nobody's");
         // Copies that only know the old key (not updated yet) refuse the new one.
-        let only_old = Some(Signer { public_key: &old_public, next_public_key: None, app_id: "Hello" });
+        let only_old = Some(Signer { public_key: &old_public, next_public_key: None, app_id: "Hello", max_age_days: None });
         assert!(accepted(signed_by(&new_private), only_old).is_err());
     }
 
     fn entry(version: &str, url: &str, sha: &str) -> FeedEntry {
         FeedEntry {
+            published: None,
             version: version.into(),
             url: url.into(),
             sha256: sha.into(),
@@ -317,5 +364,47 @@ mod tests {
         assert!(!is_newer("0.9", "1.0"));
         assert!(!is_newer("2.0.0-beta.1", "2.0.0"), "a pre-release isn't newer than its release");
         assert!(!is_newer("nightly", "1.0"));
+    }
+
+    #[test]
+    fn a_feed_over_a_megabyte_is_refused_before_it_is_read() {
+        let file = std::env::temp_dir().join(format!("bach-feed-big-{}.json", std::process::id()));
+        std::fs::write(&file, vec![b' '; (MAX_FEED_BYTES + 1) as usize]).unwrap();
+        assert!(read_limited(&file).unwrap_err().contains("more than"));
+        std::fs::write(&file, b"{}").unwrap();
+        assert_eq!(read_limited(&file).unwrap(), "{}");
+        std::fs::remove_file(&file).unwrap();
+    }
+
+    #[test]
+    fn control_characters_in_a_link_or_version_are_refused() {
+        let with = |version: &str, url: &str| format!(r#"{{"version":"{version}","url":"{url}","sha256":"{SHA}"}}"#);
+        assert!(parse(&with("1.0", "https://x/y.exe")).is_ok());
+        assert!(parse(&with("1.0", "https://x/y.exe\\nabc")).is_err(), "a line break in the link");
+        assert!(parse(&with("1.0\\u0007", "https://x/y.exe")).is_err());
+    }
+
+    #[test]
+    fn an_old_signed_feed_is_refused_when_the_app_limits_the_age() {
+        let (private, public) = bach_pack::feedsig::generate().unwrap();
+        let limited = Signer { public_key: &public, next_public_key: None, app_id: "Hello", max_age_days: Some(30) };
+        let signer = Some(limited);
+        let now = bach_pack::feedsig::parse_utc("2026-11-17T06:36:00Z").unwrap();
+        let signed = |published: Option<&str>| {
+            let mut entry = entry("2.0.0", "https://example.com/Hello-2.0.0.exe", &"ab".repeat(32));
+            entry.published = published.map(String::from);
+            entry.signature = Some(bach_pack::feedsig::sign(&private, "Hello", &entry).unwrap());
+            entry
+        };
+        assert!(accepted_at(signed(Some("2026-11-10T00:00:00Z")), signer, now).is_ok());
+        assert!(accepted_at(signed(Some("2026-06-01T00:00:00Z")), signer, now).unwrap_err().contains("days ago"));
+        assert!(accepted_at(signed(None), signer, now).unwrap_err().contains("no publishing time"));
+        // Taking the time off an entry that had one is a bad signature, whatever the limit.
+        let mut stripped = signed(Some("2026-11-10T00:00:00Z"));
+        stripped.published = None;
+        assert!(accepted_at(stripped, signer, now).unwrap_err().contains("doesn't match"));
+        // Without a limit nothing changes.
+        let open = Some(Signer { max_age_days: None, ..limited });
+        assert!(accepted_at(signed(Some("2020-01-01T00:00:00Z")), open, now).is_ok());
     }
 }

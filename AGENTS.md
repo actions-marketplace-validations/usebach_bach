@@ -52,7 +52,7 @@ Bach desktop app). Keep it: Inter, the token colours in
 ```
 crates/pack     bach-pack: bach.toml (config/), manifest (manifest.rs and
                 manifest/: choices, components, validation), i18n/ (every
-                window text in 13 languages), archive.rs, container.rs (the
+                window text in 19 languages), archive.rs, container.rs (the
                 payload on the exe), paths.rs (safety rules)
 crates/cli      bach-cli, binary `bach`: commands, runtime lookup and
                 download, doctor, init's stack detection (detect.rs), the
@@ -122,6 +122,14 @@ nothing. When a real end-to-end test is needed, install the example app
 capable primary agent working directly. Your primary model is selected by the
 user or host environment; this file cannot and should not change it.
 
+0. **Start from the current repo, every time.** Before you read or change
+   anything, run `git fetch origin` and compare your checkout with
+   `origin/main` (`git status -sb`, `git log HEAD..origin/main`). If you are
+   behind, bring it up to date first: fast-forward when the tree is clean;
+   with uncommitted work, stash it, branch from `origin/main`, and restore it
+   (never reset, never discard, never merge over someone else's changes).
+   Start new work on a fresh branch from the updated `origin/main`. If the
+   remote is unreachable, say so and continue from what you have.
 1. **Understand before editing.** Read the relevant code, trace existing
    behavior and contracts, and check nearby patterns. For substantial work,
    make a concise plan with acceptance criteria. For a trivial fix, act.

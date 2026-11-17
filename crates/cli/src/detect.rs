@@ -101,7 +101,14 @@ fn tauri(dir: &Path) -> Option<Detected> {
     let config = read_json(&dir.join("src-tauri").join("tauri.conf.json"))?;
     let name = string(&config, "productName").or_else(|| config.get("package").and_then(|package| string(package, "productName")));
     let version = string(&config, "version").or_else(|| config.get("package").and_then(|package| string(package, "version")));
-    let binary = name.as_ref().map(|name| format!("{name}.exe"));
+    // `target/release` holds the program Cargo builds, named after the crate's
+    // binary (or `mainBinaryName` in Tauri 2); the product name is only what
+    // Tauri's own installers call it. Without a Cargo.toml the product name is
+    // the best guess left.
+    let binary = string(&config, "mainBinaryName")
+        .or_else(|| cargo_binary(&dir.join("src-tauri").join("Cargo.toml")))
+        .or_else(|| name.clone())
+        .map(|name| format!("{name}.exe"));
     Some(Detected {
         stack: "Tauri",
         publisher: string(&config, "identifier").and_then(|id| id.split('.').nth(1).map(String::from)),
@@ -112,6 +119,19 @@ fn tauri(dir: &Path) -> Option<Detected> {
         exclude: rust_leftovers(),
         requirements: Some("[[requirements]]\nkind = \"webview2\"   # Tauri apps run on WebView2\n".into()),
     })
+}
+
+/// The program name a Cargo.toml builds: its first `[[bin]]`, else the package.
+fn cargo_binary(path: &Path) -> Option<String> {
+    let manifest: toml::Table = std::fs::read_to_string(path).ok()?.parse().ok()?;
+    let named = |table: &toml::Table| {
+        table.get("name").and_then(|name| name.as_str()).map(str::trim).filter(|name| !name.is_empty()).map(String::from)
+    };
+    manifest
+        .get("bin")
+        .and_then(|bins| bins.as_array())
+        .and_then(|bins| bins.iter().filter_map(|bin| bin.as_table()).find_map(named))
+        .or_else(|| manifest.get("package").and_then(|package| package.as_table()).and_then(named))
 }
 
 fn electron(dir: &Path) -> Option<Detected> {
@@ -515,7 +535,37 @@ mod tests {
             project("tauri", &[("src-tauri/tauri.conf.json", r#"{"productName":"Clip","version":"1.1.0","identifier":"com.acme.clip"}"#)]);
         let found = detect(&tauri).unwrap();
         assert_eq!((found.stack, found.publisher.as_deref()), ("Tauri", Some("acme")));
+        assert_eq!(found.executable.as_deref(), Some("Clip.exe"), "without a Cargo.toml the product name is the guess");
         assert!(found.requirements.unwrap().contains("webview2"));
+
+        // Cargo names the program after the crate, not after the product.
+        let named = project(
+            "tauri-named",
+            &[
+                ("src-tauri/tauri.conf.json", r#"{"productName":"My Clip","version":"1.1.0"}"#),
+                ("src-tauri/Cargo.toml", "[package]\nname = \"clip-app\"\nversion = \"1.1.0\"\n"),
+            ],
+        );
+        assert_eq!(detect(&named).unwrap().executable.as_deref(), Some("clip-app.exe"));
+        let bins = project(
+            "tauri-bins",
+            &[
+                ("src-tauri/tauri.conf.json", r#"{"productName":"My Clip"}"#),
+                ("src-tauri/Cargo.toml", "[package]\nname = \"clip-app\"\n[[bin]]\nname = \"clip\"\npath = \"src/main.rs\"\n"),
+            ],
+        );
+        assert_eq!(detect(&bins).unwrap().executable.as_deref(), Some("clip.exe"));
+        let main = project(
+            "tauri-main",
+            &[
+                ("src-tauri/tauri.conf.json", r#"{"productName":"My Clip","mainBinaryName":"Clip Pro"}"#),
+                ("src-tauri/Cargo.toml", "[package]\nname = \"clip-app\"\n"),
+            ],
+        );
+        assert_eq!(detect(&main).unwrap().executable.as_deref(), Some("Clip Pro.exe"));
+        for dir in [named, bins, main] {
+            std::fs::remove_dir_all(dir).unwrap();
+        }
 
         let dotnet = project("dotnet", &[("Paint.csproj", "<Project><PropertyGroup><TargetFramework>net8.0-windows</TargetFramework><Version>4.2.0</Version></PropertyGroup></Project>")]);
         let found = detect(&dotnet).unwrap();

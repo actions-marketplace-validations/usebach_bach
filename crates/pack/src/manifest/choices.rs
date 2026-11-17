@@ -292,6 +292,7 @@ mod tests {
             next_public_key: None,
             signer: None,
             beta_feed: None,
+            max_age_days: None,
         });
         let mut choices = Choices::defaults(&manifest);
         assert!(choices.auto_update, "offered and ticked");
@@ -310,6 +311,7 @@ mod tests {
             next_public_key: None,
             signer: None,
             beta_feed: None,
+            max_age_days: None,
         });
         assert!(Choices::for_update(&manifest, &previous).auto_update);
         manifest.updates = Some(Updates {
@@ -320,6 +322,7 @@ mod tests {
             next_public_key: None,
             signer: None,
             beta_feed: None,
+            max_age_days: None,
         });
         assert!(!Choices { auto_update: true, ..Choices::default() }.settle(&manifest).auto_update);
     }

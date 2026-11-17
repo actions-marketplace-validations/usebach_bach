@@ -190,6 +190,28 @@ fn find_program(program: &str) -> PathBuf {
     PathBuf::from(program)
 }
 
+/// The signing tool this computer has, by name, for `bach doctor`: Windows'
+/// `signtool` (on `PATH` or in the Windows SDK's folder; a program of that name
+/// on another system, like Mozilla's NSS tool on Linux, is not it), or
+/// `osslsigncode` elsewhere. None when there is none.
+pub fn known_signer() -> Option<&'static str> {
+    let kits = std::env::var_os("ProgramFiles(x86)").map(|files| PathBuf::from(files).join("Windows Kits").join("10").join("bin"));
+    signer_among(cfg!(windows), std::env::var_os("PATH").as_deref(), kits.as_deref())
+}
+
+/// [`known_signer`] for a given system, `PATH` and SDK folder.
+fn signer_among(windows: bool, path: Option<&std::ffi::OsStr>, kits: Option<&Path>) -> Option<&'static str> {
+    let listed = |program: &str| {
+        let names = [program.to_string(), format!("{program}.exe")];
+        path.is_some_and(|path| std::env::split_paths(path).any(|dir| names.iter().any(|name| dir.join(name).is_file())))
+    };
+    if windows {
+        (listed("signtool") || kits.and_then(newest_signtool).is_some()).then_some("signtool")
+    } else {
+        listed("osslsigncode").then_some("osslsigncode")
+    }
+}
+
 /// Whether a program of this name is in a folder on `PATH`.
 fn on_path(program: &str) -> bool {
     let names = [program.to_string(), format!("{program}.exe")];
@@ -366,5 +388,22 @@ mod tests {
         let err = arguments(&signing("/p {env:MISSING}"), Path::new("a.exe"), env).unwrap_err().to_string();
         assert!(err.contains("MISSING"), "{err}");
         assert!(arguments(&signing("/p {env:OPEN"), Path::new("a.exe"), env).is_err());
+    }
+
+    #[test]
+    fn only_the_tool_that_signs_for_this_system_counts() {
+        let dir = std::env::temp_dir().join(format!("bach-signer-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("signtool"), b"x").unwrap();
+        let path = std::env::join_paths([&dir]).unwrap();
+        // A `signtool` on Linux is Mozilla's NSS tool, not Windows' one.
+        assert_eq!(signer_among(false, Some(&path), None), None);
+        assert_eq!(signer_among(true, Some(&path), None), Some("signtool"));
+        assert_eq!(signer_among(true, None, None), None);
+        std::fs::write(dir.join("osslsigncode"), b"x").unwrap();
+        assert_eq!(signer_among(false, Some(&path), None), Some("osslsigncode"));
+        assert_eq!(signer_among(true, Some(std::ffi::OsStr::new("")), Some(&dir)), None, "the SDK folder has no versions");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

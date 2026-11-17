@@ -2,6 +2,51 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.7.2 (2026-11-17)
+
+### New
+
+- Add bach update and a notice when a newer release is out ([abb52be](https://github.com/usebach/bach/commit/abb52beccf86ad6448faf1a6ef69feff02e73c32))
+
+### Improvements
+
+- Make the update test's installed bach executable on Linux and macOS ([735afb0](https://github.com/usebach/bach/commit/735afb0af96ee028c3a3468847690b65ec74f2cb))
+- Document bach update and the update notice ([01096c2](https://github.com/usebach/bach/commit/01096c20fab1da6edcc868482334430f2e6ca815))
+- Make agents update the repository before they start ([d899533](https://github.com/usebach/bach/commit/d899533794a3e8afd01694ec33f1b06df4cfb3f7))
+
+All changes: [v0.7...v0.7.2](https://github.com/usebach/bach/compare/v0.7...v0.7.2)
+
+## 0.7.1 (2026-11-17)
+
+### Fixes
+
+- Fix the number of languages in the README, AGENTS.md and bach init's template, and test it (KAN-91) ([cf8a584](https://github.com/usebach/bach/commit/cf8a5841b7cd70944e298e8b669526beb701fba6))
+- Fix bach version rewriting a version inside a multi-line TOML string (KAN-96) ([f13149e](https://github.com/usebach/bach/commit/f13149eb1f1f4a61430cce6490d7ea5fdeaa9e8e))
+
+### Improvements
+
+- Warn when the file list is big and explain why its format stays (KAN-93) ([d22f80a](https://github.com/usebach/bach/commit/d22f80a25cea6c02d917efa27a3f403cfda179fd))
+- Split the action's args input like a command line so values with spaces work, and document it (KAN-94) ([044aab5](https://github.com/usebach/bach/commit/044aab5448fdf783a3e959b75e93410df12aea2c))
+- Check an elevated program against its SHA-256 before asking for rights, warn in bach check, and say what the timeout can and cannot do (KAN-95, KAN-98) ([629d6a8](https://github.com/usebach/bach/commit/629d6a89d6f5d5862109e074bb83ea22da188d8f))
+- Refuse tool, browser and profile folders as data folders, warn about unfamiliar ones, and list the real folders on the uninstall page (KAN-88) ([6f3e9d1](https://github.com/usebach/bach/commit/6f3e9d130e3dc725fdfd59e5d213b54f42044552))
+- Put shortcuts and integration back when a removal fails, and finish the removal when user data can't be deleted (KAN-85, KAN-87) ([8ae81a7](https://github.com/usebach/bach/commit/8ae81a79061f4c16c258dde7aa4253178df387ba))
+- Check [updates] signer on the setup file the online installer downloads (KAN-105) ([1428528](https://github.com/usebach/bach/commit/1428528dd6ded473111b8e375919f10cc1a64de0))
+- Sign a publishing time into feed entries with an optional max_age_days, and limit the feed's size and characters (KAN-100, KAN-102) ([1bfdb1d](https://github.com/usebach/bach/commit/1bfdb1d924ff02e6a55aa175973cc49a1f6a505f))
+- Keep the installed uninstaller before an update starts, and stop if that fails (KAN-101) ([24038b7](https://github.com/usebach/bach/commit/24038b75e938b2c566970ff5aaca9ebaa0b1d2cf))
+- Check every unpacked file against the manifest and refuse a path twice in an archive (KAN-99) ([90afa42](https://github.com/usebach/bach/commit/90afa4250e74222f59de647783e056aca3d16e50))
+- Wipe key material with zeroize wherever the key is derived, unwrapped or opened (KAN-107) ([4493d3b](https://github.com/usebach/bach/commit/4493d3b002eee9f3fa7f9fa920e5312a9f51c3f5))
+- Warn about paths over the classic Windows limit in bach check and in the setup log (KAN-106) ([0608c0e](https://github.com/usebach/bach/commit/0608c0ef271c2b2e15a6c24c7a95c046c26b272b))
+- Take the Tauri program name from mainBinaryName or the crate, not from productName (KAN-104) ([f33821e](https://github.com/usebach/bach/commit/f33821e28d5e44937c4eb49e7f624d0a872e51ea))
+- Report signtool in bach doctor only when it is Windows' tool, osslsigncode off Windows (KAN-89) ([cd8055c](https://github.com/usebach/bach/commit/cd8055cff762378332e4e01eb99eccaf10f5d238))
+- Warn when app.version is not a version that can be compared (KAN-92) ([38313c4](https://github.com/usebach/bach/commit/38313c4c80f5b71d891dd57bdd5ff469654ac159))
+- Say why an app name or id is refused: its length in characters, the character, or the reserved name (KAN-90) ([86d5c48](https://github.com/usebach/bach/commit/86d5c489be58bfbedfe44a7f08dd0b1713d9e0b0))
+- Find duplicate file names the way Windows compares them, not with to_lowercase (KAN-103) ([9a701c1](https://github.com/usebach/bach/commit/9a701c179d3013ed879131299afa6ef7dfc29df0))
+- Refuse many more credential files and keys or tokens in small text files (KAN-97) ([89681e3](https://github.com/usebach/bach/commit/89681e335b13be0b9495c05714dc2abd8d5f53bd))
+- Make cargo test and clippy for the whole workspace pass on Linux and macOS and check it in CI (KAN-86) ([35dfc35](https://github.com/usebach/bach/commit/35dfc35ebfbe7212e3b7c461e6c6f6222e9c34e6))
+- Check the ARM64 runtime hash like the x64 build does (KAN-38) ([54d54f7](https://github.com/usebach/bach/commit/54d54f7398fc2fd5c2c32c8d80dcf0ab94561269))
+
+All changes: [v0.7...v0.7.1](https://github.com/usebach/bach/compare/v0.7...v0.7.1)
+
 ## 0.7.0 (2026-11-17)
 
 ### New

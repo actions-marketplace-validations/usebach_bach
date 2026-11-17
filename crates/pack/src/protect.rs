@@ -24,6 +24,7 @@ use chacha20poly1305::aead::stream::{DecryptorBE32, EncryptorBE32};
 use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use sha2::{Digest, Sha256};
+use zeroize::Zeroizing;
 
 use crate::manifest::{Encryption, Slot};
 
@@ -58,24 +59,17 @@ pub const MAX_PASSES: u32 = 10;
 pub const MIN_KEY: usize = 8;
 pub const MAX_KEY: usize = 128;
 
-/// What a key unlocks. Never printed; wiped when dropped.
+/// What a key unlocks. Never printed; wiped when dropped, and the places that
+/// hold the key on the way here (the derivation's output, the unwrapped file
+/// key) wipe it too, as far as Rust allows: a value that is moved leaves its
+/// old stack slot behind, which no code can reach.
 pub struct Unlocked {
-    key: [u8; 32],
+    key: Zeroizing<[u8; 32]>,
 }
 
 impl std::fmt::Debug for Unlocked {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Unlocked(..)")
-    }
-}
-
-impl Drop for Unlocked {
-    fn drop(&mut self) {
-        // Volatile, so the compiler can't drop the write as dead.
-        for byte in &mut self.key {
-            // Safety: `byte` is a valid, aligned reference into `self.key`.
-            unsafe { std::ptr::write_volatile(byte, 0) };
-        }
     }
 }
 
@@ -179,11 +173,11 @@ impl Encryption {
         }
         let mut salt = [0u8; SALT_LEN];
         let mut nonce = [0u8; NONCE_LEN];
-        let mut file_key = [0u8; FILE_KEY_LEN];
+        let mut file_key = Zeroizing::new([0u8; FILE_KEY_LEN]);
         fill_random(&mut salt)?;
         fill_random(&mut nonce)?;
-        fill_random(&mut file_key)?;
-        let unlocked = Unlocked { key: file_key };
+        fill_random(file_key.as_mut())?;
+        let unlocked = Unlocked { key: file_key.clone() };
         let mut slots = Vec::with_capacity(keys.len());
         for key in keys {
             let mut slot_salt = [0u8; SALT_LEN];
@@ -192,7 +186,7 @@ impl Encryption {
             fill_random(&mut slot_nonce)?;
             let lock = derive(key, &slot_salt, MEMORY_KIB, PASSES).map_err(|why| anyhow::anyhow!("{why}"))?;
             let sealed = cipher(&lock)
-                .encrypt(GenericArray::from_slice(&slot_nonce), Payload { msg: &file_key, aad: &slot_aad(&salt, &nonce) })
+                .encrypt(GenericArray::from_slice(&slot_nonce), Payload { msg: file_key.as_slice(), aad: &slot_aad(&salt, &nonce) })
                 .map_err(|_| anyhow::anyhow!("couldn't lock the files with an access key"))?;
             let mut wrapped = slot_nonce.to_vec();
             wrapped.extend_from_slice(&sealed);
@@ -274,9 +268,10 @@ impl Encryption {
             let (slot_nonce, sealed) = wrapped.split_at(SLOT_NONCE_LEN);
             let opened =
                 cipher(&lock).decrypt(GenericArray::from_slice(slot_nonce), Payload { msg: sealed, aad: &slot_aad(file_salt, &nonce) });
-            let Ok(opened) = opened else { continue };
+            // The unwrapped file key is wiped when this goes out of scope, whichever way.
+            let Ok(opened) = opened.map(Zeroizing::new) else { continue };
             let Ok(file_key) = <[u8; FILE_KEY_LEN]>::try_from(opened.as_slice()) else { continue };
-            let unlocked = Unlocked { key: file_key };
+            let unlocked = Unlocked { key: Zeroizing::new(file_key) };
             // The slot opened, so it is genuine; the check ties it to these files.
             if same(check_value(&unlocked).as_bytes(), self.check.to_ascii_lowercase().as_bytes()) {
                 return Ok(unlocked);
@@ -330,9 +325,9 @@ fn unhex_vec(text: &str) -> Option<Vec<u8>> {
 
 fn derive(key: &str, salt: &[u8], memory_kib: u32, passes: u32) -> Result<Unlocked, String> {
     let params = Params::new(memory_kib, passes, 1, Some(32)).map_err(|err| err.to_string())?;
-    let mut out = [0u8; 32];
+    let mut out = Zeroizing::new([0u8; 32]);
     Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
-        .hash_password_into(key.as_bytes(), salt, &mut out)
+        .hash_password_into(key.as_bytes(), salt, out.as_mut())
         .map_err(|err| err.to_string())?;
     Ok(Unlocked { key: out })
 }
@@ -342,7 +337,7 @@ fn derive(key: &str, salt: &[u8], memory_kib: u32, passes: u32) -> Result<Unlock
 fn check_value(unlocked: &Unlocked) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"bach access check v1");
-    hasher.update(unlocked.key);
+    hasher.update(*unlocked.key);
     hex(&hasher.finalize())
 }
 
@@ -388,7 +383,7 @@ type Sealer = EncryptorBE32<ChaCha20Poly1305>;
 type Opener = DecryptorBE32<ChaCha20Poly1305>;
 
 fn cipher(unlocked: &Unlocked) -> ChaCha20Poly1305 {
-    ChaCha20Poly1305::new(GenericArray::from_slice(&unlocked.key))
+    ChaCha20Poly1305::new(GenericArray::from_slice(unlocked.key.as_slice()))
 }
 
 /// A writer that encrypts what it is given, chunk by chunk, into `inner`.

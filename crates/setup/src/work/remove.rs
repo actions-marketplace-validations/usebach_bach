@@ -61,12 +61,25 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
         wanted.push(path);
     }
     let aside = set_aside(&wanted).map_err(|(path, err)| failed(texts, Key::error_delete, &path, &err))?;
+    // Everything below can fail, and then the app has to be as it was: its files come back, and
+    // so do the shortcuts, start with Windows, PATH, link schemes and file types that were taken
+    // away on the way (put back the way an update that failed puts them back).
     let put_back = |problem: String| {
         restore(&aside);
+        let before = manifest.chosen.clone().unwrap_or_default();
+        let _ = super::install::shortcuts(manifest, None, &before, dir, &program, texts);
+        let _ = super::install::integrate(manifest, None, &before, dir, &program, texts);
         problem
     };
 
-    report(0.4, &texts.get(Key::step_removing_shortcuts));
+    // What can fail comes first, and what can't comes last: the registration entry is what Windows
+    // uses to find this uninstaller, so it goes before the shortcuts, which are only convenience.
+    undo_integration(manifest, dir, &program, texts).map_err(put_back)?;
+
+    report(0.6, &texts.get(Key::step_unregistering));
+    system::unregister(manifest).map_err(|err| put_back(format!("{} {}", texts.get(Key::error_unregister), plain(&err))))?;
+
+    report(0.65, &texts.get(Key::step_removing_shortcuts));
     let extra = system::extra_shortcuts(manifest).into_iter().map(|(link, _)| link);
     for shortcut in [system::start_menu_shortcut(manifest), system::desktop_shortcut(manifest)].into_iter().flatten().chain(extra) {
         let _ = remove_file_if_present(&shortcut);
@@ -77,10 +90,6 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
             let _ = fs::remove_dir(folder);
         }
     }
-    undo_integration(manifest, dir, &program, texts).map_err(put_back)?;
-
-    report(0.6, &texts.get(Key::step_unregistering));
-    system::unregister(manifest).map_err(|err| put_back(format!("{} {}", texts.get(Key::error_unregister), plain(&err))))?;
     // From here on the app is gone from Windows' point of view: finish the job.
     for (_, moved) in &aside {
         let _ = remove_file_if_present(moved);
@@ -90,9 +99,22 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     system::secret::forget(&manifest.app.id);
     system::channel::forget(&manifest.app.id);
 
+    // The user's data goes only when asked. A folder that won't go (a program or a virus scanner
+    // holds a file in it) is no reason to leave the rest of the removal undone: the app is
+    // unregistered by now, so stopping here would leave its folder and uninstaller behind with
+    // no entry in Settings to find them by. It is logged, and said at the end.
+    let mut data_left = Vec::new();
     if plan.delete_data {
         report(0.75, &texts.get(Key::step_deleting_data));
-        delete_data(manifest, dir, texts)?;
+        for template in &manifest.uninstall.data {
+            if let Some(folder) = paths::expand_data_folder(template, |name| std::env::var(name).ok()) {
+                crate::log::line(&format!("Deleting the data folder {}", folder.display()));
+            }
+        }
+        data_left = delete_data(manifest, dir, &|name| std::env::var(name).ok());
+        for (folder, why) in &data_left {
+            crate::log::line(&format!("Couldn't delete {}: {why}", folder.display()));
+        }
     }
 
     report(0.9, &texts.get(Key::step_cleaning));
@@ -115,7 +137,12 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
             let _ = delete_after_exit(&current, folder);
         }
     }
-    report(1.0, &texts.get(Key::step_done));
+    match data_left.first() {
+        None => report(1.0, &texts.get(Key::step_done)),
+        Some((folder, why)) => {
+            report(1.0, &format!("{} {why}", texts.with(Key::error_delete_data, &[("path", &folder.display().to_string())])))
+        }
+    }
     Ok(())
 }
 
@@ -201,13 +228,16 @@ fn check_install_dir(dir: &Path, manifest: &Manifest, texts: &Texts) -> Result<(
 }
 
 /// The folders the app keeps its data in (checked when the setup file was
-/// built and again when it was read, so they're inside the user's profile).
+/// built and again when it was read, so they're inside the user's profile),
+/// deleted; the ones that couldn't be, with why. `lookup` reads the profile
+/// folders (the environment in setup).
 ///
 /// A setup file isn't trusted, so a folder that is, or holds, the install
 /// folder is skipped here even though the manifest check let it through.
-fn delete_data(manifest: &Manifest, install_dir: &Path, texts: &Texts) -> Result<(), String> {
+fn delete_data(manifest: &Manifest, install_dir: &Path, lookup: &dyn Fn(&str) -> Option<String>) -> Vec<(PathBuf, String)> {
+    let mut left = Vec::new();
     for template in &manifest.uninstall.data {
-        let Some(folder) = paths::expand_data_folder(template, |name| std::env::var(name).ok()) else {
+        let Some(folder) = paths::expand_data_folder(template, lookup) else {
             continue;
         };
         if paths::is_same_or_inside(install_dir, &folder) {
@@ -216,20 +246,43 @@ fn delete_data(manifest: &Manifest, install_dir: &Path, texts: &Texts) -> Result
         match fs::remove_dir_all(&folder) {
             Ok(()) => {}
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(err) => {
-                return Err(format!(
-                    "{} {}",
-                    texts.with(Key::error_delete_data, &[("path", &folder.display().to_string())]),
-                    describe(&err)
-                ))
-            }
+            Err(err) => left.push((folder, describe(&err).to_string())),
         }
     }
-    Ok(())
+    left
 }
 
 /// The uninstaller's own copy in the temp folder (see launch.rs).
 fn is_temporary_copy(path: &Path) -> bool {
     let temp = std::env::temp_dir();
     path.parent().is_some_and(|parent| same_file(parent, &temp))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    #[test]
+    fn a_folder_that_will_not_go_is_reported_and_the_others_still_go() {
+        let root = std::env::temp_dir().join(format!("bach-remove-data-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for folder in ["Locked", "Free"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+            fs::write(root.join(folder).join("data.bin"), b"x").unwrap();
+        }
+        // A program that holds a file open without sharing, like a virus scanner mid-scan.
+        let holder = fs::OpenOptions::new().read(true).share_mode(0).open(root.join("Locked").join("data.bin")).unwrap();
+        let mut manifest = crate::package::Package::sample().manifest;
+        manifest.uninstall.data = vec![r"%APPDATA%\Locked".into(), r"%APPDATA%\Free".into(), r"%APPDATA%\Never".into()];
+        let appdata = root.display().to_string();
+        let lookup = |name: &str| (name == "APPDATA").then(|| appdata.clone());
+        let left = delete_data(&manifest, Path::new(r"C:\Somewhere\Else"), &lookup);
+        assert_eq!(left.len(), 1, "{left:?}");
+        assert!(left[0].0.ends_with("Locked"));
+        assert!(!root.join("Free").exists(), "the others went");
+        assert!(root.join("Locked").exists());
+        drop(holder);
+        fs::remove_dir_all(&root).unwrap();
+    }
 }

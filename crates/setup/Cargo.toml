@@ -13,6 +13,8 @@ path = "src/main.rs"
 [dependencies]
 bach-pack = { path = "../pack" }
 anyhow.workspace = true
+# Not Windows-only: tests in support.rs read manifests from JSON on every OS.
+serde_json.workspace = true
 
 # The runtime is a Windows program; elsewhere it builds to a stub that says so,
 # so `cargo test --workspace` still works on every OS.
@@ -51,7 +53,6 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 windows-registry = "0.100"
-serde_json.workspace = true
 sha2 = "0.11"
 
 [target.'cfg(windows)'.build-dependencies]

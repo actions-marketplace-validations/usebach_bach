@@ -224,6 +224,7 @@ fn a_damaged_feed_is_refused_never_a_panic() {
         rollout: Some(10),
         delta: None,
         signature: None,
+        published: None,
     };
     entry.signature = Some(feedsig::sign(&private, "Hello", &entry).unwrap());
     let json = serde_json::to_vec(&entry).unwrap();

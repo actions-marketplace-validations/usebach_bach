@@ -40,7 +40,11 @@ pub fn check_public(public: &str) -> Result<()> {
     verifying_key(public).map(|_| ())
 }
 
-/// The bytes that are signed for `entry` of the app `app_id`.
+/// The bytes that are signed for `entry` of the app `app_id`. An entry with a
+/// `published` time is signed as `bach-feed-v2`, which adds it at the end; one
+/// without keeps the first format, so feeds written before the time existed
+/// still verify. Taking the time off a v2 entry breaks the signature, since the
+/// two formats start differently.
 fn message(app_id: &str, entry: &FeedEntry) -> Vec<u8> {
     let delta = |delta: &DeltaEntry| {
         format!(
@@ -51,8 +55,12 @@ fn message(app_id: &str, entry: &FeedEntry) -> Vec<u8> {
             delta.size.map_or(String::new(), |size| size.to_string())
         )
     };
+    let (label, published) = match &entry.published {
+        Some(time) => ("bach-feed-v2", format!("\n{time}")),
+        None => ("bach-feed-v1", String::new()),
+    };
     format!(
-        "bach-feed-v1\n{app_id}\n{}\n{}\n{}\n{}\n{}\n{}",
+        "{label}\n{app_id}\n{}\n{}\n{}\n{}\n{}\n{}{published}",
         entry.version,
         entry.url,
         entry.sha256.to_ascii_lowercase(),
@@ -61,6 +69,86 @@ fn message(app_id: &str, entry: &FeedEntry) -> Vec<u8> {
         entry.delta.as_ref().map_or(String::new(), delta),
     )
     .into_bytes()
+}
+
+/// Seconds since 1970-01-01 as `2026-11-17T06:30:00Z`.
+pub fn format_utc(seconds: u64) -> String {
+    let days = (seconds / 86_400) as i64;
+    let rest = seconds % 86_400;
+    // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z.rem_euclid(146_097);
+    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_part = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_part + 2) / 5 + 1;
+    let month = if month_part < 10 { month_part + 3 } else { month_part - 9 };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", rest / 3600, rest % 3600 / 60, rest % 60)
+}
+
+/// The inverse of [`format_utc`]: only the exact `YYYY-MM-DDTHH:MM:SSZ` form.
+pub fn parse_utc(text: &str) -> Option<u64> {
+    let bytes = text.as_bytes();
+    if bytes.len() != 20
+        || !text.is_ascii()
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || bytes[19] != b'Z'
+    {
+        return None;
+    }
+    let number = |from: usize, to: usize| -> Option<i64> {
+        let part = &text[from..to];
+        part.chars().all(|c| c.is_ascii_digit()).then(|| part.parse().ok()).flatten()
+    };
+    let (year, month, day) = (number(0, 4)?, number(5, 7)?, number(8, 10)?);
+    let (hour, minute, second) = (number(11, 13)?, number(14, 16)?, number(17, 19)?);
+    if !(1970..=9999).contains(&year) || !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    // Civil date to days since 1970-01-01.
+    let y = year - i64::from(month <= 2);
+    let era = y.div_euclid(400);
+    let year_of_era = y.rem_euclid(400);
+    let month_part = (month + 9) % 12;
+    let day_of_year = (153 * month_part + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    let seconds = days * 86_400 + hour * 3600 + minute * 60 + second;
+    // Round trip: 2026-02-31 isn't a date.
+    let seconds = u64::try_from(seconds).ok()?;
+    (format_utc(seconds) == text).then_some(seconds)
+}
+
+/// How far in the future a `published` time may be before it is distrusted:
+/// a computer's clock is never exact.
+const CLOCK_SKEW_SECONDS: u64 = 24 * 3600;
+
+/// Whether `entry` is recent enough for an app that sets `max_age_days`
+/// (0 or none: always). `now` is seconds since 1970. Only call it for an
+/// entry whose signature has been checked: the time means something only then.
+pub fn check_fresh(entry: &FeedEntry, max_age_days: Option<u32>, now: u64) -> Result<(), String> {
+    let Some(days) = max_age_days.filter(|days| *days > 0) else {
+        return Ok(());
+    };
+    let published = entry.published.as_deref().and_then(parse_utc).ok_or_else(|| {
+        format!("the update feed has no publishing time, and this app only takes feeds signed within the last {days} days")
+    })?;
+    if published > now.saturating_add(CLOCK_SKEW_SECONDS) {
+        return Err("the update feed says it was published in the future, so this computer's clock or the feed is wrong".into());
+    }
+    let age_days = now.saturating_sub(published) / 86_400;
+    if age_days > u64::from(days) {
+        return Err(format!(
+            "the update feed was signed {age_days} days ago, and this app only takes feeds signed within the last {days} days"
+        ));
+    }
+    Ok(())
 }
 
 /// Signs `entry` with the private key and gives the signature (hex).
@@ -125,6 +213,7 @@ mod tests {
                 size: Some(10),
             }),
             signature: None,
+            published: None,
         }
     }
 
@@ -185,5 +274,68 @@ mod tests {
         assert!(check_public(&"zz".repeat(32)).is_err());
         assert!(sign("short", "Hello", &entry()).is_err());
         assert!(public_of("not hex").is_err());
+    }
+
+    #[test]
+    fn times_are_written_and_read_the_same_way() {
+        for seconds in [0u64, 86_399, 951_782_400 /* 2000-02-29 */, 1_794_897_360, 4_102_444_800, 253_402_300_799] {
+            let text = format_utc(seconds);
+            assert_eq!(parse_utc(&text), Some(seconds), "{text}");
+        }
+        assert_eq!(format_utc(1_794_897_360), "2026-11-17T06:36:00Z");
+        for bad in [
+            "",
+            "2026-11-17",
+            "2026-11-17T06:36:00",
+            "2026-11-17 06:36:00Z",
+            "2026-02-31T00:00:00Z",
+            "2026-13-01T00:00:00Z",
+            "1969-12-31T23:59:59Z",
+            "2026-11-17T24:00:00Z",
+            "+026-11-17T06:36:00Z",
+            "２０２６-11-17T06:36:00Z",
+        ] {
+            assert_eq!(parse_utc(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_publishing_time_is_signed_and_cannot_be_taken_off() {
+        let (private, public) = generate().unwrap();
+        let mut entry = entry();
+        entry.published = Some("2026-11-17T06:36:00Z".into());
+        entry.signature = Some(sign(&private, "Hello", &entry).unwrap());
+        assert!(verify(&public, "Hello", &entry).is_ok());
+        let mut later = entry.clone();
+        later.published = Some("2027-01-01T00:00:00Z".into());
+        assert!(verify(&public, "Hello", &later).is_err(), "a changed time breaks the signature");
+        let mut stripped = entry.clone();
+        stripped.published = None;
+        assert!(verify(&public, "Hello", &stripped).is_err(), "so does taking it off");
+        // An entry written before the time existed still verifies.
+        let mut old = super::tests::entry();
+        old.signature = Some(sign(&private, "Hello", &old).unwrap());
+        assert!(verify(&public, "Hello", &old).is_ok());
+    }
+
+    #[test]
+    fn an_old_entry_is_refused_when_the_app_sets_a_limit() {
+        let now = parse_utc("2026-11-17T06:36:00Z").unwrap();
+        let mut entry = entry();
+        // No limit: anything goes, dated or not.
+        assert!(check_fresh(&entry, None, now).is_ok());
+        assert!(check_fresh(&entry, Some(0), now).is_ok());
+        // A limit needs a time.
+        assert!(check_fresh(&entry, Some(30), now).unwrap_err().contains("no publishing time"));
+        entry.published = Some("2026-11-01T00:00:00Z".into());
+        assert!(check_fresh(&entry, Some(30), now).is_ok());
+        entry.published = Some("2026-09-01T00:00:00Z".into());
+        assert!(check_fresh(&entry, Some(30), now).unwrap_err().contains("days ago"));
+        entry.published = Some("2026-11-20T00:00:00Z".into());
+        assert!(check_fresh(&entry, Some(30), now).unwrap_err().contains("future"));
+        entry.published = Some("2026-11-17T20:00:00Z".into());
+        assert!(check_fresh(&entry, Some(30), now).is_ok(), "a little clock skew is fine");
+        entry.published = Some("garbage".into());
+        assert!(check_fresh(&entry, Some(30), now).is_err());
     }
 }

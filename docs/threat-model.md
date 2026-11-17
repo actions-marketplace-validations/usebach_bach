@@ -21,8 +21,10 @@ code as it is; where a protection does not exist yet, it says so.
   install folder. The uninstaller deletes only files its manifest lists, inside a
   folder that is plainly the app's install, keeps a file that changed after
   setup wrote it, and deletes data folders only when the user asks and only below
-  `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%` (never `Documents`, `.ssh` and
-  the like). A first install into a folder that already holds files warns first.
+  `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%` (never `Documents`, `.ssh`,
+  developer tool folders, other programs' browser or chat profiles and the like).
+  The page lists the folders it would delete, as they are on that computer,
+  instead of showing only the developer's description. A first install into a folder that already holds files warns first.
 - **The developer's secrets.** `bach build` refuses a source folder that holds
   `.env` files, private keys, certificates, `.git` or `bach.toml` unless
   `files.allow_secrets` says so.
@@ -53,12 +55,19 @@ code as it is; where a protection does not exist yet, it says so.
   every entry must carry the publisher's signature (see
   [signed feeds](updates.md#signed-feeds)). A key can be handed over with `next_public_key` in two releases
   (see [Changing the key](updates.md#changing-the-key)), but not revoked remotely.
-- An update's setup file is not yet checked for the publisher's Authenticode
-  signature (KAN-17).
+  A signature has no time unless `[updates] max_age_days` is set: without it a
+  taken-over host can keep serving an older entry that is still validly signed
+  (a freeze, or a step back to an older version that is still newer than what is
+  installed). See [Keeping a signed feed fresh](updates.md#keeping-a-signed-feed-fresh).
 - `uninstall.exe` is written on the user's computer and is not signed.
 - A run step started with `elevated = true` runs a file from the install
   folder with administrator rights; keep it to well-known installers and sign
-  them.
+  them. Setup checks the file against its recorded SHA-256 right before it asks
+  Windows for rights (so a file swapped after the install is not started), but
+  a swap in the moment between that check and the start is not prevented, and
+  `bach check` warns about the combination with a per-user install. Setup can't
+  end an elevated step that runs past `timeout_minutes` unless it is elevated
+  itself; it only stops waiting.
 - Antivirus heuristics may flag unsigned setup files; see
   [antivirus warnings](antivirus.md).
 
