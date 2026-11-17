@@ -147,12 +147,17 @@ fn collect_strings(value: &toml::Value, out: &mut Vec<String>) {
     }
 }
 
-/// A short relative path that stays below the folder it starts from.
+/// A short relative path that stays below the folder it starts from. It reads
+/// `\` as a separator on every system, since a config written on Windows may
+/// use it, so `C:\Windows\win.ini` and `..\x` are refused on Linux and macOS too.
 fn is_inside(text: &str) -> bool {
+    let unified = text.replace('\\', "/");
     !text.is_empty()
         && text.len() <= 260
         && !text.contains(['\0', '\n', '\r'])
-        && Path::new(text).components().all(|part| matches!(part, Component::Normal(_) | Component::CurDir))
+        && !unified.starts_with('/')
+        && unified.split('/').all(|part| part != ".." && !part.contains(':'))
+        && Path::new(&unified).components().all(|part| matches!(part, Component::Normal(_) | Component::CurDir))
 }
 
 #[cfg(test)]
@@ -202,10 +207,24 @@ license = { en = "LICENSE.txt", de = "./LIZENZ.txt" }
 
     #[test]
     fn a_text_can_not_make_it_watch_outside_the_project() {
-        for text in ["../secret.txt", "..", "/etc/passwd", r"C:\Windows\win.ini", "a/../../b", "", "line\nbreak", "nul\0"] {
+        // The same answer on every system: a Windows path is refused on Linux and macOS too.
+        for text in [
+            "../secret.txt",
+            "..",
+            "/etc/passwd",
+            r"C:\Windows\win.ini",
+            "C:win.ini",
+            r"..\secret.txt",
+            r"a\..\..\b",
+            r"\\server\share\x",
+            "a/../../b",
+            "",
+            "line\nbreak",
+            "nul\0",
+        ] {
             assert!(!is_inside(text), "{text:?}");
         }
-        for text in ["logo.svg", "assets/logo.svg", "./logo.svg"] {
+        for text in ["logo.svg", "assets/logo.svg", "./logo.svg", r"assets\logo.svg"] {
             assert!(is_inside(text), "{text:?}");
         }
     }
