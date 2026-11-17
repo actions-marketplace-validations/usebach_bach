@@ -762,6 +762,12 @@
           "pattern": "^[0-9a-fA-F]{64}$",
           "description": "A second Ed25519 public key that is trusted too, to hand over to a new key (needs public_key): entries signed with either key are accepted."
         },
+        "max_age_days": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3650,
+          "description": "How many days old a signed feed entry may be (needs public_key). The entry carries the time bach feed signed it; an older one is ignored, which stops a taken-over host from serving an old, validly signed entry for ever. 0 or left out: no limit. The feed has to be signed again (bach feed) within that time, release or not."
+        },
         "beta_feed": {
           "type": "string",
           "pattern": "^https://",

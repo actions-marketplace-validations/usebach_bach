@@ -608,6 +608,11 @@ fn a_feed_with_a_publisher_key_is_signed_and_refuses_the_wrong_key() {
     assert!(good.status.success(), "{}", text(&good.stderr));
     let entry: bach_pack::manifest::FeedEntry = serde_json::from_str(&std::fs::read_to_string(&feed).unwrap()).unwrap();
     assert!(bach_pack::feedsig::verify(&public, "BachIntegrationTest-Hello", &entry).is_ok());
+    assert!(
+        entry.published.as_deref().is_some_and(|time| bach_pack::feedsig::parse_utc(time).is_some()),
+        "a signed entry carries the time it was signed: {:?}",
+        entry.published
+    );
     let mut tampered = entry.clone();
     tampered.sha256 = "00".repeat(32);
     assert!(bach_pack::feedsig::verify(&public, "BachIntegrationTest-Hello", &tampered).is_err());

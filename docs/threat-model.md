@@ -53,8 +53,10 @@ code as it is; where a protection does not exist yet, it says so.
   every entry must carry the publisher's signature (see
   [signed feeds](updates.md#signed-feeds)). A key can be handed over with `next_public_key` in two releases
   (see [Changing the key](updates.md#changing-the-key)), but not revoked remotely.
-- An update's setup file is not yet checked for the publisher's Authenticode
-  signature (KAN-17).
+  A signature has no time unless `[updates] max_age_days` is set: without it a
+  taken-over host can keep serving an older entry that is still validly signed
+  (a freeze, or a step back to an older version that is still newer than what is
+  installed). See [Keeping a signed feed fresh](updates.md#keeping-a-signed-feed-fresh).
 - `uninstall.exe` is written on the user's computer and is not signed.
 - A run step started with `elevated = true` runs a file from the install
   folder with administrator rights; keep it to well-known installers and sign

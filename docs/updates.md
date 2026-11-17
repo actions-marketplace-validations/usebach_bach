@@ -280,6 +280,32 @@ and receives an unsigned feed stops updating, so run `bach feed` with the key
 before you publish. An app only trusts the keys its own setup file carries, so
 keep the private key safe, and change it in two steps (below) if you must.
 
+### Keeping a signed feed fresh
+
+A signature proves who wrote an entry, not when. A host that was taken over
+can keep serving an old entry that is still validly signed: installed copies
+then never see the newer version, or are held at an older one that has a known
+bug. `bach feed` therefore signs the time it ran into every entry
+(`"published": "2026-11-17T06:36:00Z"`, UTC; `SOURCE_DATE_EPOCH` sets it for a
+rebuild on purpose). An app that sets
+
+```toml bach.toml
+[updates]
+public_key = "3f9a…64 hex digits…"
+max_age_days = 90
+```
+
+ignores a signed entry that is older than that, one with no time, and one that
+claims to be from more than a day ahead (a clock that is wrong, or a feed that
+lies). The time is part of the signature: taking it off or changing it makes
+the entry invalid. Left out, an entry never expires, as before.
+
+The catch is yours: an entry only stays fresh when you sign it again, so run
+`bach feed` on a schedule (for example a weekly workflow that signs the
+current release again and uploads `latest.json`), or installed copies stop
+seeing updates after `max_age_days`. Feeds signed before this existed have no
+time; apps with a limit refuse them, so sign again before you build with it.
+
 ### Beta versions
 
 An app can offer pre-release versions to the people who ask for them:

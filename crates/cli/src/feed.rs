@@ -273,6 +273,7 @@ fn write(
         rollout,
         delta,
         signature: None,
+        published: None,
     };
     // An app that has a publisher key accepts only signed feeds, so an unsigned
     // one would silently stop every installed copy from updating.
@@ -284,6 +285,8 @@ fn write(
                 if !trusted.iter().flatten().any(|key| key.eq_ignore_ascii_case(&mine)) {
                     bail!("the feed signing key doesn't belong to [updates] public_key (or next_public_key) in this setup file; use the private key that `bach feed-key` made with it");
                 }
+                // Signed with the time, so an app that limits a feed's age can tell it is fresh.
+                entry.published = Some(bach_pack::feedsig::format_utc(signing_time()));
                 entry.signature = Some(bach_pack::feedsig::sign(&private, &manifest.app.id, &entry)?);
             }
             Err(err) if key_required => return Err(err),
@@ -304,6 +307,16 @@ fn write(
     let json = serde_json::to_string_pretty(&entry)?;
     std::fs::write(&target, format!("{json}\n")).with_context(|| format!("couldn't write {}", target.display()))?;
     Ok(target)
+}
+
+/// When the feed is signed: now, or `SOURCE_DATE_EPOCH` when it is set (the
+/// reproducible-builds convention), so a release that is rebuilt on purpose
+/// gives the same feed.
+fn signing_time() -> u64 {
+    std::env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .and_then(|seconds| seconds.trim().parse().ok())
+        .unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs()))
 }
 
 #[cfg(test)]
