@@ -183,6 +183,12 @@ pub struct Updates {
     /// and the publisher's keys and signer apply to it as well.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub beta_feed: Option<String>,
+    /// How old, in days, a signed feed entry may be (counted from its
+    /// `published` time) before the installed app ignores it. Needs `public_key`.
+    /// Left out, an entry never expires. The publisher has to sign the feed
+    /// again (`bach feed`) within that time, release or not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_age_days: Option<u32>,
 }
 
 /// A distinguished name like `CN=Example Inc., O=Example, C=DE` as its
@@ -271,6 +277,11 @@ pub struct FeedEntry {
     /// of apps without `[updates] public_key` don't need one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
+    /// When the publisher signed this entry, `2026-11-17T06:30:00Z` (UTC). It is
+    /// part of what the signature covers, and lets an app that sets
+    /// `[updates] max_age_days` refuse an old entry a taken-over host keeps serving.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published: Option<String>,
 }
 
 /// The patch a [`FeedEntry`] offers to computers that have one version.

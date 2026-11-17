@@ -27,7 +27,8 @@ pub enum Outcome {
     Exited(u32),
     /// The user said no to Windows' prompt.
     Declined,
-    /// It took longer than allowed, so setup ended it.
+    /// It took longer than allowed, so setup stopped waiting and tried to end it (which only
+    /// works when setup has the rights the program has).
     TimedOut,
     /// Windows couldn't start it, for this reason.
     Failed(String),
@@ -94,9 +95,12 @@ pub fn run(program: &Path, parameters: &str, directory: Option<&Path>, limit: Du
                 };
             }
             if started.elapsed() > limit {
-                // ShellExecuteEx can't put the program in a job, so the programs it
-                // started are ended by asking Windows for the whole tree (this
-                // setup is elevated here, as the program is).
+                // Setup isn't elevated when it starts an elevated step (it asks Windows to start the
+                // program with administrator rights, which only the machine-wide relaunch, which waits
+                // for ever, does as an elevated setup). A program without those rights can't end one that
+                // has them: Windows refuses `taskkill` and `TerminateProcess` and hands back a process
+                // handle that only allows waiting. They are tried anyway, since a setup that is elevated
+                // already (or a program that wasn't) can end it, and the result is checked and logged.
                 let pid = windows::Win32::System::Threading::GetProcessId(process);
                 if pid != 0 {
                     let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
@@ -107,6 +111,12 @@ pub fn run(program: &Path, parameters: &str, directory: Option<&Path>, limit: Du
                         .status();
                 }
                 let _ = TerminateProcess(process, 1);
+                if WaitForSingleObject(process, 2000) != WAIT_OBJECT_0 {
+                    crate::log::line(
+                        "The program is still running: Windows doesn't let setup, which has no administrator rights, \
+                         end a program that has them. Setup stops waiting for it; end it in Task Manager if it hangs.",
+                    );
+                }
                 break Outcome::TimedOut;
             }
         };

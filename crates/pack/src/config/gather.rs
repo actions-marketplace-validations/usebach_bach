@@ -19,7 +19,7 @@ pub fn gather(dir: &Path, exclude: &[String], output: &Path) -> Result<Vec<Sourc
         if output.is_some() && std::fs::canonicalize(path).ok() == output {
             return Ok(());
         }
-        let key = packaged.to_lowercase();
+        let key = paths::fold_case(packaged);
         if found.contains_key(&key) {
             bail!("{} is in the source folder twice, in different letter case", packaged);
         }

@@ -243,6 +243,14 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     }
     let mut warnings = Vec::new();
     let app = check_app(&file.app)?;
+    if crate::version::compare(&app.version, &app.version).is_none() {
+        warnings.push(format!(
+            "app.version is \"{}\", which isn't a version like 1.2.3 (dotted numbers, each up to 18446744073709551615, \
+             an optional leading v, then -pre-release and +build). Installed copies can't tell whether a setup file is newer, \
+             so they treat every one as an update and the downgrade protection does nothing",
+            app.version
+        ));
+    }
     let install = options::install(&file.installer, &app)?;
     let languages = text::languages(file.installer.languages.as_deref())?;
     let mut locale = text::locale(&file.text, &languages, &mut warnings)?;
@@ -253,6 +261,12 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     }
     for folder in &file.uninstall.data {
         paths::check_data_folder(folder).context("uninstall.data")?;
+        if !paths::looks_like_apps_own(folder, &[&app.name, &app.id, &app.publisher]) {
+            warnings.push(format!(
+                "uninstall.data \"{folder}\" has no folder that looks like the app's name, id or publisher. The uninstaller \
+                 deletes it when the user ticks \"delete my data\", so make sure it holds only your app's data"
+            ));
+        }
     }
 
     let theme = match &file.installer.theme {
@@ -372,6 +386,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     }
     let sources = gather::gather(&source_dir, &file.files.exclude, &output)?;
     secrets::check(&sources, &file.files.allow_secrets, &mut warnings)?;
+    long_paths(&sources, &install, &mut warnings);
     let requirements = extras::requirements(&file.requirements)?;
     for requirement in &requirements {
         if let manifest::extras::Check::Windows { build } = requirement.check {
@@ -448,6 +463,17 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     let mut manifest = manifest;
     manifest.shortcuts = extras::shortcuts(&file.shortcuts, &manifest.files)?;
     manifest.run = extras::run_steps(&file.run, &manifest.files, &manifest.components)?;
+    warnings.extend(file_list_warning(&manifest.files));
+    if manifest.install.scope == manifest::Scope::User {
+        for step in manifest.run.iter().filter(|step| step.elevated) {
+            warnings.push(format!(
+                "run step \"{}\" is elevated, but this is a per-user install: its program starts with administrator rights from \
+                 a folder the user's own programs can write to. Setup checks the file against its SHA-256 right before it asks \
+                 for rights, but keep elevated steps to well-known installers (and sign them), or use installer.scope = \"machine\"",
+                step.name
+            ));
+        }
+    }
     manifest.validate()?;
     Ok(Project {
         root: root.to_path_buf(),
@@ -502,6 +528,56 @@ fn signing(section: Option<&SigningSection>) -> Result<Option<Signing>> {
 
 /// A file name as GitHub keeps it for a release download: letters, digits,
 /// `.`, `-` and `_`; anything else becomes `-`.
+/// How much the list of files may weigh before `bach check` says so. The list (path, size and
+/// SHA-256 of every file) travels in the setup file and again in `uninstall.exe` on every
+/// computer, and is read every time setup starts.
+const FILE_LIST_WARN_BYTES: usize = 2 << 20;
+
+/// A warning when the file list is big, with what to do about it. Each entry takes about 110
+/// bytes besides its path (the keys, the size and the 64 hex digits of its SHA-256).
+fn file_list_warning(files: &[FileEntry]) -> Option<String> {
+    let bytes: usize = files.iter().map(|file| file.path.len() + 110).sum();
+    (bytes > FILE_LIST_WARN_BYTES).then(|| {
+        format!(
+            "files.source holds {} files, which makes a file list of about {:.1} MB. It is stored in the setup file and \
+             again in uninstall.exe on every computer. Fewer, larger files keep both smaller (for an Electron app, pack the \
+             app into an asar archive; leave out test, docs and source map files with files.exclude)",
+            files.len(),
+            bytes as f64 / (1 << 20) as f64
+        )
+    })
+}
+
+/// What Windows' classic limit allows for a whole path: 260 characters with
+/// the drive and the ending NUL.
+const MAX_PATH_CHARS: usize = 259;
+
+/// Warns when the longest packaged file would pass [`MAX_PATH_CHARS`] below the
+/// usual install folder. Setup writes long paths fine, but shortcuts, Explorer and
+/// many programs stop at 260 characters unless Windows' long path support is on.
+fn long_paths(sources: &[Source], install: &manifest::Install, warnings: &mut Vec<String>) {
+    // `C:\Users\` + a 20 character user name + `\AppData\Local\Programs\`, or `C:\Program Files\`.
+    let base = match install.scope {
+        manifest::Scope::User => 9 + 20 + 24,
+        manifest::Scope::Machine => 19,
+    };
+    let folder = install.folder.encode_utf16().count();
+    let longest = sources
+        .iter()
+        .map(|source| (source.packaged.replace('/', "\\").encode_utf16().count(), source.packaged.as_str()))
+        .max_by_key(|(length, _)| *length);
+    if let Some((length, name)) = longest {
+        let total = base + folder + 1 + length;
+        if total > MAX_PATH_CHARS {
+            warnings.push(format!(
+                "\"{name}\" would be {total} characters long once installed in the usual folder, \
+                 more than the {MAX_PATH_CHARS} that shortcuts, Explorer and many programs handle unless Windows' long path \
+                 support is on. Shorten the path (for example by flattening node_modules or shortening folder names)"
+            ));
+        }
+    }
+}
+
 pub fn github_asset_name(name: &str) -> String {
     name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '-' }).collect()
 }
@@ -514,12 +590,11 @@ fn check_app(section: &AppSection) -> Result<manifest::App> {
         Some(id) => id.trim().to_string(),
         None => name.clone(),
     };
-    if !paths::is_valid_id(&id) {
+    if let Some(problem) = paths::id_problem(&id) {
         let hint = if section.id.is_some() { "app.id" } else { "app.name (or set app.id)" };
-        bail!(
-            "{hint} is \"{id}\"; it names a folder and a registry key, so use letters, digits, \
-             spaces, dots, dashes and underscores"
-        );
+        // A long value would fill the screen; the length is in the reason.
+        let shown: String = if id.chars().count() > 40 { id.chars().take(37).chain("...".chars()).collect() } else { id.clone() };
+        bail!("{hint} is \"{shown}\", which {problem}. It names a folder and a registry key");
     }
     let executable = paths::normalize(section.executable.trim()).context("app.executable isn't a usable path")?;
     if !executable.to_ascii_lowercase().ends_with(".exe") {

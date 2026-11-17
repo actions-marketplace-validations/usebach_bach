@@ -101,7 +101,7 @@ case, an app that installs for one user, with settings instead of code:
   place: files are unpacked first and swapped in together, and if one is
   locked, everything is put back. Files the new version no longer ships are
   removed.
-- **A window people can read.** 13 languages built in, following the Windows
+- **A window people can read.** 19 languages built in, following the Windows
   display language; light and dark mode; every text replaceable.
 - **Builds anywhere.** `bach` runs on Windows, macOS and Linux, so installers
   can come out of any CI. Setup files need no .NET and no Visual C++ runtime.

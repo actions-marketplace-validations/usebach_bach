@@ -45,8 +45,8 @@ pub(super) fn install(section: &InstallerSection, app: &manifest::App) -> Result
         Some(folder) => folder.trim().to_string(),
         None => app.id.clone(),
     };
-    if !paths::is_valid_id(&folder) {
-        bail!("installer.folder is \"{folder}\"; it must be a plain folder name, like \"{}\"", app.id);
+    if let Some(problem) = paths::id_problem(&folder) {
+        bail!("installer.folder is \"{folder}\", which {problem}. It must be a plain folder name, like \"{}\"", app.id);
     }
     let path_folder = match section.path_folder.as_deref().map(str::trim) {
         None | Some("") | Some(".") => None,

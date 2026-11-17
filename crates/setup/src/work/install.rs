@@ -15,6 +15,7 @@
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -91,6 +92,7 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     ensure_closed(&program, texts)?;
     let previous = previous_install(dir, manifest);
     let needed = manifest.selected_size(&choices);
+    log_long_paths(manifest, &choices, dir);
     // An update patch carries only what changed; the rest is in the folder.
     let matching = patch_base(manifest, &choices, dir);
     if previous.is_some() {
@@ -122,9 +124,19 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
 
     // The files are in place but still undoable: everything below can fail,
     // and then the earlier version comes back whole.
-    let committed = unpack(plan, &choices, layout.archive, to_copy, &matching, unlocked.as_ref(), report)?;
+    // The installed uninstaller is kept before anything changes: an update that can't keep
+    // it must not start, since putting the earlier version back would then delete it.
+    let uninstaller_before = keep_uninstaller(dir).map_err(|(path, err)| failed(texts, Key::error_write, &path, &err))?;
+    let committed = match unpack(plan, &choices, layout.archive, to_copy, &matching, unlocked.as_ref(), report) {
+        Ok(committed) => committed,
+        Err(problem) => {
+            if let Some(kept) = &uninstaller_before {
+                let _ = fs::remove_file(kept);
+            }
+            return Err(problem);
+        }
+    };
     let installed = manifest.as_installed(&choices);
-    let uninstaller_before = keep_uninstaller(dir);
     let later = (|| -> Result<(), String> {
         super::steps::run_install_steps(manifest, dir, previous.is_none(), &choices, texts, (0.895, 0.915), report)?;
 
@@ -166,12 +178,39 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     Ok(())
 }
 
+/// Notes in the log when a file will sit at a path longer than classic Windows
+/// handles (260 characters): setup writes it fine, but shortcuts, Explorer and
+/// many programs may not cope, which is a first thing to know when a support
+/// log is read.
+fn log_long_paths(manifest: &Manifest, choices: &Choices, dir: &Path) {
+    const CLASSIC_LIMIT: usize = 259;
+    let longest = manifest
+        .files
+        .iter()
+        .filter(|file| choices.installs(file))
+        .map(|file| (paths::under(dir, &file.path).as_os_str().encode_wide().count(), file.path.as_str()))
+        .max_by_key(|(length, _)| *length);
+    if let Some((length, path)) = longest.filter(|(length, _)| *length > CLASSIC_LIMIT) {
+        crate::log::line(&format!(
+            "{path} will be {length} characters long, more than the {CLASSIC_LIMIT} classic Windows handles; \
+             shortcuts and some programs may not open it unless long path support is on."
+        ));
+    }
+}
+
 /// The installed uninstaller, copied aside while an update runs, so a failed
-/// update can put it back. None for a first install.
-fn keep_uninstaller(dir: &Path) -> Option<PathBuf> {
+/// update can put it back. `Ok(None)` is a first install, where there is none;
+/// a copy that can't be made is an error (with the path it failed on), never
+/// `None`, because [`restore_uninstaller`] deletes the uninstaller when nothing was kept.
+fn keep_uninstaller(dir: &Path) -> Result<Option<PathBuf>, (PathBuf, std::io::Error)> {
     let current = dir.join(UNINSTALLER);
+    if !current.is_file() {
+        return Ok(None);
+    }
     let kept = place::with_suffix(&current, ".bach-prev");
-    (current.is_file() && fs::copy(&current, &kept).is_ok()).then_some(kept)
+    let _ = fs::remove_file(&kept);
+    fs::copy(&current, &kept).map_err(|err| (kept.clone(), err))?;
+    Ok(Some(kept))
 }
 
 /// Puts the uninstaller kept by [`keep_uninstaller`] back; on a first install
@@ -305,6 +344,9 @@ fn unpack(
     let dir = &plan.dir;
     let read_failed = |err: std::io::Error| format!("{} {}", texts.get(Key::error_read_setup), describe(&err));
     let wanted: HashSet<&str> = manifest.files.iter().filter(|file| choices.installs(file)).map(|file| file.path.as_str()).collect();
+    // What the manifest says each file is, to check against what the archive hands out.
+    let recorded: std::collections::HashMap<&str, &bach_pack::manifest::FileEntry> =
+        manifest.files.iter().filter(|file| choices.installs(file)).map(|file| (file.path.as_str(), file)).collect();
     for file in &manifest.files {
         place::clear_leftovers(&paths::under(dir, &file.path));
     }
@@ -322,7 +364,7 @@ fn unpack(
     let mut transaction = Transaction::default();
     let mut write_error: Option<String> = None;
     let mut present: HashSet<String> = HashSet::new();
-    let mut visit = |packaged: &str, _size: u64, body: &mut dyn Read| {
+    let mut visit = |packaged: &str, size: u64, body: &mut dyn Read| {
         if super::cancel::requested() {
             write_error = Some(super::cancel::CANCELLED.to_string());
             return Err(anyhow::anyhow!("cancelled"));
@@ -336,8 +378,17 @@ fn unpack(
             return Ok(());
         }
         let target = paths::under(dir, packaged);
+        // The archive has to agree with the manifest about every file: its size before it
+        // is unpacked, its size and SHA-256 as it is. A mismatch is a damaged setup file.
+        let recorded = recorded.get(packaged).copied();
+        if recorded.is_some_and(|file| file.size != size) {
+            crate::log::line(&format!("{packaged} is {size} bytes in the archive, but the manifest says otherwise."));
+            write_error = Some(texts.get(Key::error_damaged));
+            return Err(anyhow::anyhow!("{packaged} doesn't have the size the manifest records"));
+        }
+        let mut verifying = archive::Verifying::new(super::cancel::Cancellable(body));
         transaction
-            .stage(&target, &mut super::cancel::Cancellable(body), &mut |chunk| {
+            .stage(&target, &mut verifying, &mut |chunk| {
                 done = done.saturating_add(chunk);
                 report(0.04 + UNPACK_SHARE * (done as f32 / total as f32).min(1.0), &copying);
             })
@@ -350,7 +401,15 @@ fn unpack(
                     failed(texts, Key::error_write, &target, &err)
                 });
                 anyhow::anyhow!("{err}")
-            })
+            })?;
+        let (written, sha256) = verifying.digest();
+        let wrong_hash = recorded.and_then(|file| file.sha256.as_deref()).is_some_and(|expected| !sha256.eq_ignore_ascii_case(expected));
+        if recorded.is_some_and(|file| file.size != written) || wrong_hash {
+            crate::log::line(&format!("{packaged} doesn't match the size or SHA-256 the manifest records."));
+            write_error = Some(texts.get(Key::error_damaged));
+            return Err(anyhow::anyhow!("{packaged} doesn't match the manifest"));
+        }
+        Ok(())
     };
     let encryption = manifest.access.as_ref().and_then(|access| access.encryption.as_ref());
     let unpacked = match (encryption, unlocked) {
@@ -386,10 +445,17 @@ fn unpack(
         remove_empty_parents(dir, wanted.iter().copied());
         return Err(super::cancel::CANCELLED.to_string());
     }
-    // A patch is only good on the version it was made for: every file it
-    // leaves out has to be there, unchanged.
-    if manifest.patch_from.is_some() {
+    // Every chosen file has to be in the archive, or already here exactly as packaged (what
+    // an update patch relies on). A setup file that lacks one would otherwise install without it.
+    {
         let missing = wanted.iter().find(|path| !present.contains(**path) && !matching.contains(**path));
+        if missing.is_some() && manifest.patch_from.is_none() {
+            crate::log::line(&format!("{} is in the manifest but not in the archive.", missing.copied().unwrap_or("?")));
+            transaction.discard();
+            remove_empty_parents(dir, wanted.iter().copied());
+            return Err(texts.get(Key::error_damaged));
+        }
+        // A patch is only good on the version it was made for.
         if let Some(missing) = missing {
             crate::log::line(&format!(
                 "The update patch needs {missing} as it was in version {}, and it isn't.",
@@ -422,9 +488,9 @@ pub fn previous_install(dir: &Path, manifest: &Manifest) -> Option<Manifest> {
 
 /// Removes what the old install put there and the new one doesn't.
 fn remove_stale(dir: &Path, previous: &Manifest, installed: &Manifest) {
-    let keep: HashSet<String> = installed.files.iter().map(|file| file.path.to_lowercase()).collect();
+    let keep: HashSet<String> = installed.files.iter().map(|file| paths::fold_case(&file.path)).collect();
     let stale: Vec<&str> =
-        previous.files.iter().map(|file| file.path.as_str()).filter(|path| !keep.contains(&path.to_lowercase())).collect();
+        previous.files.iter().map(|file| file.path.as_str()).filter(|path| !keep.contains(&paths::fold_case(path))).collect();
     for path in &stale {
         // A stale file that won't go is left behind, not a failed update.
         let _ = remove_file_if_present(&paths::under(dir, path));
@@ -468,7 +534,7 @@ fn write_uninstaller(package: &Package, installed: &Manifest, dir: &Path, texts:
 /// Adds or removes the Start menu and desktop shortcuts to match the
 /// choices (an update may have unticked one), and the extra Start menu
 /// shortcuts, which follow the Start menu choice.
-fn shortcuts(
+pub(super) fn shortcuts(
     manifest: &Manifest,
     previous: Option<&Manifest>,
     choices: &Choices,
@@ -533,7 +599,7 @@ fn shortcuts(
 
 /// Start with Windows, PATH, link schemes and file types: added when
 /// chosen, and taken back when an update no longer wants them.
-fn integrate(
+pub(super) fn integrate(
     manifest: &Manifest,
     previous: Option<&Manifest>,
     choices: &Choices,
@@ -585,4 +651,31 @@ fn integrate(
     }
     changes::apply(&changes::at(manifest), manifest, previous, dir, program).map_err(fail)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("bach-install-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_uninstaller_is_kept_or_the_update_does_not_start() {
+        let dir = temp("keep");
+        // A first install has none to keep.
+        assert!(matches!(keep_uninstaller(&dir), Ok(None)));
+        fs::write(dir.join(UNINSTALLER), b"old").unwrap();
+        let kept = keep_uninstaller(&dir).unwrap().expect("a copy");
+        assert_eq!(fs::read(&kept).unwrap(), b"old");
+        // A copy that can't be made is an error, not "nothing to keep": a folder stands where it goes.
+        fs::remove_file(&kept).unwrap();
+        fs::create_dir(&kept).unwrap();
+        assert!(keep_uninstaller(&dir).is_err());
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }

@@ -55,16 +55,36 @@ files keep working. `bach init` writes it. A version this Bach doesn't read stop
 | `allow_secrets` | no | Patterns (same rules as `exclude`) for files that look like secrets but are meant to ship. |
 
 `bach check` and `bach build` stop when the source folder holds a file that
-looks like a secret: `.env` and `.env.*`, `*.pfx`, `*.p12`, `*.pem`, `*.key`,
-`*.snk`, `*.jks`, `*.keystore`, `*.kdbx`, `id_rsa*`, `id_dsa*`, `id_ecdsa*`,
-`id_ed25519*`, `.git-credentials`, `.npmrc`, `.pypirc`, `.netrc`,
-`.aws-credentials`, `secrets.json`, a `bach.toml` (or `bach-*.toml`), and
-anything inside a `.git`, `.ssh`, `.aws` or `.gnupg` folder. The message names
-the first file and why. Leave the file out with `exclude`, or name it in
-`allow_secrets` to ship it on purpose. Files that only add weight (`*.pdb`,
-`*.log`, `Thumbs.db`, `.DS_Store`, and anything in `node_modules`, `target` or
-`__pycache__`) give a warning, not an error. `bach init` excludes the first
-four for the stacks it recognises.
+looks like a secret: `.env`, `.env.*` and `*.env`, `*.pfx`, `*.p12`, `*.pem`,
+`*.key`, `*.ppk`, `*.p8`, `*.snk`, `*.jks`, `*.keystore`, `*.kdbx`, `id_rsa*`,
+`id_dsa*`, `id_ecdsa*`, `id_ed25519*`, `secring.gpg`, `trustdb.gpg`,
+`*.tfstate`, `*.tfvars`, `credentials` and `credentials.json`,
+`service-account*.json`, `local.settings.json`, `.git-credentials`, `.npmrc`,
+`.yarnrc.yml`, `.pypirc`, `.netrc`, `.htpasswd`, `.dockercfg`, `.pgpass`,
+`.vault-token`, `.aws-credentials`, `.bash_history`, `.zsh_history`,
+`wallet.dat`, `secrets.json`, a file called `.git`, a `bach.toml` (or
+`bach-*.toml`), and anything inside a `.git`, `.svn`, `.hg`, `.ssh`, `.aws`,
+`.azure`, `.gnupg`, `.docker`, `.kube` or `.terraform` folder, plus
+`.m2/settings.xml`, `.gradle/gradle.properties`, `.gem/credentials` and
+`.config/gcloud`. Small text files in configuration formats (`.json`, `.yml`,
+`.yaml`, `.toml`, `.ini`, `.cfg`, `.conf`, `.config`, `.properties`, `.txt`,
+`.xml`, `.env`, `.pem` and scripts, up to 256 KiB) are also read for a private
+key block, an AWS access key (`AKIA...`), a GitHub token (`ghp_...`,
+`github_pat_...`) or a Slack token (`xoxb-...`); programs and libraries are
+never read. The message names the first file and why. Leave the file out with
+`exclude`, or name it in `allow_secrets` to ship it on purpose. Files that only
+add weight (`*.pdb`, `*.log`, `Thumbs.db`, `.DS_Store`, and anything in
+`node_modules`, `target` or `__pycache__`) give a warning, not an error. `bach
+init` excludes the first four for the stacks it recognises.
+
+**Long paths.** Windows' classic limit is 260 characters for a whole path.
+Setup writes longer paths fine, but shortcuts, Explorer and many programs stop
+there unless Windows' long path support is on. `bach check` adds up the usual
+install folder (`%LOCALAPPDATA%\Programs\<folder>` for one user, with a
+20-character user name, or `C:\Program Files\<folder>`) and the longest
+packaged path, and warns when the total passes 259 characters; the setup log
+says so too when it happens on a computer. Flatten deep trees such as
+`node_modules`, or build the app so its files sit shallower.
 
 Every name in the source folder, file or folder, has to be one Windows can
 create: at most 255 characters (counted as Windows counts them) and not a
@@ -375,9 +395,16 @@ elevated = true
 
 An elevated step starts the program from the install folder. In a per-user
 install that folder is writable by the user's own programs, so use `elevated`
-for well-known installers (and sign them), not for anything else. A step that
+for well-known installers (and sign them), not for anything else. `bach check`
+warns about that combination. Right before Windows is asked for administrator
+rights, setup checks the file against the size and SHA-256 recorded when the
+setup file was built, and doesn't start a program that was swapped since. A step that
 runs longer than `timeout_minutes` (15 by default, 1 to 120) is ended together with
-everything it started, so no installer it launched keeps files open. What the
+everything it started, so no installer it launched keeps files open. The one
+exception is an `elevated` step in a setup that isn't elevated itself (a per-user
+install): Windows doesn't let a program without administrator rights end one that
+has them, so setup only stops waiting, says so in the log, and the program may
+keep running until it ends or somebody closes it in Task Manager. What the
 program prints is kept in the log, its last 8 KB, so a failure like exit code
 1603 comes with its reason. Each run is in the log. `bach inspect`
 lists them as `Runs`.
@@ -584,6 +611,7 @@ download_url = "https://example.com/hello/{file}"   # {file}: the setup file's n
 | `download_url` | from `github` | The `https` link the setup file will be downloaded from. `{file}` is the setup file's name (encoded for a link), `{version}` the app's version. |
 | `public_key` | none | The publisher's Ed25519 public key (64 hex digits, from `bach feed-key`). With it, the installed app accepts only feed entries signed with the matching private key. See [Signed feeds](updates.md#signed-feeds). |
 | `next_public_key` | none | A second public key that is trusted too, to hand over to a new key without stranding installed copies (needs `public_key`, and must differ from it). See [Changing the key](updates.md#changing-the-key). |
+| `max_age_days` | none | How many days old a signed feed entry may be (1 to 3650; needs `public_key`). `bach feed` signs the time it ran with each entry, and an installed app ignores an entry older than this, so a taken-over feed host can't keep serving an old, validly signed entry (a version with a known bug, or no newer version at all). Left out: no limit. You have to run `bach feed` again within that time, release or not (a scheduled workflow does it). See [Signed feeds](updates.md#signed-feeds). |
 | `beta_feed` | none | The `https` link of the beta channel's feed, written like `feed` (`bach feed FILE --out latest-beta.json`). A person who runs `uninstall.exe --channel beta` follows it instead of `feed` and `mirrors`. See [Beta versions](updates.md#beta-versions). |
 | `signer` | none | The publisher a downloaded update has to be signed by (Authenticode): the common name or organisation of the signing certificate, like `Example Inc.` (or its whole subject, `CN=..., O=..., L=..., C=...`, which has to match exactly). Windows must accept the signature, and an unsigned update or one by another publisher is refused. See [Signed updates](updates.md#signed-updates-authenticode). |
 | `mirrors` | none | More feeds to ask when `feed` can't be reached, each the `https` link of a full feed with its own download link. The first feed that answers decides the newest version; a mirror only offers another place to download the *same* file (same version and SHA-256), so a weaker mirror can't widen what an installed app trusts. |
@@ -768,7 +796,7 @@ files there every translation.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `data` | none | Folders the app keeps its data in. The uninstaller offers "Also delete my data" (unticked) and deletes them only when the user ticks it. Each must start with `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%`, followed by your app's own folder, so the uninstaller can only ever delete inside the user's profile. A profile folder itself (`Documents`, `Desktop`, `Downloads`, `Pictures`, `Music`, `Videos`, `OneDrive`, `AppData`, `AppData\Roaming`, `AppData\Local`, `Programs`, `Temp`) is refused, and so is anything inside `.ssh`, `.aws`, `.azure`, `.gnupg`, `.kube` or a `Microsoft` folder; a folder inside one (`%USERPROFILE%\Documents\My Game`) is fine. `bach check` names the setting and the reason, and setup files that break the rule are refused when they start. The uninstaller also never deletes a folder that is, or contains, the install folder. |
+| `data` | none | Folders the app keeps its data in. The uninstaller offers "Also delete my data" (unticked) and deletes them only when the user ticks it. Each must start with `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%`, followed by your app's own folder, so the uninstaller can only ever delete inside the user's profile. A profile folder itself (`Documents`, `Desktop`, `Downloads`, `Pictures`, `Music`, `Videos`, `OneDrive`, `AppData`, `AppData\Roaming`, `AppData\Local`, `Programs`, `Temp`) is refused, and so is anything inside `.ssh`, `.aws`, `.azure`, `.gnupg`, `.kube`, `.docker`, `.terraform` or a `Microsoft` folder, a tool or work folder directly in the profile (`.config`, `.local`, `.git`, `.vscode`, `.npm`, `.cargo`, `.rustup`, `.nuget`, `.m2`, `.gradle`, `source`, `repos`, `projects`, `code`, `workspace`, `src`), another program's data (`Google\Chrome`, `Mozilla\Firefox`, `Code`, `Discord`, `Slack`, `Dropbox` and the like), a company's whole folder (`Google`, `Mozilla`, `Adobe`, `JetBrains`, `NVIDIA`, ...) and `NTUSER.DAT` or `UsrClass.dat`; a folder inside one of the shared ones (`%USERPROFILE%\Documents\My Game`) is fine. `bach check` warns when none of a data folder's parts looks like your app's name, id or publisher. The uninstaller shows the real folders, as they are on that computer, under the "Also delete my data" checkbox. `bach check` names the setting and the reason, and setup files that break the rule are refused when they start. The uninstaller also never deletes a folder that is, or contains, the install folder. |
 | `data_description` | a generic line | What lives in those folders, in a few words, shown under the checkbox. Text or `{ en = "…", de = "…" }`. |
 | `feedback_url` | none | An `https` page the uninstaller's last page links to ("Tell us why"). |
 

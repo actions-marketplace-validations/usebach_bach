@@ -78,6 +78,8 @@ pub struct UpdatesSection {
     signer: Option<String>,
     /// The feed of the beta channel.
     beta_feed: Option<String>,
+    /// How many days old a signed feed entry may be (needs `public_key`).
+    max_age_days: Option<u32>,
 }
 
 /// The environment variable the access key is read from unless `key_env`
@@ -370,8 +372,16 @@ pub fn updates(section: Option<&UpdatesSection>, machine: bool) -> Result<Option
         }
         Some(name) => Some(name.to_string()),
     };
+    let max_age_days = match section.max_age_days {
+        None | Some(0) => None,
+        Some(_) if public_key.is_none() => {
+            bail!("updates.max_age_days needs updates.public_key: only a signed feed entry carries a time that can be trusted")
+        }
+        Some(days) if days > 3650 => bail!("updates.max_age_days is {days}; give 1 to 3650 days, or leave it out for no limit"),
+        Some(days) => Some(days),
+    };
     Ok(Some(UpdateSettings {
-        updates: Updates { feed, auto, mirrors, public_key, next_public_key, signer, beta_feed },
+        updates: Updates { feed, auto, mirrors, public_key, next_public_key, signer, beta_feed, max_age_days },
         download_url: download,
         github,
     }))

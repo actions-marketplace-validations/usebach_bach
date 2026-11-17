@@ -1179,3 +1179,78 @@ fn the_publisher_of_updates_is_read_and_checked() {
     assert!(!subject_names("CN=Example Inc.\u{7}", "Example Inc."), "control characters");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_version_that_cannot_be_compared_warns() {
+    let dir = project_dir("badversion");
+    let with = |version: &str| parse(&MINIMAL.replacen("version = \"1.2.3\"", &format!("version = \"{version}\""), 1), &dir).unwrap();
+    for fine in ["1.0.0", "2024.10.3.1", "v2.1", "2.0.0-beta.2", "1.0.0+build.5"] {
+        assert!(with(fine).warnings.is_empty(), "{fine}: {:?}", with(fine).warnings);
+    }
+    for odd in ["abc", "-", "99999999999999999999.0.0", "1.x"] {
+        let project = with(odd);
+        assert!(
+            project.warnings.iter().any(|warning| warning.contains("app.version") && warning.contains("downgrade")),
+            "{odd}: {:?}",
+            project.warnings
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_path_that_would_pass_the_classic_windows_limit_warns() {
+    let dir = project_dir("longpath");
+    let project = parse(MINIMAL, &dir).unwrap();
+    assert!(!project.warnings.iter().any(|warning| warning.contains("characters long")), "{:?}", project.warnings);
+    let deep = (0..12).map(|n| format!("directory_number_{n}")).collect::<Vec<_>>().join("/");
+    std::fs::create_dir_all(dir.join("build").join(&deep)).unwrap();
+    std::fs::write(dir.join("build").join(&deep).join("file.txt"), b"x").unwrap();
+    let project = parse(MINIMAL, &dir).unwrap();
+    let warning = project.warnings.iter().find(|warning| warning.contains("characters long")).expect("a warning");
+    assert!(warning.contains("directory_number_11/file.txt") && warning.contains("259"), "{warning}");
+    // Below Program Files there is more room than below a user's profile.
+    let machine = format!("{MINIMAL}\n[installer]\nscope = \"machine\"\n");
+    let shallow = (0..11).map(|n| format!("directory_number_{n}")).collect::<Vec<_>>().join("/");
+    std::fs::remove_dir_all(dir.join("build").join("directory_number_0")).unwrap();
+    std::fs::create_dir_all(dir.join("build").join(&shallow)).unwrap();
+    std::fs::write(dir.join("build").join(&shallow).join("file.txt"), b"x").unwrap();
+    assert!(parse(&machine, &dir).unwrap().warnings.iter().all(|warning| !warning.contains("characters long")));
+    assert!(parse(MINIMAL, &dir).unwrap().warnings.iter().any(|warning| warning.contains("characters long")));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_data_folder_that_does_not_look_like_the_apps_own_warns() {
+    let dir = project_dir("datawarn");
+    let with = |folder: &str| parse(&format!("{MINIMAL}\n[uninstall]\ndata = ['{folder}']\n"), &dir).unwrap();
+    assert!(with(r"%APPDATA%\Hello").warnings.is_empty());
+    assert!(with(r"%LOCALAPPDATA%\Example\Cache").warnings.is_empty(), "the publisher counts");
+    let warning = with(r"%APPDATA%\Notes").warnings.join(" ");
+    assert!(warning.contains("uninstall.data") && warning.contains("looks like the app's name"), "{warning}");
+    assert!(parse(&format!("{MINIMAL}\n[uninstall]\ndata = ['%USERPROFILE%\\source\\repos']\n"), &dir).is_err());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_elevated_step_in_a_per_user_install_warns() {
+    let dir = project_dir("elevatedwarn");
+    std::fs::create_dir_all(dir.join("build/redist")).unwrap();
+    std::fs::write(dir.join("build/redist/vc_redist.exe"), b"MZ").unwrap();
+    let step = "\n[[run]]\nname = \"VC++\"\nfile = \"redist/vc_redist.exe\"\nelevated = true\n";
+    let user = parse(&format!("{MINIMAL}{step}"), &dir).unwrap();
+    assert!(user.warnings.iter().any(|warning| warning.contains("VC++") && warning.contains("per-user")), "{:?}", user.warnings);
+    let machine = parse(&format!("{MINIMAL}\n[installer]\nscope = \"machine\"\n{step}"), &dir).unwrap();
+    assert!(machine.warnings.iter().all(|warning| !warning.contains("per-user")), "{:?}", machine.warnings);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_very_long_file_list_warns() {
+    let entry = |n: usize| FileEntry { path: format!("data/part-{n:06}.bin"), size: 1, component: None, sha256: None };
+    let few: Vec<FileEntry> = (0..1_000).map(entry).collect();
+    assert!(file_list_warning(&few).is_none());
+    let many: Vec<FileEntry> = (0..30_000).map(entry).collect();
+    let warning = file_list_warning(&many).expect("a warning");
+    assert!(warning.contains("30000 files") && warning.contains("uninstall.exe") && warning.contains("MB"), "{warning}");
+}

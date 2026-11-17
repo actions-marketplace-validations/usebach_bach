@@ -60,10 +60,9 @@ pub fn doctor(config: &Path) -> Result<()> {
         Some(program) => field("Signing", format!("[signing] runs {program} when you build with --sign (or BACH_SIGN=1)")),
         None => field(
             "Signing",
-            if has_signtool() {
-                "off, signtool found (add [signing] and build with --sign)"
-            } else {
-                "off (optional: [signing] in bach.toml, see docs/signing.md)"
+            match crate::sign::known_signer() {
+                Some(tool) => format!("off, {tool} found (add [signing] and build with --sign)"),
+                None => "off (optional: [signing] in bach.toml, see docs/signing.md)".to_string(),
             },
         ),
     }
@@ -76,13 +75,4 @@ pub fn doctor(config: &Path) -> Result<()> {
         say!("Fix the {} above, then run bach doctor again.", if problems == 1 { "problem" } else { "problems" });
     }
     Ok(())
-}
-
-fn has_signtool() -> bool {
-    std::process::Command::new("signtool")
-        .arg("/?")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok()
 }

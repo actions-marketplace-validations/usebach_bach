@@ -5,9 +5,10 @@
 //! window can show the app's name, logo and choices) but no files. Nothing
 //! it knows about the app's version matters: the feed decides. The download
 //! is the same one an installed app's updater makes, so it resumes where an
-//! earlier try stopped and is checked three ways before anything runs: its
-//! SHA-256 against the feed's, that it is a setup file for this very app, and
-//! that it carries the version the feed names.
+//! earlier try stopped and is checked before anything is installed: its
+//! SHA-256 against the feed's, that it is a setup file for this very app, that
+//! it carries the version the feed names, and, when the app names a publisher
+//! (`[updates] signer`), that it is signed by them.
 
 use std::sync::Arc;
 
@@ -55,6 +56,13 @@ pub fn fetch(plan: &InstallPlan, report: Report) -> Result<Package, String> {
     })
     .map_err(refused)?;
     offers.clear();
+    // The file is installed from, not run, but it decides what lands on the computer, so it has
+    // to be as the publisher signed it when the app names one (`[updates] signer`), like an update.
+    if let Err(problem) = crate::updates::authenticode::check(manifest, &staged.file) {
+        crate::log::line(&format!("The downloaded setup file was refused: {problem}"));
+        stage::clear(app_id);
+        return Err(unavailable(problem));
+    }
 
     let package = Package::load_from(staged.file.clone())
         .map_err(|err| format!("{err:#}"))

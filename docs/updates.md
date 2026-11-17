@@ -118,6 +118,7 @@ signing in.
 | `release` | `true` publishes the setup file and `latest.json` as a release. Needs `contents: write`. |
 | `app-version` | `auto` (default) takes the version from the tag the run is for; a version overrides `app.version`; empty keeps `bach.toml`'s. |
 | `notes`, `notes-file` | What's new. Apps that offer the update can show it. |
+| `args` | More arguments for `bach build`, like `--fast` or `--patch-from OLD.exe`, written like a command line: spaces separate words and quotes keep a value with spaces in one piece (`--patch-from "dist/My App 1.0.exe"`). Nothing is expanded, and a word can't hold a line break. |
 | `sign-command` | A PowerShell command that signs `$env:BACH_SETUP_FILE`. It runs before the feed is written, so the feed has the signed file's SHA-256. |
 | `tag` | The release's tag (default `v` plus the version). |
 | `prerelease`, `draft`, `latest` | How the release is published. |
@@ -280,6 +281,32 @@ and receives an unsigned feed stops updating, so run `bach feed` with the key
 before you publish. An app only trusts the keys its own setup file carries, so
 keep the private key safe, and change it in two steps (below) if you must.
 
+### Keeping a signed feed fresh
+
+A signature proves who wrote an entry, not when. A host that was taken over
+can keep serving an old entry that is still validly signed: installed copies
+then never see the newer version, or are held at an older one that has a known
+bug. `bach feed` therefore signs the time it ran into every entry
+(`"published": "2026-11-17T06:36:00Z"`, UTC; `SOURCE_DATE_EPOCH` sets it for a
+rebuild on purpose). An app that sets
+
+```toml bach.toml
+[updates]
+public_key = "3f9a…64 hex digits…"
+max_age_days = 90
+```
+
+ignores a signed entry that is older than that, one with no time, and one that
+claims to be from more than a day ahead (a clock that is wrong, or a feed that
+lies). The time is part of the signature: taking it off or changing it makes
+the entry invalid. Left out, an entry never expires, as before.
+
+The catch is yours: an entry only stays fresh when you sign it again, so run
+`bach feed` on a schedule (for example a weekly workflow that signs the
+current release again and uploads `latest.json`), or installed copies stop
+seeing updates after `max_age_days`. Feeds signed before this existed have no
+time; apps with a limit refuse them, so sign again before you build with it.
+
 ### Beta versions
 
 An app can offer pre-release versions to the people who ask for them:
@@ -324,7 +351,8 @@ organisation is that text (case ignored, the whole name). It asks Windows'
 own PowerShell (`Get-AuthenticodeSignature`) right before it installs, and
 again before it opens an update's window. An unsigned file, a signature Windows
 doesn't trust or a file signed by anyone else is deleted from the download
-folder and not run, with the reason in the log. This also protects against a
+folder and not run, with the reason in the log. The online installer
+checks the file it downloads the same way before it installs from it. This also protects against a
 feed host that was taken over: it can name any file, but not sign as you.
 
 A plain name matches any certificate that has it as its common name or
