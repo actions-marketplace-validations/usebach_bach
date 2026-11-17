@@ -1179,3 +1179,21 @@ fn the_publisher_of_updates_is_read_and_checked() {
     assert!(!subject_names("CN=Example Inc.\u{7}", "Example Inc."), "control characters");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_version_that_cannot_be_compared_warns() {
+    let dir = project_dir("badversion");
+    let with = |version: &str| parse(&MINIMAL.replacen("version = \"1.2.3\"", &format!("version = \"{version}\""), 1), &dir).unwrap();
+    for fine in ["1.0.0", "2024.10.3.1", "v2.1", "2.0.0-beta.2", "1.0.0+build.5"] {
+        assert!(with(fine).warnings.is_empty(), "{fine}: {:?}", with(fine).warnings);
+    }
+    for odd in ["abc", "-", "99999999999999999999.0.0", "1.x"] {
+        let project = with(odd);
+        assert!(
+            project.warnings.iter().any(|warning| warning.contains("app.version") && warning.contains("downgrade")),
+            "{odd}: {:?}",
+            project.warnings
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -243,6 +243,14 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     }
     let mut warnings = Vec::new();
     let app = check_app(&file.app)?;
+    if crate::version::compare(&app.version, &app.version).is_none() {
+        warnings.push(format!(
+            "app.version is \"{}\", which isn't a version like 1.2.3 (dotted numbers, each up to 18446744073709551615, \
+             an optional leading v, then -pre-release and +build). Installed copies can't tell whether a setup file is newer, \
+             so they treat every one as an update and the downgrade protection does nothing",
+            app.version
+        ));
+    }
     let install = options::install(&file.installer, &app)?;
     let languages = text::languages(file.installer.languages.as_deref())?;
     let mut locale = text::locale(&file.text, &languages, &mut warnings)?;
