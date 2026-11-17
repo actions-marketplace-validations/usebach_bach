@@ -291,6 +291,10 @@ window speaks several).
 - To deploy with Microsoft Intune: `bach intune SETUP.exe` writes the install and
   uninstall commands and the detection rule (`intune.md`) and a detection script
   (`detect.ps1`); use `installer.scope = "machine"` for devices.
+- To check a setup file without installing it: `bach verify SETUP.exe` (add
+  `--key-file FILE` for an encrypted one; `--json` gives `verified` and `signature`).
+- For a download page: `bach page SETUP.exe --url URL` writes `download/index.html`.
+- In CI, `bach check --strict` (or `BACH_STRICT=1`) fails on any warning.
 
 ## Troubleshooting
 
