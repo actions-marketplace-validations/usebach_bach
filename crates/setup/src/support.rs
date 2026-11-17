@@ -6,6 +6,9 @@
 //! holds the app's files or an access key, and the user's name and profile
 //! folder are replaced, so it is safe to read before sending.
 
+// Only the Windows window calls this; the tests still run everywhere.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
 

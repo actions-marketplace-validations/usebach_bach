@@ -166,10 +166,12 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Test
-        run: cargo test -p bach-pack -p bach-cli
+        # The whole workspace: bach-setup is a stub off Windows, but its OS-independent
+        # tests (and a manifest that builds everywhere) are checked here too.
+        run: cargo test --workspace
 
       - name: Clippy
-        run: cargo clippy -p bach-pack -p bach-cli --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       # install.sh, the first thing many people run, against a release made on
       # the spot (no download).
