@@ -2,6 +2,25 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.7.3 (2026-11-17)
+
+### New
+
+- Add bach verify and bach page, and --strict for check and build ([157b2e9](https://github.com/usebach/bach/commit/157b2e9987013764be7128ce2a35edbf85a877f2))
+- Add bach watch: keep the preview open and reopen it when the config changes ([42f0f88](https://github.com/usebach/bach/commit/42f0f88888ee29037df5f0b739c7da4e4d67dac5))
+- Add bach intune: install and uninstall commands, a detection rule and a detection script ([bb988f1](https://github.com/usebach/bach/commit/bb988f125c5c6ec0aa4881c9d1498afc4219e5b1))
+
+### Fixes
+
+- Fix PowerShell quoting so curly single quotes can't end a string early ([20bd8fc](https://github.com/usebach/bach/commit/20bd8fc1445f70f2d54371a57f15ba3070a4a800))
+
+### Improvements
+
+- Refuse Windows paths that leave the project on every system in bach watch ([f0504a8](https://github.com/usebach/bach/commit/f0504a86b09964f450890509521cb0b3b1351181))
+- Warn when a signed setup file packs unsigned programs or libraries ([2b5b11c](https://github.com/usebach/bach/commit/2b5b11ca516c07709c2c5d68d6d962b0a2fbd8f4))
+
+All changes: [v0.7...v0.7.3](https://github.com/usebach/bach/compare/v0.7...v0.7.3)
+
 ## 0.7.2 (2026-11-17)
 
 ### New
