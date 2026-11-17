@@ -534,7 +534,7 @@ fn write_uninstaller(package: &Package, installed: &Manifest, dir: &Path, texts:
 /// Adds or removes the Start menu and desktop shortcuts to match the
 /// choices (an update may have unticked one), and the extra Start menu
 /// shortcuts, which follow the Start menu choice.
-fn shortcuts(
+pub(super) fn shortcuts(
     manifest: &Manifest,
     previous: Option<&Manifest>,
     choices: &Choices,
@@ -599,7 +599,7 @@ fn shortcuts(
 
 /// Start with Windows, PATH, link schemes and file types: added when
 /// chosen, and taken back when an update no longer wants them.
-fn integrate(
+pub(super) fn integrate(
     manifest: &Manifest,
     previous: Option<&Manifest>,
     choices: &Choices,
