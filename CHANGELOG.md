@@ -2,6 +2,20 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.7.2 (2026-11-17)
+
+### New
+
+- Add bach update and a notice when a newer release is out ([abb52be](https://github.com/usebach/bach/commit/abb52beccf86ad6448faf1a6ef69feff02e73c32))
+
+### Improvements
+
+- Make the update test's installed bach executable on Linux and macOS ([735afb0](https://github.com/usebach/bach/commit/735afb0af96ee028c3a3468847690b65ec74f2cb))
+- Document bach update and the update notice ([01096c2](https://github.com/usebach/bach/commit/01096c20fab1da6edcc868482334430f2e6ca815))
+- Make agents update the repository before they start ([d899533](https://github.com/usebach/bach/commit/d899533794a3e8afd01694ec33f1b06df4cfb3f7))
+
+All changes: [v0.7...v0.7.2](https://github.com/usebach/bach/compare/v0.7...v0.7.2)
+
 ## 0.7.1 (2026-11-17)
 
 ### Fixes
