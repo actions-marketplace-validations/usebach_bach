@@ -827,6 +827,12 @@ update feed is written. Details,
 and why the installed `uninstall.exe` stays unsigned, are in
 [signing](signing.md).
 
+With this section, `bach check` and `bach build` also warn when programs or
+libraries inside the setup file aren't signed (`1 of the 2 programs and
+libraries in the setup file aren't signed (helper.exe)`): signing the setup file
+doesn't sign them, and Smart App Control can block an unsigned program. Sign
+them in your own build.
+
 ## A complete example
 
 ```toml
