@@ -1231,3 +1231,16 @@ fn a_data_folder_that_does_not_look_like_the_apps_own_warns() {
     assert!(parse(&format!("{MINIMAL}\n[uninstall]\ndata = ['%USERPROFILE%\\source\\repos']\n"), &dir).is_err());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn an_elevated_step_in_a_per_user_install_warns() {
+    let dir = project_dir("elevatedwarn");
+    std::fs::create_dir_all(dir.join("build/redist")).unwrap();
+    std::fs::write(dir.join("build/redist/vc_redist.exe"), b"MZ").unwrap();
+    let step = "\n[[run]]\nname = \"VC++\"\nfile = \"redist/vc_redist.exe\"\nelevated = true\n";
+    let user = parse(&format!("{MINIMAL}{step}"), &dir).unwrap();
+    assert!(user.warnings.iter().any(|warning| warning.contains("VC++") && warning.contains("per-user")), "{:?}", user.warnings);
+    let machine = parse(&format!("{MINIMAL}\n[installer]\nscope = \"machine\"\n{step}"), &dir).unwrap();
+    assert!(machine.warnings.iter().all(|warning| !warning.contains("per-user")), "{:?}", machine.warnings);
+    std::fs::remove_dir_all(&dir).unwrap();
+}

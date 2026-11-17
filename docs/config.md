@@ -395,9 +395,16 @@ elevated = true
 
 An elevated step starts the program from the install folder. In a per-user
 install that folder is writable by the user's own programs, so use `elevated`
-for well-known installers (and sign them), not for anything else. A step that
+for well-known installers (and sign them), not for anything else. `bach check`
+warns about that combination. Right before Windows is asked for administrator
+rights, setup checks the file against the size and SHA-256 recorded when the
+setup file was built, and doesn't start a program that was swapped since. A step that
 runs longer than `timeout_minutes` (15 by default, 1 to 120) is ended together with
-everything it started, so no installer it launched keeps files open. What the
+everything it started, so no installer it launched keeps files open. The one
+exception is an `elevated` step in a setup that isn't elevated itself (a per-user
+install): Windows doesn't let a program without administrator rights end one that
+has them, so setup only stops waiting, says so in the log, and the program may
+keep running until it ends or somebody closes it in Task Manager. What the
 program prints is kept in the log, its last 8 KB, so a failure like exit code
 1603 comes with its reason. Each run is in the log. `bach inspect`
 lists them as `Runs`.

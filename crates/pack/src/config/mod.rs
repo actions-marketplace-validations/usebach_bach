@@ -463,6 +463,16 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     let mut manifest = manifest;
     manifest.shortcuts = extras::shortcuts(&file.shortcuts, &manifest.files)?;
     manifest.run = extras::run_steps(&file.run, &manifest.files, &manifest.components)?;
+    if manifest.install.scope == manifest::Scope::User {
+        for step in manifest.run.iter().filter(|step| step.elevated) {
+            warnings.push(format!(
+                "run step \"{}\" is elevated, but this is a per-user install: its program starts with administrator rights from \
+                 a folder the user's own programs can write to. Setup checks the file against its SHA-256 right before it asks \
+                 for rights, but keep elevated steps to well-known installers (and sign them), or use installer.scope = \"machine\"",
+                step.name
+            ));
+        }
+    }
     manifest.validate()?;
     Ok(Project {
         root: root.to_path_buf(),

@@ -62,7 +62,12 @@ code as it is; where a protection does not exist yet, it says so.
 - `uninstall.exe` is written on the user's computer and is not signed.
 - A run step started with `elevated = true` runs a file from the install
   folder with administrator rights; keep it to well-known installers and sign
-  them.
+  them. Setup checks the file against its recorded SHA-256 right before it asks
+  Windows for rights (so a file swapped after the install is not started), but
+  a swap in the moment between that check and the start is not prevented, and
+  `bach check` warns about the combination with a per-user install. Setup can't
+  end an elevated step that runs past `timeout_minutes` unless it is elevated
+  itself; it only stops waiting.
 - Antivirus heuristics may flag unsigned setup files; see
   [antivirus warnings](antivirus.md).
 
