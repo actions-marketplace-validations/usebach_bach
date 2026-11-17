@@ -28,7 +28,12 @@
     "url": { "type": "string", "description": "feed: the link the setup file is downloaded from." },
     "signed": { "type": "boolean", "description": "feed: whether the feed entry carries the publisher's signature." },
     "ready": { "type": "boolean", "description": "doctor: whether a build can go ahead." },
-    "problems": { "type": "integer", "description": "doctor: how many things to fix." }
+    "problems": { "type": "integer", "description": "doctor: how many things to fix." },
+    "current": { "type": "string", "description": "update: the version of this bach." },
+    "latest": { "type": "string", "description": "update: the release looked at (the newest, or the version asked for)." },
+    "update_available": { "type": "boolean", "description": "update: whether that release is newer than this bach." },
+    "updated": { "type": "boolean", "description": "update: whether bach was replaced. Not there with --check." },
+    "install": { "type": "string", "enum": ["standalone", "npm", "scoop", "winget", "cargo", "checkout"], "description": "update: how this bach was installed; only a standalone copy replaces itself." }
   },
   "additionalProperties": false
 }

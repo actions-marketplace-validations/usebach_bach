@@ -98,6 +98,20 @@ fn checkout_builds(bach: &Path) -> Vec<PathBuf> {
 /// user could have planted a file at that predictable path. Without a home
 /// to cache in, pass `--runtime` or set `BACH_RUNTIME`.
 fn cached() -> Result<PathBuf> {
+    let Some(root) = cache_root() else {
+        bail!(
+            "there's no folder of yours to cache the setup runtime in ({} isn't set); \
+             pass --runtime or set BACH_RUNTIME to a bach-setup.exe",
+            if cfg!(windows) { "LOCALAPPDATA" } else { "XDG_CACHE_HOME or HOME" }
+        );
+    };
+    Ok(root.join("runtime").join(env!("CARGO_PKG_VERSION")).join(FILE_NAME))
+}
+
+/// Bach's own folder in the user's cache (`%LOCALAPPDATA%\bach`,
+/// `$XDG_CACHE_HOME/bach` or `~/.cache/bach`). The runtime and the update
+/// check keep their files below it.
+pub fn cache_root() -> Option<PathBuf> {
     let base = if cfg!(windows) {
         std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
     } else {
@@ -105,15 +119,8 @@ fn cached() -> Result<PathBuf> {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
     }
-    .filter(|base| !base.as_os_str().is_empty());
-    let Some(base) = base else {
-        bail!(
-            "there's no folder of yours to cache the setup runtime in ({} isn't set); \
-             pass --runtime or set BACH_RUNTIME to a bach-setup.exe",
-            if cfg!(windows) { "LOCALAPPDATA" } else { "XDG_CACHE_HOME or HOME" }
-        );
-    };
-    Ok(base.join("bach").join("runtime").join(env!("CARGO_PKG_VERSION")).join(FILE_NAME))
+    .filter(|base| !base.as_os_str().is_empty())?;
+    Some(base.join("bach"))
 }
 
 /// The file with the checked hash kept beside a cached runtime.
@@ -137,7 +144,7 @@ fn cache_is_trusted(runtime: &Path, pinned: Option<&str>) -> bool {
     }
 }
 
-fn sha256_of(bytes: &[u8]) -> String {
+pub fn sha256_of(bytes: &[u8]) -> String {
     bach_pack::protect::hex(&Sha256::digest(bytes))
 }
 
@@ -213,7 +220,7 @@ fn download(url: &str) -> Result<PathBuf> {
 /// Creates the cache folder for its owner only and refuses one that someone
 /// else owns or that others can write to.
 #[cfg(unix)]
-fn private_dir(dir: &Path) -> Result<()> {
+pub fn private_dir(dir: &Path) -> Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     let meta = std::fs::metadata(dir)?;
@@ -230,18 +237,24 @@ fn private_dir(dir: &Path) -> Result<()> {
 /// On Windows the cache sits in `%LOCALAPPDATA%`, which only its user (and
 /// administrators) can write to.
 #[cfg(not(unix))]
-fn private_dir(dir: &Path) -> Result<()> {
+pub fn private_dir(dir: &Path) -> Result<()> {
     std::fs::create_dir_all(dir)?;
     Ok(())
 }
 
-/// The arguments curl gets: https only, redirects included.
-fn curl_args(url: &str, to: &Path) -> Vec<OsString> {
+/// The arguments curl gets: https only, redirects included, and giving up
+/// after `seconds` when a limit is set.
+fn curl_args(url: &str, to: &Path, seconds: Option<u32>) -> Vec<OsString> {
     let mut args: Vec<OsString> = ["--fail", "--location", "--proto", "=https", "--proto-redir", "=https"]
         .iter()
-        .chain(&["--silent", "--show-error", "--retry", "2", "--output"])
+        .chain(&["--silent", "--show-error", "--retry", "2"])
         .map(OsString::from)
         .collect();
+    if let Some(seconds) = seconds {
+        args.push("--max-time".into());
+        args.push(seconds.to_string().into());
+    }
+    args.push("--output".into());
     args.push(to.into());
     args.push(url.into());
     args
@@ -250,17 +263,23 @@ fn curl_args(url: &str, to: &Path) -> Vec<OsString> {
 /// The PowerShell fallback. The address and the file arrive in environment
 /// variables, so nothing a mirror's address contains is ever parsed as code.
 const POWERSHELL_FETCH: &str = "$ProgressPreference='SilentlyContinue'; \
-     $r = Invoke-WebRequest -UseBasicParsing -PassThru -Uri $env:BACH_FETCH_URL -OutFile $env:BACH_FETCH_TO; \
+     $r = Invoke-WebRequest -UseBasicParsing -PassThru -TimeoutSec ([int]$env:BACH_FETCH_TIMEOUT) -Uri $env:BACH_FETCH_URL -OutFile $env:BACH_FETCH_TO; \
      $final = if ($r.BaseResponse.ResponseUri) { $r.BaseResponse.ResponseUri } else { $r.BaseResponse.RequestMessage.RequestUri }; \
      if ($final.Scheme -ne 'https') { Remove-Item -Force $env:BACH_FETCH_TO; exit 3 }";
 
 /// Fetches `url` into `to` with curl (built into Windows 10+, macOS and
 /// most Linux), or PowerShell on a Windows without it.
-fn fetch(url: &str, to: &Path) -> Result<()> {
+pub fn fetch(url: &str, to: &Path) -> Result<()> {
+    fetch_within(url, to, None)
+}
+
+/// [`fetch`] that gives up after `seconds` (none: no limit), for requests a
+/// person shouldn't have to wait on, like the update check.
+pub fn fetch_within(url: &str, to: &Path, seconds: Option<u32>) -> Result<()> {
     if !url.to_ascii_lowercase().starts_with("https://") {
         bail!("{url} isn't an https address");
     }
-    match Command::new("curl").args(curl_args(url, to)).status() {
+    match Command::new("curl").args(curl_args(url, to, seconds)).status() {
         Ok(status) if status.success() => return Ok(()),
         Ok(status) => bail!("curl couldn't download {url} ({status})"),
         Err(_) if cfg!(windows) => {}
@@ -270,6 +289,7 @@ fn fetch(url: &str, to: &Path) -> Result<()> {
         .args(["-NoProfile", "-NonInteractive", "-Command", POWERSHELL_FETCH])
         .env("BACH_FETCH_URL", url)
         .env("BACH_FETCH_TO", to)
+        .env("BACH_FETCH_TIMEOUT", seconds.unwrap_or(0).to_string())
         .status()?;
     if !status.success() {
         bail!("PowerShell couldn't download {url} over https");
@@ -340,9 +360,15 @@ mod tests {
     #[test]
     fn curl_follows_only_https() {
         let args: Vec<String> =
-            curl_args("https://x.example/a", Path::new("out")).iter().map(|a| a.to_string_lossy().into_owned()).collect();
+            curl_args("https://x.example/a", Path::new("out"), None).iter().map(|a| a.to_string_lossy().into_owned()).collect();
         let joined = args.join(" ");
         assert!(joined.contains("--proto =https") && joined.contains("--proto-redir =https"), "{joined}");
+        assert!(!joined.contains("--max-time"), "{joined}");
+        let limited = curl_args("https://x.example/a", Path::new("out"), Some(10))
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(limited.join(" ").contains("--max-time 10"));
         assert_eq!(args.last().map(String::as_str), Some("https://x.example/a"));
     }
 
