@@ -213,11 +213,30 @@ pub fn expand_data_folder(template: &str, lookup: impl Fn(&str) -> Option<String
     (!holds_a_root).then_some(folder)
 }
 
-/// Whether `inner` is `outer` or lies inside it, ignoring case, trailing
-/// separators and the difference between `/` and `\`.
+/// A key under which two names are the same file on Windows: letters are
+/// compared as Windows does, through their one-to-one upper case (so a
+/// sigma and the final sigma are one letter, like `a` and `A`), not through
+/// `to_lowercase`, which keeps them apart. Characters whose upper case is
+/// several letters (the German sharp s) stay as they are, as on NTFS.
+pub fn fold_case(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            let mut upper = c.to_uppercase();
+            match (upper.next(), upper.next()) {
+                (Some(single), None) => single,
+                _ => c,
+            }
+        })
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Whether `inner` is `outer` or lies inside it, ignoring case (as Windows
+/// does, see [`fold_case`]), trailing separators and the difference between
+/// `/` and `\`.
 pub fn is_same_or_inside(inner: &Path, outer: &Path) -> bool {
     let parts = |path: &Path| -> Vec<String> {
-        path.to_string_lossy().replace('\\', "/").to_lowercase().split('/').filter(|part| !part.is_empty()).map(str::to_string).collect()
+        fold_case(&path.to_string_lossy().replace('\\', "/")).split('/').filter(|part| !part.is_empty()).map(str::to_string).collect()
     };
     let (inner, outer) = (parts(inner), parts(outer));
     inner.len() >= outer.len() && inner[..outer.len()] == outer[..]
@@ -496,5 +515,15 @@ mod tests {
         assert!(matches("docs/*", "docs/b.md"));
         assert!(matches("**/cache/*", "a/b/cache/x"));
         assert!(matches("app?.log", "app1.log"));
+    }
+
+    #[test]
+    fn names_are_compared_as_windows_compares_them() {
+        for (a, b) in [("a.txt", "A.TXT"), ("σ.txt", "ς.txt"), ("Σ.txt", "ς.txt"), ("ǅ", "ǆ"), ("k", "\u{212a}")] {
+            assert_eq!(fold_case(a), fold_case(b), "{a} and {b} are one name");
+        }
+        for (a, b) in [("straße", "STRASSE"), ("i", "İ"), ("e\u{301}", "\u{e9}")] {
+            assert_ne!(fold_case(a), fold_case(b), "{a} and {b} are two names");
+        }
     }
 }

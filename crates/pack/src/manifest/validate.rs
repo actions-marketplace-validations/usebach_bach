@@ -164,7 +164,7 @@ fn files(manifest: &Manifest) -> Result<()> {
         if normal.eq_ignore_ascii_case(UNINSTALLER) {
             bail!("the app ships its own {UNINSTALLER}, which would replace Bach's uninstaller");
         }
-        if !seen.insert(normal.to_lowercase()) {
+        if !seen.insert(paths::fold_case(&normal)) {
             bail!("\"{}\" is listed twice", file.path);
         }
         if let Some(component) = &file.component {

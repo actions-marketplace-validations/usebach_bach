@@ -455,4 +455,15 @@ mod tests {
         assert_eq!(manifest.custom_text(Key::install_button, "fr"), Some("Go"));
         assert_eq!(manifest.custom_text(Key::cancel, "de"), None);
     }
+
+    #[test]
+    fn names_that_windows_takes_for_one_file_are_listed_twice() {
+        let mut manifest = sample();
+        let template = manifest.files[0].clone();
+        for (a, b) in [("a.txt", "A.TXT"), ("σ.txt", "ς.txt")] {
+            manifest.files = vec![FileEntry { path: a.into(), ..template.clone() }, FileEntry { path: b.into(), ..template.clone() }];
+            let err = manifest.validate().unwrap_err().to_string();
+            assert!(err.contains("listed twice"), "{a} and {b}: {err}");
+        }
+    }
 }

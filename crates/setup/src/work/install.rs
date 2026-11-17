@@ -422,9 +422,9 @@ pub fn previous_install(dir: &Path, manifest: &Manifest) -> Option<Manifest> {
 
 /// Removes what the old install put there and the new one doesn't.
 fn remove_stale(dir: &Path, previous: &Manifest, installed: &Manifest) {
-    let keep: HashSet<String> = installed.files.iter().map(|file| file.path.to_lowercase()).collect();
+    let keep: HashSet<String> = installed.files.iter().map(|file| paths::fold_case(&file.path)).collect();
     let stale: Vec<&str> =
-        previous.files.iter().map(|file| file.path.as_str()).filter(|path| !keep.contains(&path.to_lowercase())).collect();
+        previous.files.iter().map(|file| file.path.as_str()).filter(|path| !keep.contains(&paths::fold_case(path))).collect();
     for path in &stale {
         // A stale file that won't go is left behind, not a failed update.
         let _ = remove_file_if_present(&paths::under(dir, path));
