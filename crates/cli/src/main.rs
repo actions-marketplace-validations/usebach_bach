@@ -5,6 +5,7 @@
 //! bach check             read bach.toml and list what would be installed
 //! bach build             write the setup file
 //! bach preview           open the installer window without installing anything
+//! bach watch             keep the preview open and reopen it when bach.toml changes
 //! bach inspect FILE      show what a setup file installs
 //! bach doctor            check that everything a build needs is in place
 //! bach feed FILE         write the update feed for a (signed) setup file
@@ -12,6 +13,7 @@
 //! bach key               make random access keys for a protected app
 //! bach winget FILE --url write winget manifests for a setup file
 //! bach choco FILE --url  write the Chocolatey package for a setup file
+//! bach intune FILE       write the Intune settings and detection script for a setup file
 //! bach version [TARGET]  show or raise the version in every file that has one
 //! bach workflow          add the one-click release workflow to a GitHub repository
 //! bach update [VERSION]  update bach itself to the newest release (or VERSION)
@@ -34,8 +36,10 @@ mod doctor;
 mod feed;
 mod github;
 mod inspect;
+mod intune;
 mod key;
 mod output;
+mod preview;
 #[cfg(windows)]
 mod resources;
 mod runtime;
@@ -44,6 +48,7 @@ mod template;
 mod update;
 mod version;
 mod version_files;
+mod watch;
 mod winget;
 mod workflow;
 
@@ -68,6 +73,37 @@ struct Cli {
 enum PinArg {
     Commit,
     Float,
+}
+
+/// What `bach preview` and `bach watch` share.
+#[derive(clap::Args)]
+struct PreviewArgs {
+    /// The config file.
+    #[arg(default_value = "bach.toml")]
+    config: PathBuf,
+    /// Show the uninstaller instead.
+    #[arg(long)]
+    uninstall: bool,
+    /// Override the theme: system, light or dark.
+    #[arg(long)]
+    theme: Option<String>,
+    /// Show it in this language (en, de, fr, …) instead of Windows' own.
+    #[arg(long)]
+    lang: Option<String>,
+    /// The setup runtime to build on (default: bach-setup.exe next to bach).
+    #[arg(long, env = "BACH_RUNTIME")]
+    runtime: Option<PathBuf>,
+}
+
+impl PreviewArgs {
+    fn options(&self) -> preview::PreviewOptions<'_> {
+        preview::PreviewOptions {
+            uninstall: self.uninstall,
+            theme: self.theme.as_deref(),
+            lang: self.lang.as_deref(),
+            runtime: self.runtime.as_deref(),
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -146,23 +182,10 @@ enum Command {
         out: Option<PathBuf>,
     },
     /// Open the installer window as it will look, without installing anything.
-    Preview {
-        /// The config file.
-        #[arg(default_value = "bach.toml")]
-        config: PathBuf,
-        /// Show the uninstaller instead.
-        #[arg(long)]
-        uninstall: bool,
-        /// Override the theme: system, light or dark.
-        #[arg(long)]
-        theme: Option<String>,
-        /// Show it in this language (en, de, fr, …) instead of Windows' own.
-        #[arg(long)]
-        lang: Option<String>,
-        /// The setup runtime to build on (default: bach-setup.exe next to bach).
-        #[arg(long, env = "BACH_RUNTIME")]
-        runtime: Option<PathBuf>,
-    },
+    Preview(PreviewArgs),
+    /// Keep the preview open, and reopen it whenever bach.toml (or a file it
+    /// names, like the logo or the license) changes.
+    Watch(PreviewArgs),
     /// Show what a setup file installs.
     Inspect {
         /// A setup file (or an installed uninstall.exe).
@@ -232,6 +255,15 @@ enum Command {
         #[arg(long)]
         license: Option<String>,
         /// Write the package into this folder.
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
+    /// Write what Microsoft Intune needs to deploy a setup file: the install
+    /// and uninstall commands and a detection script.
+    Intune {
+        /// The setup file.
+        file: PathBuf,
+        /// Write the files into this folder.
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
@@ -311,10 +343,8 @@ fn main() -> ExitCode {
         Command::Key { count, out } => key::command(count, out.as_deref()),
         Command::FeedKey { out } => feed::key_command(out.as_deref()),
         Command::Sign { file, config } => sign::command(sign::Options { file: &file, config: &config }),
-        Command::Preview { config, uninstall, theme, lang, runtime } => builder::preview(
-            &config,
-            builder::PreviewOptions { uninstall, theme: theme.as_deref(), lang: lang.as_deref(), runtime: runtime.as_deref() },
-        ),
+        Command::Preview(args) => preview::preview(&args.config, args.options()),
+        Command::Watch(args) => watch::command(watch::Options { config: &args.config, preview: args.options() }),
         Command::Inspect { file } => inspect::inspect(&file),
         Command::Doctor { config } => doctor::doctor(&config),
         Command::Version { target, config, dry_run } => {
@@ -334,6 +364,7 @@ fn main() -> ExitCode {
         Command::Choco { file, url, license, out } => {
             choco::command(choco::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
         }
+        Command::Intune { file, out } => intune::command(intune::Options { setup: &file, out: out.as_deref() }),
         Command::Feed { file, url, config, notes, notes_file, rollout, out, patch, patch_url } => feed::command(feed::Options {
             setup: &file,
             url: url.as_deref(),

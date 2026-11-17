@@ -103,9 +103,20 @@ fn xml(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
 }
 
-/// A PowerShell string in single quotes: nothing in it is ever run.
-fn ps(text: &str) -> String {
-    format!("'{}'", text.replace('\'', "''"))
+/// A PowerShell string in single quotes: nothing in it is ever run. PowerShell
+/// reads the curly single quotes (and the low and reversed ones) as quotes too,
+/// so each of them is doubled the same way, which makes it a plain `'`.
+pub(crate) fn ps(text: &str) -> String {
+    let mut quoted = String::with_capacity(text.len() + 2);
+    quoted.push('\'');
+    for c in text.chars() {
+        match c {
+            '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => quoted.push_str("''"),
+            other => quoted.push(other),
+        }
+    }
+    quoted.push('\'');
+    quoted
 }
 
 fn nuspec(manifest: &Manifest, id: &str, license: Option<&str>) -> String {
@@ -210,6 +221,18 @@ mod tests {
         assert!(text.contains("<summary>Says &quot;hi&quot;.</summary>"));
         let linked = nuspec(&manifest(), "hello-app", Some("https://hello.example/license"));
         assert!(linked.contains("<licenseUrl>https://hello.example/license</licenseUrl>"));
+    }
+
+    /// PowerShell reads curly, low and reversed single quotes as quotes too, so
+    /// one of them in a link can't end the string early.
+    #[test]
+    fn powershell_strings_hold_every_kind_of_single_quote() {
+        assert_eq!(ps("plain"), "'plain'");
+        assert_eq!(ps("it's"), "'it''s'");
+        for quote in ['\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'] {
+            assert_eq!(ps(&format!("a{quote}; calc; {quote}")), "'a''; calc; '''", "{quote:?}");
+        }
+        assert_eq!(ps("$(calc) `x` \"y\""), "'$(calc) `x` \"y\"'", "nothing else is special inside single quotes");
     }
 
     #[test]

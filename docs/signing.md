@@ -91,6 +91,13 @@ Notes:
 - The `uninstall.exe` an install leaves behind is unsigned. It's written on
   the user's computer from the signed setup file, without the signature,
   because a signature only covers the exact file it was made for.
+- Signing the setup file does not sign the programs inside it. Windows 11's
+  Smart App Control looks at every program that starts, so sign your own
+  `.exe` and `.dll` files in your build, before Bach packs them. With
+  `[signing]` in `bach.toml`, `bach check` and `bach build` warn when packed
+  programs or libraries have no signature (it names the first three). It only
+  reads the file's signature entry; Windows still decides whether it is valid.
+  Without `[signing]` there is no warning, since you may not sign at all.
 - `bach inspect` reads signed setup files too.
 - Signing with `[signing]` and signing by hand give the same result; use
   whichever fits your pipeline. After changing a signed file in any way,
