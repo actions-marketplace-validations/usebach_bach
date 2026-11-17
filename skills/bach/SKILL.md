@@ -287,6 +287,9 @@ window speaks several).
 - To make a Chocolatey package: `bach choco SETUP.exe --url URL --license MIT`,
   then `choco pack` in the folder it writes (use `installer.scope = "machine"`,
   since Chocolatey installs as an administrator).
+- To deploy with Microsoft Intune: `bach intune SETUP.exe` writes the install and
+  uninstall commands and the detection rule (`intune.md`) and a detection script
+  (`detect.ps1`); use `installer.scope = "machine"` for devices.
 
 ## Troubleshooting
 

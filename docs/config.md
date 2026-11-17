@@ -24,7 +24,8 @@ default, so a five-line config already builds a complete installer.
 - [`[signing]`](#signing): sign the setup files while building (optional)
 - [A complete example](#a-complete-example)
 - [Silent installs](#silent-installs) and [updating from the app](#updating-from-the-app)
-- [Editor support](#editor-support) and [listing your app in winget](#listing-your-app-in-winget)
+- [Editor support](#editor-support), [listing your app in winget](#listing-your-app-in-winget) and [Chocolatey](#listing-your-app-in-chocolatey)
+- [Deploying with Intune](#deploying-with-intune)
 
 ## config_version
 
@@ -1047,3 +1048,51 @@ id in lowercase. Build it with `choco pack` in that folder. Chocolatey runs as
 an administrator, so a per-user app is installed for that account only; the
 command warns, and `installer.scope = "machine"` fixes it. `--license` takes a
 link or a name like `MIT`; `--out` picks the folder.
+
+## Deploying with Intune
+
+Companies hand out apps with Microsoft Intune, Configuration Manager or a
+similar tool. For a setup file that isn't an MSI they ask for three things:
+a silent install command, an uninstall command and a rule that says the app
+is installed. Bach has all three already; one command writes them down:
+
+```bash
+bach intune dist/Hello-Setup-1.4.0.exe
+```
+
+```console
+Wrote the Intune settings for Hello 1.4.0 to dist\intune\Hello
+  Install      Hello-Setup-1.4.0.exe --silent
+  Uninstall    "%ProgramFiles%\Hello\uninstall.exe" --silent
+  Run as       System (installs for every user)
+  Detect       registry HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Hello, DisplayVersion >= 1.4.0
+  Requires     64-bit (x64), Windows 10 1809 or newer
+```
+
+It writes two files into `intune/<app id>` next to the setup file (`--out`
+picks another folder):
+
+| File | What it holds |
+| --- | --- |
+| `intune.md` | The settings sheet: how to wrap the setup file with Microsoft's Win32 Content Prep Tool (`IntuneWinAppUtil.exe`), the program settings, the requirements and the detection rule, ready to copy into Intune. |
+| `detect.ps1` | The same detection as a custom detection script. It reads the app's Settings › Apps entry and says "installed" when this version **or a newer one** is there, so Intune never installs an old version over one Bach has updated. Leave "Run script as 32-bit process" off. |
+
+Things to know:
+
+- A machine-wide app (`installer.scope = "machine"`) is the one for Intune
+  devices: Intune runs setup as the system account, so nothing asks for
+  permission, and the registry rule works. A per-user app is deployed with
+  install behavior **User** and detected with `detect.ps1` (the command warns).
+- The commands use the default install folder. If you install somewhere else
+  with `--dir`, point the uninstall command there too.
+- A version like `2.0.0-beta.1` isn't made of plain numbers, so Intune's
+  registry rule can't compare it; the sheet then says to use `detect.ps1`.
+- A setup file with [`[access]`](#access) needs its key: add `--key-file FILE`
+  to the install command and put the key file in the package.
+- Keep the app id and the scope the same in every release. Windows tells apps
+  apart by them, and a changed scope installs next to the old app.
+- The exit codes are the ones in [silent installs](#silent-installs): `0` is
+  success and `1` a failure, which are Intune's defaults too.
+
+`--json` prints `install_command`, `uninstall_command`, `run_as`,
+`detection_key` (machine-wide apps) and `detection_script`.

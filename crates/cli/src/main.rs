@@ -12,6 +12,7 @@
 //! bach key               make random access keys for a protected app
 //! bach winget FILE --url write winget manifests for a setup file
 //! bach choco FILE --url  write the Chocolatey package for a setup file
+//! bach intune FILE       write the Intune settings and detection script for a setup file
 //! bach version [TARGET]  show or raise the version in every file that has one
 //! bach workflow          add the one-click release workflow to a GitHub repository
 //! bach update [VERSION]  update bach itself to the newest release (or VERSION)
@@ -34,6 +35,7 @@ mod doctor;
 mod feed;
 mod github;
 mod inspect;
+mod intune;
 mod key;
 mod output;
 #[cfg(windows)]
@@ -235,6 +237,15 @@ enum Command {
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
+    /// Write what Microsoft Intune needs to deploy a setup file: the install
+    /// and uninstall commands and a detection script.
+    Intune {
+        /// The setup file.
+        file: PathBuf,
+        /// Write the files into this folder.
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
     /// Show the version a project carries, or raise it in every file at once.
     Version {
         /// patch, minor, major, current (keep it), or an exact version like
@@ -334,6 +345,7 @@ fn main() -> ExitCode {
         Command::Choco { file, url, license, out } => {
             choco::command(choco::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
         }
+        Command::Intune { file, out } => intune::command(intune::Options { setup: &file, out: out.as_deref() }),
         Command::Feed { file, url, config, notes, notes_file, rollout, out, patch, patch_url } => feed::command(feed::Options {
             setup: &file,
             url: url.as_deref(),

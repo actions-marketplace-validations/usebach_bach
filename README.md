@@ -143,6 +143,7 @@ Every setting is in the [config reference](docs/config.md).
 | `bach update [VERSION]` | Updates `bach` itself to the newest release (or exactly `VERSION`). `--check` only says whether a newer release exists, `--force` installs again. A copy managed by npm, Scoop, winget or Cargo gets the command that updates it instead. See [Keeping bach up to date](#keeping-bach-up-to-date). |
 | `bach feed FILE` | Writes the update feed for a (signed) setup file; the link comes from `bach.toml` (or `--url`), `--notes-file` says what's new, `--rollout 10` offers it to 10% of computers first, `--patch FILE` offers an update patch. |
 | `bach winget FILE --url URL` | Writes the manifests that list a setup file in winget. |
+| `bach intune FILE` | Writes what Microsoft Intune needs to deploy a setup file: the install and uninstall commands, the detection rule and a detection script. See [Deploying with Intune](docs/config.md#deploying-with-intune). |
 
 ## Keeping bach up to date
 

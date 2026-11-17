@@ -759,6 +759,40 @@ fn a_chocolatey_package_carries_the_checksum_of_the_setup_file() {
 }
 
 #[test]
+fn intune_settings_come_from_the_setup_file() {
+    need_runtime!();
+    let dir = project("intune", &config("[installer]\nscope = \"machine\"\n"));
+    let built = run(&dir, &["build", "--fast"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let setup = dir.join("dist/Hello-Setup-1.0.0.exe");
+    let made = run(&dir, &["intune", setup.to_str().unwrap(), "--json"]);
+    assert!(made.status.success(), "{}", text(&made.stderr));
+    let made = json_of(&made);
+    assert_eq!(made["install_command"], "Hello-Setup-1.0.0.exe --silent");
+    assert_eq!(made["run_as"], "system");
+    assert!(made["uninstall_command"].as_str().unwrap().contains(r"%ProgramFiles%\BachIntegrationTest-Hello\uninstall.exe"));
+    assert!(made["detection_key"].as_str().unwrap().ends_with(r"Uninstall\BachIntegrationTest-Hello"));
+    let folder = dir.join("dist/intune/BachIntegrationTest-Hello");
+    let script = std::fs::read_to_string(folder.join("detect.ps1")).unwrap();
+    assert!(script.contains("$id = 'BachIntegrationTest-Hello'") && script.contains("$wanted = '1.0.0'"), "{script}");
+    let sheet = std::fs::read_to_string(folder.join("intune.md")).unwrap();
+    assert!(sheet.contains("IntuneWinAppUtil.exe") && sheet.contains("DisplayVersion"), "{sheet}");
+
+    // A per-user app says so, and a file that isn't a setup file is refused.
+    let per_user = project("intune-user", &config(""));
+    assert!(run(&per_user, &["build", "--fast"]).status.success());
+    let user_setup = per_user.join("dist/Hello-Setup-1.0.0.exe");
+    let user = run(&per_user, &["intune", user_setup.to_str().unwrap(), "--out", per_user.join("out").to_str().unwrap()]);
+    assert!(user.status.success(), "{}", text(&user.stderr));
+    assert!(text(&user.stderr).contains("install behavior User"), "{}", text(&user.stderr));
+    assert!(per_user.join("out/detect.ps1").is_file());
+    let missing = run(&dir, &["intune", dir.join("nowhere.exe").to_str().unwrap()]);
+    assert!(!missing.status.success());
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&per_user).unwrap();
+}
+
+#[test]
 fn a_key_file_with_many_keys_gives_each_its_own_slot() {
     need_runtime!();
     let dir = secret_project("slots", &config(ACCESS));
