@@ -2,6 +2,12 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.7.5 (2026-11-17)
+
+No changes since the last release.
+
+All changes: [v0.7...v0.7.5](https://github.com/usebach/bach/compare/v0.7...v0.7.5)
+
 ## 0.7.4 (2026-11-17)
 
 ### New
