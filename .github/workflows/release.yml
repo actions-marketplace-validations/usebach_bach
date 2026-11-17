@@ -342,6 +342,11 @@ jobs:
           $env:BACH_RUNTIME_SHA256 = (Get-FileHash -Algorithm SHA256 target/release/bach-setup.exe).Hash.ToLower()
           cargo build --release -p bach-cli -p bach-setup
           if ($LASTEXITCODE -ne 0) { throw 'The ARM64 build failed.' }
+          # The hash built into bach must be the runtime that gets published
+          # (the x64 job checks the same in scripts/build-release.ps1).
+          if ((Get-FileHash -Algorithm SHA256 target/release/bach-setup.exe).Hash.ToLower() -ne $env:BACH_RUNTIME_SHA256) {
+            throw 'bach-setup.exe changed between the two ARM64 builds, so the hash built into bach would be wrong.'
+          }
           $name = "bach-${{ needs.release.outputs.version }}-windows-arm64"
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
           Copy-Item target/release/bach.exe, target/release/bach-setup.exe, LICENSE -Destination "dist/$name"
