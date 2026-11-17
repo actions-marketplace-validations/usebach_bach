@@ -173,6 +173,10 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # The action's `args` input is split by this script.
+      - name: Test the action's argument splitting
+        run: sh scripts/test-action-args.sh
+
       # install.sh, the first thing many people run, against a release made on
       # the spot (no download).
       - name: Test install.sh

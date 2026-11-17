@@ -118,6 +118,7 @@ signing in.
 | `release` | `true` publishes the setup file and `latest.json` as a release. Needs `contents: write`. |
 | `app-version` | `auto` (default) takes the version from the tag the run is for; a version overrides `app.version`; empty keeps `bach.toml`'s. |
 | `notes`, `notes-file` | What's new. Apps that offer the update can show it. |
+| `args` | More arguments for `bach build`, like `--fast` or `--patch-from OLD.exe`, written like a command line: spaces separate words and quotes keep a value with spaces in one piece (`--patch-from "dist/My App 1.0.exe"`). Nothing is expanded, and a word can't hold a line break. |
 | `sign-command` | A PowerShell command that signs `$env:BACH_SETUP_FILE`. It runs before the feed is written, so the feed has the signed file's SHA-256. |
 | `tag` | The release's tag (default `v` plus the version). |
 | `prerelease`, `draft`, `latest` | How the release is published. |

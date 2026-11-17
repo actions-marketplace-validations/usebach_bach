@@ -62,7 +62,11 @@ inputs:
     required: false
     default: ''
   args:
-    description: More arguments for bach build, like --fast.
+    description: >-
+      More arguments for bach build, like --fast. Written like a command line:
+      spaces separate words, and quotes keep a value with spaces in one piece
+      (--patch-from "dist/My App 1.0.exe"). Nothing is expanded, backslashes stay
+      as they are, and a word can't contain a line break.
     required: false
     default: ''
   app-version:
@@ -215,6 +219,7 @@ runs:
         APP_VERSION: ${{ inputs.app-version }}
         REF_TYPE: ${{ github.ref_type }}
         REF_NAME: ${{ github.ref_name }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
         app_version="$APP_VERSION"
         if [ "$app_version" = "auto" ]; then
@@ -224,6 +229,13 @@ runs:
             app_version="$REF_NAME"
           fi
         fi
+        # `args` is split like a command line (see scripts/split-args.sh): quotes keep a
+        # value with spaces in one piece, and nothing is expanded.
+        extra=()
+        while IFS= read -r word; do extra+=("$word"); done < <(sh "$ACTION_PATH/scripts/split-args.sh" "$ARGS") || true
+        if [ -n "${ARGS//[[:space:]]/}" ] && [ "${#extra[@]}" -eq 0 ]; then
+          sh "$ACTION_PATH/scripts/split-args.sh" "$ARGS" >/dev/null || { echo "::error::The args input is not a valid command line: $ARGS"; exit 1; }
+        fi
         bach doctor "$CONFIG"
         # The result comes as JSON (stdout), so no wording of bach's text can break this.
         if ! command -v jq >/dev/null 2>&1; then
@@ -232,11 +244,9 @@ runs:
         fi
         result="$RUNNER_TEMP/bach-build.json"
         if [ -n "$app_version" ]; then
-          # shellcheck disable=SC2086
-          bach build "$CONFIG" --app-version "$app_version" --json $ARGS > "$result" || { cat "$result"; exit 1; }
+          bach build "$CONFIG" --app-version "$app_version" --json ${extra[@]+"${extra[@]}"} > "$result" || { cat "$result"; exit 1; }
         else
-          # shellcheck disable=SC2086
-          bach build "$CONFIG" --json $ARGS > "$result" || { cat "$result"; exit 1; }
+          bach build "$CONFIG" --json ${extra[@]+"${extra[@]}"} > "$result" || { cat "$result"; exit 1; }
         fi
         cat "$result"
         setup=$(jq -r '.setup // empty' "$result")
