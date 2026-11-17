@@ -64,6 +64,12 @@ fn old_install(folder: &Path) -> PathBuf {
     let mut bytes = std::fs::read(real_bach()).unwrap();
     bytes.extend_from_slice(b"old copy");
     std::fs::write(&exe, bytes).unwrap();
+    #[cfg(unix)]
+    {
+        // A freshly written file isn't executable; an installed bach is.
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     exe
 }
 
