@@ -55,16 +55,27 @@ files keep working. `bach init` writes it. A version this Bach doesn't read stop
 | `allow_secrets` | no | Patterns (same rules as `exclude`) for files that look like secrets but are meant to ship. |
 
 `bach check` and `bach build` stop when the source folder holds a file that
-looks like a secret: `.env` and `.env.*`, `*.pfx`, `*.p12`, `*.pem`, `*.key`,
-`*.snk`, `*.jks`, `*.keystore`, `*.kdbx`, `id_rsa*`, `id_dsa*`, `id_ecdsa*`,
-`id_ed25519*`, `.git-credentials`, `.npmrc`, `.pypirc`, `.netrc`,
-`.aws-credentials`, `secrets.json`, a `bach.toml` (or `bach-*.toml`), and
-anything inside a `.git`, `.ssh`, `.aws` or `.gnupg` folder. The message names
-the first file and why. Leave the file out with `exclude`, or name it in
-`allow_secrets` to ship it on purpose. Files that only add weight (`*.pdb`,
-`*.log`, `Thumbs.db`, `.DS_Store`, and anything in `node_modules`, `target` or
-`__pycache__`) give a warning, not an error. `bach init` excludes the first
-four for the stacks it recognises.
+looks like a secret: `.env`, `.env.*` and `*.env`, `*.pfx`, `*.p12`, `*.pem`,
+`*.key`, `*.ppk`, `*.p8`, `*.snk`, `*.jks`, `*.keystore`, `*.kdbx`, `id_rsa*`,
+`id_dsa*`, `id_ecdsa*`, `id_ed25519*`, `secring.gpg`, `trustdb.gpg`,
+`*.tfstate`, `*.tfvars`, `credentials` and `credentials.json`,
+`service-account*.json`, `local.settings.json`, `.git-credentials`, `.npmrc`,
+`.yarnrc.yml`, `.pypirc`, `.netrc`, `.htpasswd`, `.dockercfg`, `.pgpass`,
+`.vault-token`, `.aws-credentials`, `.bash_history`, `.zsh_history`,
+`wallet.dat`, `secrets.json`, a file called `.git`, a `bach.toml` (or
+`bach-*.toml`), and anything inside a `.git`, `.svn`, `.hg`, `.ssh`, `.aws`,
+`.azure`, `.gnupg`, `.docker`, `.kube` or `.terraform` folder, plus
+`.m2/settings.xml`, `.gradle/gradle.properties`, `.gem/credentials` and
+`.config/gcloud`. Small text files in configuration formats (`.json`, `.yml`,
+`.yaml`, `.toml`, `.ini`, `.cfg`, `.conf`, `.config`, `.properties`, `.txt`,
+`.xml`, `.env`, `.pem` and scripts, up to 256 KiB) are also read for a private
+key block, an AWS access key (`AKIA...`), a GitHub token (`ghp_...`,
+`github_pat_...`) or a Slack token (`xoxb-...`); programs and libraries are
+never read. The message names the first file and why. Leave the file out with
+`exclude`, or name it in `allow_secrets` to ship it on purpose. Files that only
+add weight (`*.pdb`, `*.log`, `Thumbs.db`, `.DS_Store`, and anything in
+`node_modules`, `target` or `__pycache__`) give a warning, not an error. `bach
+init` excludes the first four for the stacks it recognises.
 
 Every name in the source folder, file or folder, has to be one Windows can
 create: at most 255 characters (counted as Windows counts them) and not a
