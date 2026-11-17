@@ -52,7 +52,7 @@ Bach desktop app). Keep it: Inter, the token colours in
 ```
 crates/pack     bach-pack: bach.toml (config/), manifest (manifest.rs and
                 manifest/: choices, components, validation), i18n/ (every
-                window text in 13 languages), archive.rs, container.rs (the
+                window text in 19 languages), archive.rs, container.rs (the
                 payload on the exe), paths.rs (safety rules)
 crates/cli      bach-cli, binary `bach`: commands, runtime lookup and
                 download, doctor, init's stack detection (detect.rs), the

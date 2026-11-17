@@ -227,3 +227,34 @@ fn the_checks_themselves_see_a_mistake() {
     assert!(toml::from_str::<toml::Table>("[app\nname = 1").is_err());
     assert!(!is_whole_config("[app]\ndescription = \"x\"\n"));
 }
+
+/// A number of languages written in the repository's texts, or in what
+/// `bach init` writes, has to be the number Bach really has: it went stale
+/// when five languages were added.
+#[test]
+fn the_number_of_languages_in_the_texts_is_the_real_one() {
+    let real = bach_pack::i18n::LANGUAGES.len();
+    let sources = [
+        repo().join("README.md"),
+        repo().join("AGENTS.md"),
+        repo().join("skills/bach/SKILL.md"),
+        repo().join("crates/cli/src/template.rs"),
+    ];
+    for path in sources {
+        let text = read(&path);
+        for (at, _) in text.match_indices(" language") {
+            // "19 languages" and "all 19, following": the number just before the word, or before a comma.
+            let before = &text[..at];
+            let number: String = before.chars().rev().take_while(|c| c.is_ascii_digit()).collect::<String>().chars().rev().collect();
+            if let Ok(number) = number.parse::<usize>() {
+                assert_eq!(number, real, "{} says {number} languages, Bach has {real}", path.display());
+            }
+        }
+        for (at, _) in text.match_indices("default: all ") {
+            let number: String = text[at + "default: all ".len()..].chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(number) = number.parse::<usize>() {
+                assert_eq!(number, real, "{} says all {number} languages, Bach has {real}", path.display());
+            }
+        }
+    }
+}

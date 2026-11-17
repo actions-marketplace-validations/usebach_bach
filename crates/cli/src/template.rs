@@ -33,7 +33,7 @@ source = "@SOURCE@"
 # theme = "system"            # system, light or dark
 # accent = "#2563eb"          # buttons, the progress bar and ticked boxes
 # logo = "logo.svg"           # .svg (one colour) or .png, or "none"
-# languages = ["en", "de"]    # default: all 13, following Windows' language
+# languages = ["en", "de"]    # default: all 19, following Windows' language
 # license = "LICENSE.txt"     # shown first, to accept before installing
 #
 # Each option is true (offered, ticked), false (offered, unticked),
