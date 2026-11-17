@@ -2,7 +2,9 @@
 
 use bach_pack::i18n::Key;
 use bach_pack::manifest::{choices_auto_update, Manifest};
-use gpui::{div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled};
+use gpui::{
+    div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled,
+};
 
 use super::{footer, subtitle_text, PageLayout};
 use crate::keyboard::Target;
@@ -96,7 +98,8 @@ impl SetupView {
     /// A thin thumb showing where the card is scrolled, when it scrolls.
     fn scrollbar(&self, theme: &Theme) -> Option<AnyElement> {
         let handle = &self.choices_scroll;
-        let thumb = Thumb::new(f32::from(handle.bounds().size.height), f32::from(handle.max_offset().height), f32::from(-handle.offset().y))?;
+        let thumb =
+            Thumb::new(f32::from(handle.bounds().size.height), f32::from(handle.max_offset().height), f32::from(-handle.offset().y))?;
         Some(
             div()
                 .absolute()

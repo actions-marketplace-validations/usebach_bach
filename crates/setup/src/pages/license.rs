@@ -67,7 +67,8 @@ impl SetupView {
             .child(div().p(px(16.)).flex().flex_col().gap(px(10.)).children(paragraphs));
         // The card fills the room left, so a short license and a long one
         // make the same calm page; a long one scrolls inside it.
-        let mut card = div().relative().mt(px(24.)).flex_1().min_h_0().rounded(RADIUS).border_1().border_color(theme.border).child(viewport);
+        let mut card =
+            div().relative().mt(px(24.)).flex_1().min_h_0().rounded(RADIUS).border_1().border_color(theme.border).child(viewport);
         card = card.children(self.license_scrollbar(&theme, cx));
         if self.license.drag != Drag::None {
             card = card.child(self.license_drag_listeners(cx));
@@ -162,14 +163,10 @@ impl SetupView {
         };
         let grabbed = matches!(self.license.drag, Drag::Thumb { .. });
         let alpha = if grabbed { 0.7 } else { 0.45 };
-        let track = div()
-            .absolute()
-            .top(px(0.))
-            .bottom(px(0.))
-            .right(px(0.))
-            .w(px(GRIP))
-            .block_mouse_except_scroll()
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, event: &MouseDownEvent, _, cx| this.license_track_press(event.position, cx)));
+        let track = div().absolute().top(px(0.)).bottom(px(0.)).right(px(0.)).w(px(GRIP)).block_mouse_except_scroll().on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, event: &MouseDownEvent, _, cx| this.license_track_press(event.position, cx)),
+        );
         let handle = div()
             .absolute()
             .top(px(thumb.top))

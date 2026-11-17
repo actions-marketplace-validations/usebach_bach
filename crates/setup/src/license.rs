@@ -102,7 +102,9 @@ pub enum Drag {
     /// Selecting text.
     Text,
     /// Holding the scrollbar's thumb, `grab` pixels below its top.
-    Thumb { grab: f32 },
+    Thumb {
+        grab: f32,
+    },
 }
 
 pub struct LicenseView {
