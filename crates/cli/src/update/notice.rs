@@ -4,7 +4,7 @@
 //! separate, detached `bach update-refresh` that writes what it found to a
 //! small file in the user's cache; a command only reads that file. The first
 //! run after a release therefore says nothing, and the next one does. The
-//! check happens at most once a day, and only when a person is looking:
+//! check happens at most once an hour, and only when a person is looking:
 //! stderr is a terminal, `--json` is off, and neither `CI` nor
 //! `BACH_NO_UPDATE_CHECK` is set.
 
@@ -21,8 +21,9 @@ use super::{current, Method};
 use crate::runtime;
 use crate::version::Version;
 
-/// How long a check stays fresh.
-const DAY: u64 = 24 * 60 * 60;
+/// How long a check stays fresh. An hour, because releases can follow each
+/// other within a day, and one small request an hour is far below GitHub's limit.
+const FRESH: u64 = 60 * 60;
 
 /// What the last check found.
 struct Seen {
@@ -63,7 +64,7 @@ fn write(seen: &Seen) {
 /// Whether the cache is old enough (or missing) that a new check is due. A
 /// time in the future counts as old, so a wrong clock can't stop checks forever.
 fn due(checked: Option<u64>, now: u64) -> bool {
-    checked.is_none_or(|checked| checked > now || now - checked >= DAY)
+    checked.is_none_or(|checked| checked > now || now - checked >= FRESH)
 }
 
 /// What `bach update --check` and `bach update` learned, kept for the notice.
@@ -84,7 +85,7 @@ fn wanted() -> bool {
 }
 
 /// Runs after a command: says so when a newer release is known, and starts a
-/// background check when the last one is a day old.
+/// background check when the last one is an hour old.
 pub fn show() {
     if !wanted() {
         return;
@@ -146,10 +147,10 @@ mod tests {
     }
 
     #[test]
-    fn a_check_is_due_once_a_day() {
+    fn a_check_is_due_once_an_hour() {
         assert!(due(None, 1_000_000));
-        assert!(!due(Some(1_000_000), 1_000_000 + DAY - 1));
-        assert!(due(Some(1_000_000), 1_000_000 + DAY));
+        assert!(!due(Some(1_000_000), 1_000_000 + FRESH - 1));
+        assert!(due(Some(1_000_000), 1_000_000 + FRESH));
         assert!(due(Some(2_000_000), 1_000_000), "a clock set back doesn't stop checks");
     }
 
