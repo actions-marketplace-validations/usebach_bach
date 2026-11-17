@@ -131,6 +131,10 @@ impl SetupView {
         if matches!(self.stage, Stage::Access) && self.type_key(event, cx) {
             return;
         }
+        // On the license, copy, select all and the page keys belong to the text.
+        if matches!(self.stage, Stage::License) && self.license_key(event, cx) {
+            return;
+        }
         let key = event.keystroke.key.as_str();
         let count = self.targets().len();
         match key {

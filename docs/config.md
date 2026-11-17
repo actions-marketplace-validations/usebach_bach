@@ -246,7 +246,7 @@ and unticking one takes the shortcut, PATH entry or autostart away again.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `languages` | every built-in language | The languages the window may speak, like `["en", "de"]`. The window follows the user's Windows display language when it's in this list, and otherwise uses the first one. With a single language, like `["de"]`, the window always speaks it. |
-| `license` | none | A UTF-8 text file the user accepts before the install page, like `"LICENSE.txt"`, or one per language: `{ en = "LICENSE.txt", de = "LIZENZ.txt" }`. An update shows it again only when it changed. |
+| `license` | none | A UTF-8 text file the user accepts before the install page, like `"LICENSE.txt"`, or one per language: `{ en = "LICENSE.txt", de = "LIZENZ.txt" }`. An update shows it again only when it changed. The window shows it in a card that scrolls smoothly, with a scrollbar, and the text can be selected and copied. |
 
 Built-in languages: `en` English, `de` Deutsch, `nl` Nederlands, `fr`
 Français, `es` Español, `it` Italiano, `pt` Português (Brazilian), `pl` Polski, `ru`

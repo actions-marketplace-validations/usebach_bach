@@ -19,6 +19,8 @@ mod keyboard;
 #[cfg(windows)]
 mod launch;
 #[cfg(windows)]
+mod license;
+#[cfg(windows)]
 mod log;
 #[cfg(windows)]
 mod package;

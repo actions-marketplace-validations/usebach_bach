@@ -5,11 +5,13 @@
 //! Access key and license (when there are any) → Ready → Working (the mark conducts while
 //! a bar fills) → Done, or Failed with a readable sentence and "Try again".
 //!
-//! - `ready.rs`: the license and the choices.
+//! - `license.rs`: the license (smooth scrolling, a scrollbar, selectable text).
+//! - `ready.rs`: the choices.
 //! - `finish.rs`: working, done and failed.
 
 mod access;
 mod finish;
+mod license;
 mod ready;
 mod requirement;
 
@@ -37,6 +39,9 @@ impl Render for SetupView {
         // The scrollbar needs the card's size, known after its first paint.
         if matches!(self.stage, Stage::Ready) && self.choices_scroll.bounds().size.height < px(1.) {
             window.request_animation_frame();
+        }
+        if matches!(self.stage, Stage::License) {
+            self.license_tick(window);
         }
         let (kind, body) = match self.stage.clone() {
             Stage::Requirement(index) => ("requirement", self.requirement_page(index, cx)),

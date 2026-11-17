@@ -18,6 +18,7 @@ pub mod interaction;
 pub mod motion;
 pub mod progress_bar;
 pub mod row;
+pub mod scroll;
 pub mod shimmer;
 pub mod spinner;
 pub mod surface;
