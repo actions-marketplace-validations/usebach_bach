@@ -463,6 +463,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     let mut manifest = manifest;
     manifest.shortcuts = extras::shortcuts(&file.shortcuts, &manifest.files)?;
     manifest.run = extras::run_steps(&file.run, &manifest.files, &manifest.components)?;
+    warnings.extend(file_list_warning(&manifest.files));
     if manifest.install.scope == manifest::Scope::User {
         for step in manifest.run.iter().filter(|step| step.elevated) {
             warnings.push(format!(
@@ -527,6 +528,26 @@ fn signing(section: Option<&SigningSection>) -> Result<Option<Signing>> {
 
 /// A file name as GitHub keeps it for a release download: letters, digits,
 /// `.`, `-` and `_`; anything else becomes `-`.
+/// How much the list of files may weigh before `bach check` says so. The list (path, size and
+/// SHA-256 of every file) travels in the setup file and again in `uninstall.exe` on every
+/// computer, and is read every time setup starts.
+const FILE_LIST_WARN_BYTES: usize = 2 << 20;
+
+/// A warning when the file list is big, with what to do about it. Each entry takes about 110
+/// bytes besides its path (the keys, the size and the 64 hex digits of its SHA-256).
+fn file_list_warning(files: &[FileEntry]) -> Option<String> {
+    let bytes: usize = files.iter().map(|file| file.path.len() + 110).sum();
+    (bytes > FILE_LIST_WARN_BYTES).then(|| {
+        format!(
+            "files.source holds {} files, which makes a file list of about {:.1} MB. It is stored in the setup file and \
+             again in uninstall.exe on every computer. Fewer, larger files keep both smaller (for an Electron app, pack the \
+             app into an asar archive; leave out test, docs and source map files with files.exclude)",
+            files.len(),
+            bytes as f64 / (1 << 20) as f64
+        )
+    })
+}
+
 /// What Windows' classic limit allows for a whole path: 260 characters with
 /// the drive and the ending NUL.
 const MAX_PATH_CHARS: usize = 259;

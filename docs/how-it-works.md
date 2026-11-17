@@ -28,6 +28,16 @@ manifest, and shows the install window. `crates/pack/src/container.rs` has
 the exact layout. Fields added to the manifest over time all have defaults,
 so a newer setup file still reads the uninstaller an older one installed.
 
+The manifest is plain JSON, about 120 bytes per file (the path, the size and
+the 64 hex digits of the SHA-256), so an app of 30,000 files has a manifest of
+about 3.5 MB, in the setup file and again in `uninstall.exe`. It is not
+compressed on purpose: an installed app's updater reads the manifest of every
+setup file it downloads with the (older) runtime it was installed with, so
+a new encoding would stop every installed copy from updating. Changing it needs a
+new format version that runtimes read in both forms for a long time first.
+`bach check` warns when the list passes about 2 MB, and the advice is to
+ship fewer, larger files (an asar archive for Electron).
+
 ## Installing
 
 1. Checks before anything changes: what the app needs (requirements) is

@@ -1244,3 +1244,13 @@ fn an_elevated_step_in_a_per_user_install_warns() {
     assert!(machine.warnings.iter().all(|warning| !warning.contains("per-user")), "{:?}", machine.warnings);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_very_long_file_list_warns() {
+    let entry = |n: usize| FileEntry { path: format!("data/part-{n:06}.bin"), size: 1, component: None, sha256: None };
+    let few: Vec<FileEntry> = (0..1_000).map(entry).collect();
+    assert!(file_list_warning(&few).is_none());
+    let many: Vec<FileEntry> = (0..30_000).map(entry).collect();
+    let warning = file_list_warning(&many).expect("a warning");
+    assert!(warning.contains("30000 files") && warning.contains("uninstall.exe") && warning.contains("MB"), "{warning}");
+}
