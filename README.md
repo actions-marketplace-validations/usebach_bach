@@ -133,13 +133,15 @@ Every setting is in the [config reference](docs/config.md).
 | `bach init` | Writes a starter `bach.toml`; fills it in for Rust, Tauri, Electron and .NET projects. In a GitHub checkout it also writes the release workflow (`--no-workflow` skips that). |
 | `bach workflow` | Adds, or updates, the one-click release workflow in `.github/workflows/bach-release.yml`. See [releasing](docs/releasing.md). |
 | `bach version [patch\|minor\|major\|X.Y.Z]` | Lists the version in every file that has one, or raises it in all of them at once: `bach.toml`, `package.json` and its lock file, `Cargo.toml` and `Cargo.lock`, Tauri's config, `.csproj`. |
-| `bach check` | Validates the config and lists every file and option, with warnings. |
+| `bach check` | Validates the config and lists every file and option, with warnings. `--strict` (or `BACH_STRICT=1`) turns a warning into an error, so a pipeline can't ship what check complains about. |
 | `bach preview` | Opens the window without installing; `--uninstall`, `--theme dark`, `--lang de`. |
 | `bach watch` | Like `bach preview`, and opens the window again every time you save `bach.toml` (or the logo, license or text files it names). A mistake is printed and the window stays as it was. |
-| `bach build` | Writes the setup file; `--fast` compresses less, `--out` picks the path, `--app-version v1.4.0` sets the version (from a release tag), `--online` also writes the online installer, `--key-file` gives the access key, `--patch-from OLD.exe` also writes an update patch with only the files that changed. |
+| `bach build` | Writes the setup file; `--fast` compresses less, `--out` picks the path, `--app-version v1.4.0` sets the version (from a release tag), `--online` also writes the online installer, `--key-file` gives the access key, `--patch-from OLD.exe` also writes an update patch with only the files that changed, `--strict` stops before building when `bach check` would warn. |
 | `bach sign FILE` | Signs a setup file with the program `[signing]` names; `bach build --sign` does it for the files it writes. Optional. |
 | `bach key` | Makes random access keys for an app with `[access]` (`--count N`). |
 | `bach inspect FILE` | Shows what a setup file or an installed `uninstall.exe` carries. |
+| `bach verify FILE` | Checks a setup file for damage without installing it: the archive and every file against the checksums recorded at build, and whether it carries a signature. `--key-file` opens an encrypted one. See [Checking a setup file](docs/config.md#checking-a-setup-file). |
+| `bach page FILE --url URL` | Writes a download page for a setup file: one HTML file with the name, version, size, a download button and the SHA-256 (`--notes-file`, `--winget ID`). See [A download page](docs/config.md#a-download-page). |
 | `bach doctor` | Says whether everything a build needs is in place. |
 | `bach update [VERSION]` | Updates `bach` itself to the newest release (or exactly `VERSION`). `--check` only says whether a newer release exists, `--force` installs again. A copy managed by npm, Scoop, winget or Cargo gets the command that updates it instead. See [Keeping bach up to date](#keeping-bach-up-to-date). |
 | `bach feed FILE` | Writes the update feed for a (signed) setup file; the link comes from `bach.toml` (or `--url`), `--notes-file` says what's new, `--rollout 10` offers it to 10% of computers first, `--patch FILE` offers an update patch. |

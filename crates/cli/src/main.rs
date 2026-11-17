@@ -7,12 +7,14 @@
 //! bach preview           open the installer window without installing anything
 //! bach watch             keep the preview open and reopen it when bach.toml changes
 //! bach inspect FILE      show what a setup file installs
+//! bach verify FILE       check a setup file for damage without installing it
 //! bach doctor            check that everything a build needs is in place
 //! bach feed FILE         write the update feed for a (signed) setup file
 //! bach sign FILE         sign a setup file the way [signing] in bach.toml says
 //! bach key               make random access keys for a protected app
 //! bach winget FILE --url write winget manifests for a setup file
 //! bach choco FILE --url  write the Chocolatey package for a setup file
+//! bach page FILE --url   write a download page for a setup file
 //! bach intune FILE       write the Intune settings and detection script for a setup file
 //! bach version [TARGET]  show or raise the version in every file that has one
 //! bach workflow          add the one-click release workflow to a GitHub repository
@@ -39,6 +41,7 @@ mod inspect;
 mod intune;
 mod key;
 mod output;
+mod page;
 mod preview;
 #[cfg(windows)]
 mod resources;
@@ -46,6 +49,7 @@ mod runtime;
 mod sign;
 mod template;
 mod update;
+mod verify;
 mod version;
 mod version_files;
 mod watch;
@@ -125,6 +129,10 @@ enum Command {
         /// Use this version instead of app.version (a leading v is dropped).
         #[arg(long)]
         app_version: Option<String>,
+        /// Fail when there is a warning, so a pipeline can't ship what check
+        /// complains about (or set BACH_STRICT=1).
+        #[arg(long, env = "BACH_STRICT")]
+        strict: bool,
     },
     /// Build the setup file.
     Build {
@@ -162,6 +170,10 @@ enum Command {
         /// the update feed to computers that have that version.
         #[arg(long)]
         patch_from: Option<PathBuf>,
+        /// Stop before building when bach.toml has a warning (or set
+        /// BACH_STRICT=1), like `bach check --strict`.
+        #[arg(long, env = "BACH_STRICT")]
+        strict: bool,
     },
     /// Sign a setup file with the program [signing] in bach.toml names.
     Sign {
@@ -258,6 +270,34 @@ enum Command {
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
+    /// Check a setup file for damage, without installing it: the archive and
+    /// every file against the checksums recorded when it was built.
+    Verify {
+        /// The setup file.
+        file: PathBuf,
+        /// The access key's file, to check the files of an encrypted setup
+        /// file too (or set BACH_ACCESS_KEY).
+        #[arg(long)]
+        key_file: Option<PathBuf>,
+    },
+    /// Write a download page for a setup file: one HTML file with the name,
+    /// version, size, a download button and the SHA-256.
+    Page {
+        /// The setup file.
+        file: PathBuf,
+        /// The https link the setup file is downloaded from.
+        #[arg(long)]
+        url: String,
+        /// Write the page into this folder (default: download/ next to the setup file).
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+        /// A file with what's new (shown as a list; Markdown is not interpreted).
+        #[arg(long)]
+        notes_file: Option<PathBuf>,
+        /// The app's winget package id, to show `winget install ID`.
+        #[arg(long)]
+        winget: Option<String>,
+    },
     /// Write what Microsoft Intune needs to deploy a setup file: the install
     /// and uninstall commands and a detection script.
     Intune {
@@ -325,8 +365,8 @@ fn main() -> ExitCode {
         Command::Update { version, check, force } => update::command(update::Options { version: version.as_deref(), check, force }),
         Command::UpdateRefresh => update::refresh(),
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
-        Command::Check { config, app_version } => builder::check(&config, app_version.as_deref()),
-        Command::Build { config, out, runtime, fast, app_version, online, key_file, sign, patch_from } => {
+        Command::Check { config, app_version, strict } => builder::check(&config, app_version.as_deref(), strict),
+        Command::Build { config, out, runtime, fast, app_version, online, key_file, sign, patch_from, strict } => {
             builder::build(builder::BuildOptions {
                 config: &config,
                 out: out.as_deref(),
@@ -337,6 +377,7 @@ fn main() -> ExitCode {
                 key_file: key_file.as_deref(),
                 sign,
                 patch_from: patch_from.as_deref(),
+                strict,
             })
             .map(|_| ())
         }
@@ -364,6 +405,14 @@ fn main() -> ExitCode {
         Command::Choco { file, url, license, out } => {
             choco::command(choco::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
         }
+        Command::Verify { file, key_file } => verify::command(verify::Options { file: &file, key_file: key_file.as_deref() }),
+        Command::Page { file, url, out, notes_file, winget } => page::command(page::Options {
+            setup: &file,
+            url: &url,
+            out: out.as_deref(),
+            notes_file: notes_file.as_deref(),
+            winget: winget.as_deref(),
+        }),
         Command::Intune { file, out } => intune::command(intune::Options { setup: &file, out: out.as_deref() }),
         Command::Feed { file, url, config, notes, notes_file, rollout, out, patch, patch_url } => feed::command(feed::Options {
             setup: &file,

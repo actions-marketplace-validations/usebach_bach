@@ -26,6 +26,7 @@ default, so a five-line config already builds a complete installer.
 - [Silent installs](#silent-installs) and [updating from the app](#updating-from-the-app)
 - [Editor support](#editor-support), [listing your app in winget](#listing-your-app-in-winget) and [Chocolatey](#listing-your-app-in-chocolatey)
 - [Deploying with Intune](#deploying-with-intune)
+- [Checking a setup file](#checking-a-setup-file), [a download page](#a-download-page) and [failing on warnings](#failing-on-warnings)
 
 ## config_version
 
@@ -1102,3 +1103,90 @@ Things to know:
 
 `--json` prints `install_command`, `uninstall_command`, `run_as`,
 `detection_key` (machine-wide apps) and `detection_script`.
+
+## Checking a setup file
+
+```bash
+bach verify dist/Hello-Setup-1.4.0.exe
+```
+
+```console
+Verifying Hello 1.4.0 (dist/Hello-Setup-1.4.0.exe)
+  Signature    not signed
+  Archive      SHA-256 matches (8650123 bytes)
+  Files        12 checked against the manifest
+dist/Hello-Setup-1.4.0.exe is intact.
+```
+
+Use it on a download that may have gone wrong, a copy someone changed, or the
+file a build server hands over. It installs and writes nothing. It reads the
+archive and checks what setup checks while it installs: the archive against the
+SHA-256 recorded when the setup file was built, and every file against the
+size and SHA-256 in the manifest. It also looks for files the manifest lacks
+or the archive doesn't hold. A damaged file stops with exit code 1 and a
+sentence that names the first few files that are wrong.
+
+- `signature` says whether the file carries a signature. Bach reads only the
+  entry in the file's header; Windows decides whether it is valid, and
+  `signtool verify /pa` checks it (see [signing](signing.md)).
+- The runtime part of the file (the program that shows the window) is covered
+  by that signature, not by `bach verify`.
+- A setup file with [`[access]`](#access) has its files encrypted. Without a
+  key `bach verify` still checks the archive as a whole and says the files stayed
+  shut; give the key with `--key-file FILE` (or `BACH_ACCESS_KEY`) to open
+  them and check each one. A wrong key is refused, not reported as damage.
+- An online installer and an uninstaller carry no files, so there is nothing
+  more to check. An update patch is checked too; the files it leaves out are on
+  the computer already.
+
+`--json` prints `verified`, `signature`, `files`, `name` and `version`; a
+damaged file is the usual `{"ok": false, "error": "…"}`.
+
+## A download page
+
+```bash
+bach page dist/Hello-Setup-1.4.0.exe --url https://example.com/downloads/Hello-Setup-1.4.0.exe
+```
+
+writes `download/index.html` next to the setup file (`--out` picks the folder):
+the app's name, version, publisher and size, a download button, how to install
+and update, how to remove it, and the file's SHA-256 with the PowerShell
+command that checks it. The numbers come from the setup file, so they can't
+disagree with the file.
+
+| Flag | Meaning |
+| --- | --- |
+| `--url URL` | Required. The `https` link the setup file is downloaded from. |
+| `--out DIR`, `-o DIR` | The folder for `index.html`. |
+| `--notes-file FILE` | What's new, up to 20 KB. Lines starting with `-` or `*` become a list; nothing else is interpreted, so Markdown and HTML show as written. |
+| `--winget ID` | Shows `winget install ID` (the id looks like `Publisher.AppName`). |
+
+The page is one file with no script and no outside file: it follows the
+reader's light or dark setting, works on a phone, and has a content security
+policy that allows nothing but its own style. The button uses the setup
+file's `accent` colour, and a PNG logo travels inside the page (a logo over
+256 KB, or an SVG one, is left out, and the page shows the name). The
+install text says whether the app installs for one user or, with
+`installer.scope = "machine"`, asks for administrator permission once. Put the
+page where your downloads are; the text is in English.
+
+An online installer or an uninstaller is refused: point `bach page` at the full
+setup file. `--json` adds `page` (the file written), `sha256` and `size`.
+
+## Failing on warnings
+
+`bach check` and `bach build` print a warning for what builds but probably
+isn't meant: a long file list, an elevated step in a per-user install,
+unsigned programs inside a signed setup file and more. In a pipeline that is
+easy to miss. Add `--strict` (or set `BACH_STRICT=1`) and any warning is an
+error:
+
+```console
+$ bach check --strict
+...
+warning: installer.path_folder is "bin", but no installed file is in it.
+error: bach.toml has 1 warning, and --strict treats it as an error: fix it, or run without --strict.
+```
+
+`bach build --strict` stops before it builds, so no file is written. Without
+the flag nothing changes.

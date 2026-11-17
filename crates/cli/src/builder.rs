@@ -22,7 +22,23 @@ fn load(config_path: &Path, version: Option<&str>) -> Result<Project> {
     config::load_with(config_path, &Overrides { version: version.map(String::from) })
 }
 
-pub fn check(config_path: &Path, version: Option<&str>) -> Result<()> {
+/// With `--strict`, a warning is an error: the build is held back until the
+/// config has none, so a pipeline can't ship what `bach check` complained about.
+fn strict_gate(warnings: &[String], strict: bool) -> Result<()> {
+    if strict && !warnings.is_empty() {
+        let count = warnings.len();
+        bail!(
+            "bach.toml has {count} {}, and --strict treats {} as {}: fix {}, or run without --strict",
+            if count == 1 { "warning" } else { "warnings" },
+            if count == 1 { "it" } else { "them" },
+            if count == 1 { "an error" } else { "errors" },
+            if count == 1 { "it" } else { "them" },
+        );
+    }
+    Ok(())
+}
+
+pub fn check(config_path: &Path, version: Option<&str>, strict: bool) -> Result<()> {
     let project = load(config_path, version)?;
     let manifest = &project.manifest;
     output::result("name", manifest.app.name.clone());
@@ -37,7 +53,7 @@ pub fn check(config_path: &Path, version: Option<&str>) -> Result<()> {
         say!("  {:>10}  {}{component}", output::size(file.size), file.path);
     }
     output::warnings(&project.warnings);
-    Ok(())
+    strict_gate(&project.warnings, strict)
 }
 
 /// What `bach build` was asked for.
@@ -57,6 +73,8 @@ pub struct BuildOptions<'a> {
     /// An older setup file of this app: also write an update patch from it,
     /// holding only the files that changed since.
     pub patch_from: Option<&'a Path>,
+    /// Stop when `bach check` would warn (see [`strict_gate`]).
+    pub strict: bool,
 }
 
 /// The key the files are locked with, and what it unlocks while building.
@@ -111,7 +129,7 @@ fn read_keys(env: &str, key_file: Option<&Path>) -> Result<Vec<String>> {
 }
 
 pub fn build(options: BuildOptions) -> Result<PathBuf> {
-    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file, sign, patch_from } = options;
+    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file, sign, patch_from, strict } = options;
     let started = Instant::now();
     let mut project = load(config_path, version)?;
     if fast {
@@ -132,6 +150,7 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     summary(&project);
 
     output::warnings(&project.warnings);
+    strict_gate(&project.warnings, strict)?;
 
     let sealing = seal(&mut project, key_file, None)?;
     if sealing.is_some() {
