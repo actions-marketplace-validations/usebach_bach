@@ -104,18 +104,41 @@ pub fn under(dir: &Path, packaged: &str) -> PathBuf {
     packaged.split('/').fold(dir.to_path_buf(), |path, part| path.join(part))
 }
 
-/// Whether `id` can name a folder and a registry key: letters, digits,
-/// spaces, dots, dashes and underscores, not starting or ending in a space
-/// or dot.
+/// The longest an app id or install folder may be, in characters.
+pub const MAX_ID_CHARS: usize = 64;
+
+/// Why `id` can't name a folder and a registry key, in a sentence that fits
+/// after "is \"<id>\"; it ...": None when it can. An id has letters, digits,
+/// spaces, dots, dashes and underscores, at most [`MAX_ID_CHARS`] characters
+/// (so ones in any script count the same), doesn't start or end with a space
+/// or dot, and isn't a name Windows keeps for devices.
+pub fn id_problem(id: &str) -> Option<String> {
+    let chars = id.chars().count();
+    if id.is_empty() {
+        return Some("is empty".into());
+    }
+    if chars > MAX_ID_CHARS {
+        return Some(format!("is {chars} characters long; at most {MAX_ID_CHARS} are allowed"));
+    }
+    if id.encode_utf16().count() > MAX_NAME_UNITS {
+        return Some(format!("is too long for Windows ({MAX_NAME_UNITS} UTF-16 units at most)"));
+    }
+    if let Some(bad) = id.chars().find(|c| !(c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_'))) {
+        return Some(format!("has \"{}\" in it; use letters, digits, spaces, dots, dashes and underscores", bad.escape_default()));
+    }
+    if id.starts_with([' ', '.']) || id.ends_with([' ', '.']) {
+        return Some("starts or ends with a space or a dot, which Windows drops from folder names".into());
+    }
+    // `nul` and `Com1` make a folder Windows can't create or others can't open.
+    if is_reserved_name(id) {
+        return Some("is a name Windows keeps for devices (CON, PRN, AUX, NUL, COM0 to COM9, LPT0 to LPT9)".into());
+    }
+    None
+}
+
+/// Whether `id` can name a folder and a registry key (see [`id_problem`]).
 pub fn is_valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 64
-        && id.encode_utf16().count() <= MAX_NAME_UNITS
-        && id.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_'))
-        && !id.starts_with([' ', '.'])
-        && !id.ends_with([' ', '.'])
-        // `nul` and `Com1` make a folder Windows can't create or others can't open.
-        && !is_reserved_name(id)
+    id_problem(id).is_none()
 }
 
 /// An app id as one file or folder name, for the places setup keeps scratch
@@ -394,6 +417,7 @@ mod tests {
         assert!(normalize(&"\u{1d11e}".repeat(127)).is_ok());
         assert!(normalize(&"\u{1d11e}".repeat(128)).is_err());
         assert!(!is_valid_id(&"a".repeat(65)), "ids stay at 64");
+        assert!(is_valid_id(&"é".repeat(64)), "64 characters, though 128 bytes");
     }
 
     #[test]
@@ -525,5 +549,17 @@ mod tests {
         for (a, b) in [("straße", "STRASSE"), ("i", "İ"), ("e\u{301}", "\u{e9}")] {
             assert_ne!(fold_case(a), fold_case(b), "{a} and {b} are two names");
         }
+    }
+
+    #[test]
+    fn an_id_says_what_is_wrong_with_it() {
+        assert_eq!(id_problem("Hello World"), None);
+        assert!(id_problem(&"A".repeat(70)).unwrap().contains("70 characters"));
+        assert_eq!(id_problem(&"日".repeat(64)), None, "characters are counted, not bytes");
+        assert!(id_problem(&"日".repeat(65)).unwrap().contains("65 characters"));
+        assert!(id_problem("a/b").unwrap().contains("\"/\""));
+        assert!(id_problem("nul").unwrap().contains("devices"));
+        assert!(id_problem(" x").unwrap().contains("space or a dot"));
+        assert!(id_problem("").is_some());
     }
 }

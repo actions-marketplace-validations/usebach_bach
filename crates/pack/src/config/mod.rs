@@ -514,12 +514,11 @@ fn check_app(section: &AppSection) -> Result<manifest::App> {
         Some(id) => id.trim().to_string(),
         None => name.clone(),
     };
-    if !paths::is_valid_id(&id) {
+    if let Some(problem) = paths::id_problem(&id) {
         let hint = if section.id.is_some() { "app.id" } else { "app.name (or set app.id)" };
-        bail!(
-            "{hint} is \"{id}\"; it names a folder and a registry key, so use letters, digits, \
-             spaces, dots, dashes and underscores"
-        );
+        // A long value would fill the screen; the length is in the reason.
+        let shown: String = if id.chars().count() > 40 { id.chars().take(37).chain("...".chars()).collect() } else { id.clone() };
+        bail!("{hint} is \"{shown}\", which {problem}. It names a folder and a registry key");
     }
     let executable = paths::normalize(section.executable.trim()).context("app.executable isn't a usable path")?;
     if !executable.to_ascii_lowercase().ends_with(".exe") {
