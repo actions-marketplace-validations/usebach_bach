@@ -196,6 +196,7 @@ bach check                 # validates and lists every file; prints warnings
 bach preview               # opens the real window; installs nothing (Windows only)
 bach preview --lang de --theme dark
 bach preview --uninstall
+bach watch                 # for people: like preview, reopens it on every save; never exits, so agents must not run it
 bach build                 # writes dist/<name>-Setup-<version>.exe
 bach inspect dist/My\ App-Setup-1.0.0.exe
 # In scripts, add --json to check, build, inspect, feed, doctor or version: stdout is one

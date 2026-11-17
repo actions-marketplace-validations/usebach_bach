@@ -135,6 +135,15 @@ bach preview
 bach preview --uninstall --theme dark --lang de
 ```
 
+Designing the window? `bach watch` keeps it open and shows every change
+again as soon as you save: `bach.toml`, and the logo, license or text files it
+names. A mistake in the config is printed and the window stays as it was until
+the next save fixes it. Press Ctrl+C to stop; close the last window yourself.
+
+```bash
+bach watch
+```
+
 ## 5. Build
 
 ```bash
