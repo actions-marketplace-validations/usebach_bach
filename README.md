@@ -164,8 +164,8 @@ the `bach-setup.exe` beside it) only when everything is in order; if a step
 fails, the old files are back. `bach update --check` only reports, and
 `bach update 0.7.1` installs exactly that version.
 
-The check runs in the background at most once a day, never delays a command,
-and is silent in CI, with `--json`, and when stderr isn't a terminal. Turn it
+Every command starts the check in the background; it never delays a command,
+and a failed one (you're offline) is forgotten without a word. It is silent in CI, with `--json`, and when stderr isn't a terminal. Turn it
 off with `BACH_NO_UPDATE_CHECK=1`. A `bach` that npm, Scoop, winget or Cargo
 installed is theirs to update: `bach update` names the command, and the
 notice shows it too.
