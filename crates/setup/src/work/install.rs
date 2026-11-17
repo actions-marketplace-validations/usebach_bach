@@ -124,9 +124,19 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
 
     // The files are in place but still undoable: everything below can fail,
     // and then the earlier version comes back whole.
-    let committed = unpack(plan, &choices, layout.archive, to_copy, &matching, unlocked.as_ref(), report)?;
+    // The installed uninstaller is kept before anything changes: an update that can't keep
+    // it must not start, since putting the earlier version back would then delete it.
+    let uninstaller_before = keep_uninstaller(dir).map_err(|(path, err)| failed(texts, Key::error_write, &path, &err))?;
+    let committed = match unpack(plan, &choices, layout.archive, to_copy, &matching, unlocked.as_ref(), report) {
+        Ok(committed) => committed,
+        Err(problem) => {
+            if let Some(kept) = &uninstaller_before {
+                let _ = fs::remove_file(kept);
+            }
+            return Err(problem);
+        }
+    };
     let installed = manifest.as_installed(&choices);
-    let uninstaller_before = keep_uninstaller(dir);
     let later = (|| -> Result<(), String> {
         super::steps::run_install_steps(manifest, dir, previous.is_none(), &choices, texts, (0.895, 0.915), report)?;
 
@@ -189,11 +199,18 @@ fn log_long_paths(manifest: &Manifest, choices: &Choices, dir: &Path) {
 }
 
 /// The installed uninstaller, copied aside while an update runs, so a failed
-/// update can put it back. None for a first install.
-fn keep_uninstaller(dir: &Path) -> Option<PathBuf> {
+/// update can put it back. `Ok(None)` is a first install, where there is none;
+/// a copy that can't be made is an error (with the path it failed on), never
+/// `None`, because [`restore_uninstaller`] deletes the uninstaller when nothing was kept.
+fn keep_uninstaller(dir: &Path) -> Result<Option<PathBuf>, (PathBuf, std::io::Error)> {
     let current = dir.join(UNINSTALLER);
+    if !current.is_file() {
+        return Ok(None);
+    }
     let kept = place::with_suffix(&current, ".bach-prev");
-    (current.is_file() && fs::copy(&current, &kept).is_ok()).then_some(kept)
+    let _ = fs::remove_file(&kept);
+    fs::copy(&current, &kept).map_err(|err| (kept.clone(), err))?;
+    Ok(Some(kept))
 }
 
 /// Puts the uninstaller kept by [`keep_uninstaller`] back; on a first install
@@ -634,4 +651,31 @@ fn integrate(
     }
     changes::apply(&changes::at(manifest), manifest, previous, dir, program).map_err(fail)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("bach-install-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_uninstaller_is_kept_or_the_update_does_not_start() {
+        let dir = temp("keep");
+        // A first install has none to keep.
+        assert!(matches!(keep_uninstaller(&dir), Ok(None)));
+        fs::write(dir.join(UNINSTALLER), b"old").unwrap();
+        let kept = keep_uninstaller(&dir).unwrap().expect("a copy");
+        assert_eq!(fs::read(&kept).unwrap(), b"old");
+        // A copy that can't be made is an error, not "nothing to keep": a folder stands where it goes.
+        fs::remove_file(&kept).unwrap();
+        fs::create_dir(&kept).unwrap();
+        assert!(keep_uninstaller(&dir).is_err());
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }
