@@ -17,7 +17,7 @@
 //! why an update that is cut short can't leave a half-updated app.
 
 mod apply;
-mod authenticode;
+pub(crate) mod authenticode;
 mod auto;
 pub(crate) mod curl;
 pub(crate) mod feed;

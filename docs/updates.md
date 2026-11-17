@@ -350,7 +350,8 @@ organisation is that text (case ignored, the whole name). It asks Windows'
 own PowerShell (`Get-AuthenticodeSignature`) right before it installs, and
 again before it opens an update's window. An unsigned file, a signature Windows
 doesn't trust or a file signed by anyone else is deleted from the download
-folder and not run, with the reason in the log. This also protects against a
+folder and not run, with the reason in the log. The online installer
+checks the file it downloads the same way before it installs from it. This also protects against a
 feed host that was taken over: it can name any file, but not sign as you.
 
 A plain name matches any certificate that has it as its common name or
