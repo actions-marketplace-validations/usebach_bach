@@ -140,8 +140,31 @@ Every setting is in the [config reference](docs/config.md).
 | `bach key` | Makes random access keys for an app with `[access]` (`--count N`). |
 | `bach inspect FILE` | Shows what a setup file or an installed `uninstall.exe` carries. |
 | `bach doctor` | Says whether everything a build needs is in place. |
+| `bach update [VERSION]` | Updates `bach` itself to the newest release (or exactly `VERSION`). `--check` only says whether a newer release exists, `--force` installs again. A copy managed by npm, Scoop, winget or Cargo gets the command that updates it instead. See [Keeping bach up to date](#keeping-bach-up-to-date). |
 | `bach feed FILE` | Writes the update feed for a (signed) setup file; the link comes from `bach.toml` (or `--url`), `--notes-file` says what's new, `--rollout 10` offers it to 10% of computers first, `--patch FILE` offers an update patch. |
 | `bach winget FILE --url URL` | Writes the manifests that list a setup file in winget. |
+
+## Keeping bach up to date
+
+When a newer release exists on GitHub, `bach` says so at the end of a command
+run in a terminal:
+
+```text
+A new version of Bach is available: 0.7.1 to 0.8.0.
+Update with: bach update
+```
+
+Run `bach update` to install it. It downloads the release for your system,
+checks it against the SHA-256 published next to it, and replaces `bach` (and
+the `bach-setup.exe` beside it) only when everything is in order; if a step
+fails, the old files are back. `bach update --check` only reports, and
+`bach update 0.7.1` installs exactly that version.
+
+The check runs in the background at most once a day, never delays a command,
+and is silent in CI, with `--json`, and when stderr isn't a terminal. Turn it
+off with `BACH_NO_UPDATE_CHECK=1`. A `bach` that npm, Scoop, winget or Cargo
+installed is theirs to update: `bach update` names the command, and the
+notice shows it too.
 
 ## Other ways to install
 

@@ -14,6 +14,7 @@
 //! bach choco FILE --url  write the Chocolatey package for a setup file
 //! bach version [TARGET]  show or raise the version in every file that has one
 //! bach workflow          add the one-click release workflow to a GitHub repository
+//! bach update [VERSION]  update bach itself to the newest release (or VERSION)
 //! ```
 
 /// `println!` for what a person reads: silent with `--json`, where the command
@@ -40,6 +41,7 @@ mod resources;
 mod runtime;
 mod sign;
 mod template;
+mod update;
 mod version;
 mod version_files;
 mod winget;
@@ -264,12 +266,32 @@ enum Command {
         #[arg(default_value = "bach.toml")]
         config: PathBuf,
     },
+    /// Update bach itself to the newest release on GitHub.
+    Update {
+        /// Install exactly this version, like 0.8.0 (an older one is fine).
+        version: Option<String>,
+        /// Only say whether a newer release exists; change nothing.
+        #[arg(long, conflicts_with_all = ["version", "force"])]
+        check: bool,
+        /// Install even if this version is already the one you have.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Looks up the newest release for the update notice (started by bach itself).
+    #[command(name = "update-refresh", hide = true)]
+    UpdateRefresh,
 }
 
 fn main() -> ExitCode {
+    update::tidy();
     let cli = Cli::parse();
     output::set_json(cli.json);
+    // `bach update` says what there is to say itself, and the background
+    // check must stay silent.
+    let notify = !matches!(cli.command, Command::Update { .. } | Command::UpdateRefresh);
     let result = match cli.command {
+        Command::Update { version, check, force } => update::command(update::Options { version: version.as_deref(), check, force }),
+        Command::UpdateRefresh => update::refresh(),
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
         Command::Check { config, app_version } => builder::check(&config, app_version.as_deref()),
         Command::Build { config, out, runtime, fast, app_version, online, key_file, sign, patch_from } => {
@@ -324,7 +346,7 @@ fn main() -> ExitCode {
             patch_url: patch_url.as_deref(),
         }),
     };
-    match result {
+    let code = match result {
         Ok(()) => {
             output::finish(None);
             ExitCode::SUCCESS
@@ -334,5 +356,9 @@ fn main() -> ExitCode {
             output::finish(Some(&err));
             ExitCode::FAILURE
         }
+    };
+    if notify {
+        update::notify();
     }
+    code
 }
