@@ -41,7 +41,9 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
 
     // An update cut short earlier is undone first, so what's on disk is
     // what the manifest lists.
-    super::place::recover(dir);
+    if let Some(stuck) = super::place::recover(dir).stuck {
+        return Err(super::recovery_failed(texts, &stuck));
+    }
     // The app's own "before removal" steps run while its files are still there.
     super::steps::run_removal_steps(manifest, dir, texts, report, 0.05);
     report(0.1, &texts.get(Key::step_removing));

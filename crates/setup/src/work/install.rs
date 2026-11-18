@@ -86,8 +86,11 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     }
     create_install_dir(dir, texts)?;
     check_elevated_folder(manifest, dir, texts)?;
-    // An update that was cut short earlier is undone first.
-    place::recover(dir);
+    // An update that was cut short earlier is undone first; if a file won't
+    // let go, nothing is written over it.
+    if let Some(stuck) = place::recover(dir).stuck {
+        return Err(super::recovery_failed(texts, &stuck));
+    }
     let program = manifest.executable_in(dir);
     ensure_closed(&program, texts)?;
     let previous = previous_install(dir, manifest);
@@ -152,8 +155,17 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     })();
     if let Err(problem) = later {
         crate::log::line("A step after the files were placed failed, so the earlier version is being put back.");
-        let staged = committed.rollback();
-        remove_empty_parents(dir, staged.iter().filter_map(|path| path.strip_prefix(dir).ok()).filter_map(|path| path.to_str()));
+        let rolled_back = committed.rollback();
+        if let Some(stuck) = &rolled_back.stuck {
+            crate::log::line(&format!(
+                "{} is held and couldn't be put back; the next run of setup finishes the undo.",
+                stuck.path.display()
+            ));
+        }
+        remove_empty_parents(
+            dir,
+            rolled_back.staged.iter().filter_map(|path| path.strip_prefix(dir).ok()).filter_map(|path| path.to_str()),
+        );
         restore_uninstaller(dir, uninstaller_before);
         if let Some(previous) = &previous {
             // What the failed update changed around the files goes back too.
@@ -314,7 +326,11 @@ pub fn is_running(program: &Path) -> bool {
 /// Undoes an update that was cut short in `dir` (see `place.rs`); how many
 /// files it put back or took away. Callers hold the setup lock.
 pub fn recover_interrupted(dir: &Path) -> usize {
-    place::recover(dir)
+    let recovery = place::recover(dir);
+    if let Some(stuck) = &recovery.stuck {
+        crate::log::line(&format!("Couldn't undo an update that was cut short: {} ({}).", stuck.path.display(), stuck.error));
+    }
+    recovery.changed
 }
 
 fn check_free_space(dir: &Path, needed: u64, texts: &Texts) -> Result<(), String> {

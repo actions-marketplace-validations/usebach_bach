@@ -220,6 +220,19 @@ fn failed(texts: &Texts, key: Key, path: &Path, err: &io::Error) -> String {
     format!("{} {}", texts.with(key, &[("path", &path)]), describe(err))
 }
 
+/// The sentence for an interrupted update that couldn't be undone because
+/// Windows won't let go of a file. Setup stops there: going on over a folder
+/// that is half one version and half another would only make it worse, and
+/// the update journal is kept so the next run can finish the undo.
+fn recovery_failed(texts: &Texts, stuck: &place::Stuck) -> String {
+    crate::log::line(&format!("Couldn't undo an update that was cut short: {}", stuck.path.display()));
+    if is_in_use_at(&stuck.error, &stuck.path) {
+        texts.with(Key::error_in_use, &[("path", &stuck.path.display().to_string())])
+    } else {
+        failed(texts, Key::error_write, &stuck.path, &stuck.error)
+    }
+}
+
 /// An OS error as a sentence, without the "(os error 5)" tail.
 fn describe(err: &io::Error) -> String {
     let text = err.to_string();
