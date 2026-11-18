@@ -202,7 +202,9 @@ instead of being cleaned up and sent as a different key.
 - **The PC is switched off, or setup crashes, in the middle:** files move in
   together, with a journal in the install folder. The next install, update
   or removal (and each background round) puts back what was half moved, and
-  new files are flushed to disk before the old ones go.
+  new files are flushed to disk before the old ones go. If a file can't be put
+  back because a program holds it, the journal stays and setup says which file
+  to free before it tries again.
 - **Something else holds a file** (a virus scanner just after the app closed):
   `--apply-update` tries up to three times, five seconds apart, and keeps the
   download for the next round if it still can't.

@@ -349,7 +349,8 @@ impl SetupView {
                 match event {
                     Event::Progress(progress, label) => {
                         let alive = this.update(cx, |this, cx| {
-                            this.stage = Stage::Working { progress, label: label.into() };
+                            let shown = never_back(&this.stage, progress);
+                            this.stage = Stage::Working { progress: shown, label: label.into() };
                             cx.notify();
                         });
                         if alive.is_err() {
@@ -463,6 +464,15 @@ fn needs_license(manifest: &Manifest, previous: Option<&Manifest>, mode: &Mode, 
     previous.and_then(|previous| previous.license(code)) != Some(license)
 }
 
+/// The bar only moves forward: a step that reports less than an earlier one
+/// changes the label, never takes the bar back.
+fn never_back(stage: &Stage, progress: f32) -> f32 {
+    match stage {
+        Stage::Working { progress: before, .. } => progress.max(*before),
+        _ => progress,
+    }
+}
+
 /// Installing into "D:\Apps" means "D:\Apps\Hello"; "D:\Apps\Hello" stays.
 fn install_folder(picked: PathBuf, folder_name: &str) -> PathBuf {
     let named_already = picked.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(folder_name));
@@ -485,6 +495,14 @@ mod tests {
             !can_close(&Stage::Working { progress: 0.3, label: "Copying".into() }),
             "stopping halfway is what the all-or-nothing install avoids"
         );
+    }
+
+    #[test]
+    fn the_progress_bar_never_runs_backwards() {
+        let at = |progress: f32| Stage::Working { progress, label: "Registering".into() };
+        assert_eq!(never_back(&at(0.97), 0.86), 0.97);
+        assert_eq!(never_back(&at(0.5), 0.6), 0.6);
+        assert_eq!(never_back(&Stage::Ready, 0.02), 0.02, "a new run starts from its own value");
     }
 
     #[test]
