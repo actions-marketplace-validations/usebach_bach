@@ -2,6 +2,8 @@ use super::*;
 use crate::i18n::{Key, ANY_LANGUAGE};
 use crate::manifest::Choice;
 
+mod style;
+
 fn project_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("bach-config-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

@@ -106,12 +106,12 @@ fn utf16(raw: &[u8]) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A minimal font: an sfnt header, a `name` table with the given
     /// records and an `OS/2` table with the weight.
-    fn font(names: &[(u16, u16, u16, u16, &str)], weight: u16) -> Vec<u8> {
+    pub(crate) fn font(names: &[(u16, u16, u16, u16, &str)], weight: u16) -> Vec<u8> {
         let mut strings = Vec::new();
         let mut records = Vec::new();
         for &(platform, encoding, language, id, text) in names {

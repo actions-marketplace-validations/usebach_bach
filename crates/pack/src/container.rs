@@ -31,7 +31,8 @@ pub const TRAILER_LEN: u64 = 40;
 const ALIGN: u64 = 8;
 /// A manifest this large is damage, not a real app.
 const MAX_MANIFEST: u64 = 64 << 20;
-const MAX_LOGO: u64 = 16 << 20;
+/// The most the look section (the logo, and a style's fonts and picture) may hold.
+pub const MAX_LOOK: u64 = 16 << 20;
 
 /// A byte range in the setup file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -113,7 +114,7 @@ pub fn read_manifest(file: &mut File, layout: &Layout) -> Result<Manifest> {
 
 /// Reads the logo's bytes (empty when there is none).
 pub fn read_logo(file: &mut File, layout: &Layout) -> Result<Vec<u8>> {
-    read_section(file, layout.logo, MAX_LOGO)
+    read_section(file, layout.logo, MAX_LOOK)
 }
 
 fn read_section(file: &mut File, section: Section, max: u64) -> Result<Vec<u8>> {
