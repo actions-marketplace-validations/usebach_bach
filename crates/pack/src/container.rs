@@ -4,9 +4,14 @@
 //! fixed-size trailer appended after its last byte:
 //!
 //! ```text
-//! [runtime exe] [archive] [logo] [manifest JSON] [padding] [trailer]
+//! [runtime exe] [archive] [look] [manifest JSON] [padding] [trailer]
 //! trailer = "BACHPACK" | format u32 | padding u32 | archive len u64 | logo len u64 | manifest len u64
 //! ```
+//!
+//! The look section is the logo, followed by the fonts and background
+//! picture of a `[style]`; the manifest says how long those are, so a
+//! section without them is the logo alone, as it always was. (The trailer
+//! still calls its length the logo length.)
 //!
 //! Windows ignores bytes after an executable's last section, so the file
 //! still runs as the runtime, which then finds its payload from the end.
@@ -112,9 +117,17 @@ pub fn read_manifest(file: &mut File, layout: &Layout) -> Result<Manifest> {
     Ok(manifest)
 }
 
-/// Reads the logo's bytes (empty when there is none).
+/// Reads the look section whole: the logo, then any fonts and picture a
+/// style ships (see [`Look::split_section`](crate::manifest::Look::split_section)).
+/// Empty when there is none.
 pub fn read_logo(file: &mut File, layout: &Layout) -> Result<Vec<u8>> {
     read_section(file, layout.logo, MAX_LOOK)
+}
+
+/// Reads the look section split into the logo and a style's files.
+pub fn read_look(file: &mut File, layout: &Layout, manifest: &Manifest) -> Result<crate::manifest::LookBytes> {
+    let bytes = read_logo(file, layout)?;
+    manifest.look.split_section(bytes).map_err(|reason| anyhow::anyhow!("the setup file's look is damaged: {reason}"))
 }
 
 fn read_section(file: &mut File, section: Section, max: u64) -> Result<Vec<u8>> {
