@@ -13,7 +13,8 @@
 //!   the exit code says how it went.
 //! - `--preview`: the windows, with the work only pretended.
 //! - `--theme light|dark|system` and `--lang <code>` override the payload's
-//!   theme and the user's language.
+//!   theme and the user's language; `--style <name>` tries another
+//!   built-in style in a preview.
 //! - A setup file with an access key asks for it. `--key-file FILE` or the
 //!   `BACH_ACCESS_KEY` environment variable give it up front instead (never
 //!   an argument, which other programs can read).
@@ -43,6 +44,7 @@ pub const HELP: &str = "Setup file and uninstall.exe options
   --lang CODE             Use this language (en, de, fr, ...) instead of Windows'.
   --theme light|dark|system
   --preview               Show the window; nothing is installed or removed.
+  --style NAME            With --preview: try another built-in style (bach, fluent, arcade, ...).
 
 uninstall.exe only
   --check-update [--json] Say whether a newer version is out (exit code 10: yes, 0: up to date).
@@ -129,6 +131,8 @@ pub struct Args {
     pub launch: bool,
     pub theme: Option<Theme>,
     pub lang: Option<String>,
+    /// `--style NAME`: a built-in style to preview instead of the payload's.
+    pub style: Option<String>,
 }
 
 impl Args {
@@ -195,6 +199,9 @@ impl Args {
             };
             parsed.set(flag.names[0], value)?;
         }
+        if parsed.style.is_some() && !parsed.preview {
+            return Err("--style only works with --preview: a setup file always wears the style it was built with.".into());
+        }
         Ok(parsed)
     }
 
@@ -229,6 +236,13 @@ impl Args {
             }
             "theme" => self.theme = Some(Theme::parse(&text).ok_or_else(|| format!("--theme is light, dark or system, not \"{text}\"."))?),
             "lang" => self.lang = Some(text),
+            "style" => {
+                let Some(style) = bach_pack::style::preset(&text) else {
+                    let names: Vec<&str> = bach_pack::style::PRESETS.iter().map(|preset| preset.name).collect();
+                    return Err(format!("--style is one of {}, not \"{text}\".", names.join(", ")));
+                };
+                self.style = Some(style.name.to_string());
+            }
             "channel" => {
                 let channel = text.trim().to_ascii_lowercase();
                 if !["beta", "stable", "show"].contains(&channel.as_str()) {
@@ -284,6 +298,7 @@ const FLAGS: &[Flag] = &[
     valued(&["wait-for"]),
     valued(&["theme"]),
     valued(&["lang"]),
+    valued(&["style"]),
     valued(&["channel"]),
 ];
 
@@ -472,6 +487,7 @@ mod tests {
         assert_eq!(parsed.lang.as_deref(), Some("de"));
         assert!(args("/S").silent);
         assert!(args("--preview --theme dark").theme == Some(Theme::Dark));
+        assert_eq!(args("--preview --style Arcade").style.as_deref(), Some("arcade"));
     }
 
     #[test]
@@ -488,6 +504,8 @@ mod tests {
         assert!(mistake("--silent stray").contains("stray"));
         assert!(mistake("--silent=yes").contains("doesn't take a value"));
         assert!(mistake("--theme purple").contains("light, dark or system"));
+        assert!(mistake("--preview --style vaporwave").contains("bach, fluent"));
+        assert!(mistake("--style arcade").contains("only works with --preview"));
         assert!(mistake("/x").contains("/x"));
     }
 
@@ -549,6 +567,7 @@ mod tests {
             "--lang",
             "--theme",
             "--preview",
+            "--style",
             "--check-update",
             "--download-update",
             "--apply-update",
