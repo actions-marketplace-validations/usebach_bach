@@ -23,6 +23,9 @@ pub enum LookFileKind {
     /// The window's background picture.
     BackgroundPng,
     BackgroundJpeg,
+    /// The picture in a side header's panel (`[layout] panel_image`).
+    PanelPng,
+    PanelJpeg,
 }
 
 /// The look section split into its parts.
@@ -32,6 +35,8 @@ pub struct LookBytes {
     pub fonts: Vec<Vec<u8>>,
     /// The background picture, and whether it's a JPEG (else a PNG).
     pub background: Option<(Vec<u8>, bool)>,
+    /// The side panel's picture, likewise.
+    pub panel: Option<(Vec<u8>, bool)>,
 }
 
 impl Look {
@@ -52,6 +57,8 @@ impl Look {
                 LookFileKind::Font => parts.fonts.push(bytes),
                 LookFileKind::BackgroundPng => parts.background = Some((bytes, false)),
                 LookFileKind::BackgroundJpeg => parts.background = Some((bytes, true)),
+                LookFileKind::PanelPng => parts.panel = Some((bytes, false)),
+                LookFileKind::PanelJpeg => parts.panel = Some((bytes, true)),
             }
         }
         Ok(parts)

@@ -194,8 +194,11 @@ pub struct Look {
     /// The developer's changes to it (`[style]`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom: Option<crate::style::Custom>,
-    /// Files stored after the logo in the look section, in order: fonts
-    /// and a background image. The logo is what comes before them.
+    /// How the window is arranged, sized and animated (`[layout]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<crate::style::layout::Layout>,
+    /// Files stored after the logo in the look section, in order: fonts,
+    /// a background picture and a side panel's picture. The logo is what comes before them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<LookFile>,
 }

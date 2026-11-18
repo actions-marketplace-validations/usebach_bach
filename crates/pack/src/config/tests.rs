@@ -2,6 +2,7 @@ use super::*;
 use crate::i18n::{Key, ANY_LANGUAGE};
 use crate::manifest::Choice;
 
+mod layout;
 mod style;
 
 fn project_dir(name: &str) -> PathBuf {

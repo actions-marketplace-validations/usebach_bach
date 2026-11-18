@@ -8,12 +8,14 @@
 //!
 //! - [`presets`]: the built-in styles.
 //! - [`font`]: the family name and weight inside a font file.
+//! - [`layout`]: `[layout]`, the window's size, arrangement and motion.
 
 use serde::{Deserialize, Serialize};
 
 use crate::manifest::{Look, Theme};
 
 pub mod font;
+pub mod layout;
 mod presets;
 
 pub use presets::PRESETS;
@@ -94,6 +96,8 @@ pub struct Palette {
     pub error: Option<Color>,
     /// The Bach mark and one-colour (SVG) logos; the text colour when None.
     pub mark: Option<Color>,
+    /// A side header's panel (`[layout] header`); derived when None.
+    pub panel: Option<Color>,
     /// Hand-tuned tokens the runtime otherwise derives.
     pub well: Option<Color>,
     pub track: Option<Color>,
@@ -115,6 +119,7 @@ impl Palette {
         border: None,
         error: None,
         mark: None,
+        panel: None,
         well: None,
         track: None,
         input: None,
@@ -127,7 +132,7 @@ impl Palette {
         macro_rules! take {
             ($($field:ident),*) => { $( if other.$field.is_some() { self.$field = other.$field; } )* };
         }
-        take!(background, background_end, card, text, muted_text, accent, accent_text, accent_hover, border, error, mark);
+        take!(background, background_end, card, text, muted_text, accent, accent_text, accent_hover, border, error, mark, panel);
         take!(well, track, input, ring, hover);
         // A new background without its own gradient end is a solid window.
         if other.background.is_some() && other.background_end.is_none() {
@@ -237,6 +242,8 @@ pub struct Colors {
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mark: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel: Option<String>,
 }
 
 impl Colors {
@@ -258,6 +265,7 @@ impl Colors {
             border: color(&self.border),
             error: color(&self.error),
             mark: color(&self.mark),
+            panel: color(&self.panel),
             ..Palette::EMPTY
         }
     }
@@ -277,7 +285,7 @@ pub struct Custom {
     pub radius: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub button_radius: Option<u8>,
-    /// How strongly the background image shows, 0 to 1.
+    /// How strongly the background (and panel) picture shows, 0 to 1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_image_opacity: Option<f32>,
     #[serde(default, skip_serializing_if = "Colors::is_empty")]

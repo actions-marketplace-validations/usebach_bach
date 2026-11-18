@@ -8,6 +8,7 @@
 mod extras;
 mod gather;
 mod icon;
+mod layout;
 mod options;
 mod secrets;
 mod style;
@@ -75,6 +76,7 @@ struct File {
     access: Option<extras::AccessSection>,
     signing: Option<SigningSection>,
     style: Option<style::StyleSection>,
+    layout: Option<layout::LayoutSection>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -287,7 +289,18 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         }
     }
 
-    let styled = style::style(file.installer.style.as_deref(), file.style.as_ref(), file.installer.accent.as_deref(), root)?;
+    let mut styled = style::style(file.installer.style.as_deref(), file.style.as_ref(), file.installer.accent.as_deref(), root)?;
+    let arranged = match &file.layout {
+        None => None,
+        Some(section) => {
+            let (arranged, picture) = layout::layout(section, root)?;
+            if let Some((kind, bytes)) = picture {
+                styled.files.push(manifest::LookFile { kind, len: bytes.len() as u64 });
+                styled.bytes.push(bytes);
+            }
+            Some(arranged).filter(|arranged| !arranged.is_empty())
+        }
+    };
     let theme = match &file.installer.theme {
         None => styled.theme.unwrap_or_default(),
         Some(value) => manifest::Theme::parse(value)
@@ -328,7 +341,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     let look_size = styled.bytes.iter().chain(&logo).map(|bytes| bytes.len() as u64).sum::<u64>();
     if look_size > crate::container::MAX_LOOK {
         bail!(
-            "the logo and the fonts and picture in [style] come to {} MB; keep them under {} MB together",
+            "the logo and the fonts and pictures in [style] and [layout] come to {} MB; keep them under {} MB together",
             look_size.div_ceil(1 << 20),
             crate::container::MAX_LOOK >> 20
         );
@@ -474,6 +487,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
             logo_aspect,
             style: styled.name,
             custom: styled.custom,
+            layout: arranged,
             files: styled.files,
         },
         files,
