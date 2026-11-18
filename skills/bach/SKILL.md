@@ -73,9 +73,10 @@ next to it (DLLs, resources). Find or produce that folder first, for example:
 ## 3. Write bach.toml
 
 Run `bach init` (it won't overwrite an existing file). In a Rust, Tauri,
-Wails, Electron, .NET, Flutter, PyInstaller or Qt project it fills in name, version, publisher, the program,
+Wails, Electron, .NET, Flutter, PyInstaller, Qt, Godot or Unity project it fills in name, version, publisher, the program,
 the build folder, leftovers to exclude and needed runtimes (WebView2, .NET)
-from the project's own files; check them, then edit. Minimal by hand:
+from the project's own files, and suggests an `installer.style` that suits it;
+check them, then edit. Minimal by hand:
 
 ```toml
 [app]
@@ -116,6 +117,7 @@ description = "One line about the app."   # subtitle on the first page
 icon = "assets/app.ico"                   # setup file icon; also the logo if it holds a PNG
 
 [installer]
+style = "fluent"                          # the window's look; `bach styles` lists all 15
 accent = "#2563eb"
 logo = "assets/logo.png"                  # .svg (one colour), .png, or "none"
 languages = ["en", "de"]                  # default: all 19; one entry = always that language
@@ -128,6 +130,13 @@ add_to_path = "never"                     # "always"/true for CLI tools
 path_folder = "bin"
 change_folder = true
 open_button = true
+
+[style]                                   # your own look on top of installer.style
+font = "fonts/MyFont.ttf"                 # or a font Windows has, like "Segoe UI"
+background = ["#1d0b36", "#0a0416"]       # one colour, or a top-to-bottom gradient
+radius = 12                               # card corners, 0 to 24
+[style.dark]
+card = "#ffffff0b"                        # any colour per mode; [style] sets both modes
 
 [[components]]                            # optional parts, one box each
 id = "samples"
@@ -195,6 +204,7 @@ refused; `[text]` keys must be real text names (listed in docs/config.md).
 bach check                 # validates and lists every file; prints warnings
 bach preview               # opens the real window; installs nothing (Windows only)
 bach preview --lang de --theme dark
+bach preview --style arcade  # try another built-in style; bach styles lists them
 bach preview --uninstall
 bach watch                 # for people: like preview, reopens it on every save; never exits, so agents must not run it
 bach build                 # writes dist/<name>-Setup-<version>.exe

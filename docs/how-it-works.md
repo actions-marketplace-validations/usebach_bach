@@ -7,13 +7,17 @@
 appends your app to its end:
 
 ```
-[bach-setup.exe] [archive] [logo] [manifest] [padding] [trailer]
+[bach-setup.exe] [archive] [look] [manifest] [padding] [trailer]
 ```
 
 - **archive**: every file from `[files] source` in one zstd stream.
-- **logo**: the bytes of `[installer] logo` (or the PNG inside `app.icon`), if any.
+- **look**: the bytes of `[installer] logo` (or the PNG inside `app.icon`), if
+  any, followed by the font files and the background picture `[style]` ships.
+  The manifest lists the lengths of those files, and what comes before them is
+  the logo, so a setup file without them reads exactly as before.
 - **manifest**: JSON describing the app: name, version, publisher, the files
-  and their sizes, the options, components, texts and license, the look.
+  and their sizes, the options, components, texts and license, the look
+  (the style's name and the developer's changes to it).
 
 The build reads every file once. Each file's SHA-256 is taken from the same
 bytes that go into the archive, and the manifest, which sits behind the archive,
