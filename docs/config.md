@@ -1146,6 +1146,10 @@ the exit code. `--help` always works, whatever else is on the line.
 | `--dir PATH` | Install here instead of the default folder (a first install, when `change_folder` allows it). |
 | `--with a,b` / `--without a,b` | Tick or untick options: `desktop-shortcut`, `start-menu`, `autostart`, `path`, `auto-update`, and component ids. Only options the install page would offer. |
 | `--lang CODE` | The language for messages, instead of Windows' own. |
+| `--theme light\|dark\|system` | The window's theme for this run, instead of `installer.theme`. |
+| `--preview` | Shows the window and pretends every step: nothing is installed or removed. `bach preview` runs a setup file this way. |
+| `--style NAME` | With `--preview`: shows another built-in [style](#style). A setup file otherwise always wears the style it was built with, so without `--preview` it is a mistake (exit code 2). |
+| `--layout NAME` | With `--preview`: shows another built-in [layout](#layout) in place of the setup file's `[layout]`. Without `--preview` it is a mistake too. |
 | `--allow-downgrade` | Install over a newer version (refused otherwise, with exit code 1). |
 | `--skip-requirements` | A silent install goes on although a [`[[requirements]]`](#requirements) entry isn't detected (it stops with exit code 1 otherwise). Setup says which ones, in the terminal and in the log, and that the app may not start without them. Use it when the detection is wrong for a computer, for example a .NET runtime on an unusual drive. |
 | `--repair` | With `--silent`, run the setup file of the version that is installed with this flag, and setup checks every file against the SHA-256 in its manifest and writes back the ones that are missing or changed, then redoes shortcuts and registration. Nothing else in the folder and no user data is touched. A different version, or nothing installed, stops with exit code 1 and says so. The log lists what was written. |

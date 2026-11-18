@@ -135,7 +135,7 @@ Every setting is in the [config reference](docs/config.md).
 | `bach version [patch\|minor\|major\|X.Y.Z]` | Lists the version in every file that has one, or raises it in all of them at once: `bach.toml`, `package.json` and its lock file, `Cargo.toml` and `Cargo.lock`, Tauri's config, `.csproj`. |
 | `bach check` | Validates the config and lists every file and option, with warnings. `--strict` (or `BACH_STRICT=1`) turns a warning into an error, so a pipeline can't ship what check complains about. |
 | `bach preview` | Opens the window without installing; `--uninstall`, `--theme dark`, `--lang de`, `--style arcade` and `--layout showcase` (try another style or layout without changing `bach.toml`). |
-| `bach watch` | Like `bach preview`, and opens the window again every time you save `bach.toml` (or the logo, license or text files it names). A mistake is printed and the window stays as it was. |
+| `bach watch` | Like `bach preview`, and opens the window again every time you save `bach.toml` (or a file it names: the logo, license, texts, fonts or pictures). A mistake is printed and the window stays as it was. |
 | `bach build` | Writes the setup file; `--fast` compresses less, `--out` picks the path, `--app-version v1.4.0` sets the version (from a release tag), `--online` also writes the online installer, `--key-file` gives the access key, `--patch-from OLD.exe` also writes an update patch with only the files that changed, `--strict` stops before building when `bach check` would warn. |
 | `bach sign FILE` | Signs a setup file with the program `[signing]` names; `bach build --sign` does it for the files it writes. Optional. |
 | `bach key` | Makes random access keys for an app with `[access]` (`--count N`). |

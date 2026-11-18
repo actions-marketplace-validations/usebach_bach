@@ -110,7 +110,8 @@ fn wait_for_change(files: &[PathBuf], before: &Fingerprint) {
 }
 
 /// The config and every file it names: any text in it that is a path to a file
-/// next to it (the logo, the license, a text file for the window). Folders and
+/// next to it (the logo, the license, a text file for the window, a style's
+/// fonts and pictures, a layout's panel picture). Folders and
 /// the program's own files are not watched; the preview doesn't show them.
 pub(crate) fn watched_files(config: &Path) -> Vec<PathBuf> {
     let mut files = vec![config.to_path_buf()];
@@ -177,6 +178,8 @@ mod tests {
         std::fs::write(dir.join("assets/logo.svg"), "<svg/>").unwrap();
         std::fs::write(dir.join("LICENSE.txt"), "MIT").unwrap();
         std::fs::write(dir.join("LIZENZ.txt"), "MIT").unwrap();
+        std::fs::write(dir.join("assets/Outfit.ttf"), "font").unwrap();
+        std::fs::write(dir.join("assets/hero.jpg"), "picture").unwrap();
         let config = dir.join("bach.toml");
         std::fs::write(
             &config,
@@ -190,6 +193,12 @@ source = "assets"
 [installer]
 logo = "assets/logo.svg"
 license = { en = "LICENSE.txt", de = "./LIZENZ.txt" }
+
+[style]
+font = ["assets/Outfit.ttf"]
+
+[layout]
+panel_image = "assets/hero.jpg"
 "#,
         )
         .unwrap();
@@ -197,7 +206,8 @@ license = { en = "LICENSE.txt", de = "./LIZENZ.txt" }
         let names: Vec<String> = watched.iter().map(|path| path.strip_prefix(&dir).unwrap().to_string_lossy().replace('\\', "/")).collect();
         assert_eq!(names[0], "bach.toml", "the config comes first");
         // `./LIZENZ.txt` is the same file as `LIZENZ.txt` once Rust has read the path.
-        for expected in ["assets/logo.svg", "LICENSE.txt", "LIZENZ.txt"] {
+        // A style's font files and a layout's picture reload the window too.
+        for expected in ["assets/logo.svg", "LICENSE.txt", "LIZENZ.txt", "assets/Outfit.ttf", "assets/hero.jpg"] {
             assert!(names.iter().any(|name| name == expected), "{expected} in {names:?}");
         }
         assert!(!names.iter().any(|name| name == "assets"), "a folder isn't watched: {names:?}");

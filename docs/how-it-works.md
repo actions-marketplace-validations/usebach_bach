@@ -12,7 +12,8 @@ appends your app to its end:
 
 - **archive**: every file from `[files] source` in one zstd stream.
 - **look**: the bytes of `[installer] logo` (or the PNG inside `app.icon`), if
-  any, followed by the font files and the background picture `[style]` ships.
+  any, followed by the font files and the background picture `[style]` ships
+  and the panel picture of `[layout]`.
   The manifest lists the lengths of those files, and what comes before them is
   the logo, so a setup file without them reads exactly as before.
 - **manifest**: JSON describing the app: name, version, publisher, the files
