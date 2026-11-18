@@ -114,6 +114,26 @@
             "dark"
           ]
         },
+        "style": {
+          "enum": [
+            "bach",
+            "fluent",
+            "aurora",
+            "terminal",
+            "arcade",
+            "forge",
+            "lagoon",
+            "pixel",
+            "midnight",
+            "paper",
+            "ember",
+            "forest",
+            "blossom",
+            "mono",
+            "frost"
+          ],
+          "description": "The window's built-in style; bach styles shows each. Default bach. [style] changes its fonts, colours, corners and background."
+        },
         "accent": {
           "type": "string",
           "pattern": "^#?[0-9a-fA-F]{6}$"
@@ -289,6 +309,259 @@
             "machine"
           ],
           "description": "user (default): installs for whoever runs setup, no administrator rights. machine: installs for every user into Program Files; Windows asks for administrator rights once."
+        }
+      }
+    },
+    "style": {
+      "type": "object",
+      "description": "Optional. Your own fonts, colours, corners and background on top of installer.style. Colours here apply to both modes; [style.light] and [style.dark] win.",
+      "additionalProperties": false,
+      "properties": {
+        "font": {
+          "description": "A font family Windows has (\"Segoe UI\"), a .ttf or .otf file, or a list of files of one family.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
+          ]
+        },
+        "heading_font": {
+          "description": "The headings' font; default the text's font, or the style's heading font.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
+          ]
+        },
+        "heading_weight": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 900,
+          "description": "400 regular, 600 semibold, 700 bold."
+        },
+        "radius": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 24,
+          "description": "Corners of the card, the license box and the key field, in points."
+        },
+        "button_radius": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16,
+          "description": "Corners of buttons, icon wells and checkboxes; 16 makes pill buttons."
+        },
+        "background_image": {
+          "type": "string",
+          "description": "A PNG or JPEG drawn over the background, covering the window."
+        },
+        "background_image_opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "How strongly the picture shows. Default 0.35."
+        },
+        "background": {
+          "description": "The window's colour, or two colours for a gradient from top to bottom.",
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}$"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^#?[0-9a-fA-F]{6}$"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          ]
+        },
+        "card": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "The card of choices, the license box and the key field. #rrggbbaa lets the background show through."
+        },
+        "text": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "Headings and labels."
+        },
+        "muted_text": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "Descriptions, the subtitle and the footer."
+        },
+        "accent": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "Buttons, the progress bar and ticked boxes."
+        },
+        "accent_text": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "Text on the accent. Default black or white, whichever reads."
+        },
+        "border": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "The card's edges and its dividers."
+        },
+        "error": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "The remove button and failure icons."
+        },
+        "mark": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "The Bach mark and one-colour (SVG) logos."
+        },
+        "light": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Colours for light mode only.",
+          "properties": {
+            "background": {
+              "description": "The window's colour, or two colours for a gradient from top to bottom.",
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^#?[0-9a-fA-F]{6}$"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^#?[0-9a-fA-F]{6}$"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              ]
+            },
+            "card": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The card of choices, the license box and the key field. #rrggbbaa lets the background show through."
+            },
+            "text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Headings and labels."
+            },
+            "muted_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Descriptions, the subtitle and the footer."
+            },
+            "accent": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Buttons, the progress bar and ticked boxes."
+            },
+            "accent_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Text on the accent. Default black or white, whichever reads."
+            },
+            "border": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The card's edges and its dividers."
+            },
+            "error": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The remove button and failure icons."
+            },
+            "mark": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The Bach mark and one-colour (SVG) logos."
+            }
+          }
+        },
+        "dark": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Colours for dark mode only.",
+          "properties": {
+            "background": {
+              "description": "The window's colour, or two colours for a gradient from top to bottom.",
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^#?[0-9a-fA-F]{6}$"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^#?[0-9a-fA-F]{6}$"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              ]
+            },
+            "card": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The card of choices, the license box and the key field. #rrggbbaa lets the background show through."
+            },
+            "text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Headings and labels."
+            },
+            "muted_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Descriptions, the subtitle and the footer."
+            },
+            "accent": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Buttons, the progress bar and ticked boxes."
+            },
+            "accent_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Text on the accent. Default black or white, whichever reads."
+            },
+            "border": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The card's edges and its dividers."
+            },
+            "error": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The remove button and failure icons."
+            },
+            "mark": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The Bach mark and one-colour (SVG) logos."
+            }
+          }
         }
       }
     },

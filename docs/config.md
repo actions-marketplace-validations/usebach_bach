@@ -10,6 +10,7 @@ default, so a five-line config already builds a complete installer.
 - [`[app]`](#app): name, version, publisher, the program
 - [`[files]`](#files): what gets installed
 - [`[installer]`](#installer): look, languages, license and options
+- [`[style]`](#style): the window's style, and your own fonts, colours and background
 - [`[[components]]`](#components): optional parts the user can leave out
 - [`[[protocols]]`](#protocols): links like `myapp://` that open your app
 - [`[[file_types]]`](#file_types): files your app opens
@@ -103,7 +104,8 @@ The source folder may not contain symbolic links or a file named
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `output` | `dist/{name}-Setup-{version}.exe` | Where the setup file goes. `{name}`, `{version}` and `{id}` are filled in. |
-| `theme` | `system` | `system` follows Windows' light or dark setting, live. `light` or `dark` fixes it. |
+| `theme` | `system` | `system` follows Windows' light or dark setting, live. `light` or `dark` fixes it. A style that looks best dark (see [`[style]`](#style)) starts dark unless you set this. |
+| `style` | `bach` | The window's built-in style, like `"fluent"` or `"arcade"`: its colours, fonts and corners. See [`[style]`](#style) for all 15 and how to change them. |
 | `accent` | none (black / white) | A colour like `#2563eb` for buttons, the progress bar and ticked boxes. The button text picks black or white for contrast. |
 | `logo` | your icon, else the Bach mark | An `.svg` or `.png` shown at the top of the window, or `"none"` for no logo at all. An SVG is drawn in one colour that follows the theme; use a PNG for a full-colour logo. A wide PNG (a wordmark) keeps its shape. Give a PNG twice the size it's shown at for sharp results. |
 | `logo_height` | `56` | The logo's height in points, 32 to 96. |
@@ -252,6 +254,104 @@ Built-in languages: `en` English, `de` Deutsch, `nl` Nederlands, `fr`
 Français, `es` Español, `it` Italiano, `pt` Português (Brazilian), `pl` Polski, `ru`
 Русский, `tr` Türkçe, `ja` 日本語, `ko` 한국어, `zh` 简体中文, `zh-tw` 繁體中文 (Traditional Chinese, for Taiwan, Hong Kong and Macau; `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant` tags pick it, and `zh-CN`, `zh-SG` and `zh-Hans` pick `zh`), `sv` Svenska, `cs` Čeština, `vi` Tiếng Việt, `id`
 Bahasa Indonesia, `hi` हिन्दी.
+
+## [style]
+
+The window comes in 15 built-in styles. Pick one with `installer.style`, then
+change whatever you like in `[style]`: the font, every colour, the corners,
+a gradient or a picture behind the window.
+
+```toml
+[installer]
+style = "arcade"
+```
+
+`bach styles` lists them, and `bach preview --style NAME` shows one on your
+own app without changing `bach.toml`.
+
+| Style | What it looks like | Suits |
+| --- | --- | --- |
+| `bach` | Bach's own look: white or graphite, black buttons, Inter. The default. | any app |
+| `fluent` | Like part of Windows 11: Segoe UI, a soft grey window, white cards, Windows blue. | .NET, WinUI, WPF, Qt and Tauri apps that should feel native |
+| `aurora` | A soft violet-to-blue wash, frosted cards and pill buttons. | Tauri, Electron, Wails and Flutter apps |
+| `terminal` | A monospaced face (Cascadia Mono), near-black and a green prompt. Dark by default. | command-line tools |
+| `arcade` | Hot pink on deep violet, with a bold condensed heading. Dark by default. | indie and web-tech games |
+| `forge` | Brushed steel and molten orange, with tight corners. Dark by default. | 3D games made with Unity or Unreal |
+| `lagoon` | Calm sea blue on a pale wash, rounded and friendly. | games and tools made with Godot |
+| `pixel` | Square corners, a monospaced face and a warm retro palette. Dark by default. | pixel-art and retro games |
+| `midnight` | Deep navy and electric blue. | developer tools |
+| `paper` | Warm paper, a serif heading (Georgia) and a terracotta accent. | writing, reading and note apps |
+| `ember` | Charcoal with a warm amber glow. Dark by default. | audio, video and creative tools |
+| `forest` | Quiet greens, white cards and pill buttons. | productivity, health and outdoor apps |
+| `blossom` | Soft pink, generous corners and pill buttons. | friendly consumer apps |
+| `mono` | Pure black and white, hard edges and a heavy heading. | strict, plain utilities |
+| `frost` | Cool blue-grey, calm and quiet. | system utilities, backup and sync tools |
+
+Every style has a light and a dark version and follows `installer.theme`;
+the ones marked "dark by default" start dark when `theme` isn't set. Each
+uses fonts every Windows 10 and 11 PC has (Segoe UI, Cascadia Mono or
+Consolas, Bahnschrift, Georgia) and falls back to Inter, which every setup
+file carries, when one is missing. `bach init` suggests a style for the kind
+of project it finds.
+
+### Your own look
+
+Everything in `[style]` is optional and goes on top of the chosen style.
+Colours set in `[style]` apply in light and dark mode; `[style.light]` and
+`[style.dark]` set them for one mode and win.
+
+```toml
+[installer]
+style = "aurora"
+
+[style]
+font = "fonts/Outfit.ttf"       # or a font Windows has, like "Segoe UI"
+heading_weight = 700
+radius = 20
+button_radius = 16              # pill buttons
+accent = "#22d3ee"
+background_image = "art/backdrop.png"
+background_image_opacity = 0.4
+
+[style.dark]
+background = ["#1d0b36", "#0a0416"]   # a gradient from top to bottom
+card = "#ffffff0b"                    # the window shows through
+
+[style.light]
+background = "#ffffff"
+text = "#1b1b1b"
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `font` | the style's | The text's font: a family Windows has, like `"Segoe UI"`, or a `.ttf`/`.otf` file in your project, which ships in the setup file. A list of files (`["fonts/Nunito-Regular.ttf", "fonts/Nunito-Bold.ttf"]`) ships several cuts of one family. A family the PC doesn't have falls back to the style's font, then Inter. Web fonts (`.woff`, `.woff2`) and collections (`.ttc`) aren't supported. Up to 4 MB per file. |
+| `heading_font` | `font`, else the style's | The headings' font, in the same forms as `font`. |
+| `heading_weight` | the style's, or the heaviest font file's | 100 to 900: 400 regular, 600 semibold, 700 bold. |
+| `radius` | the style's | Corners of the card, the license box and the key field, 0 (square) to 24 points. |
+| `button_radius` | the style's | Corners of buttons, icon wells and checkboxes, 0 to 16 points. 16 makes pill buttons. |
+| `background_image` | none | A PNG or JPEG drawn over the background colour, covering the window (up to 8 MB). Pick a calm picture: the text sits on it. |
+| `background_image_opacity` | `0.35` | How strongly the picture shows, 0 to 1. |
+| `background` | the style's | The window's colour, or two colours for a gradient from top to bottom. Opaque only. |
+| `card` | the style's | The card of choices, the license box and the key field. `#rrggbbaa` lets the background show through. |
+| `text` | the style's | Headings and labels. |
+| `muted_text` | the style's | Descriptions, the subtitle and the footer. |
+| `accent` | the style's | Buttons, the progress bar and ticked boxes. Same as `installer.accent`; set one of them, not both. |
+| `accent_text` | black or white | Text on the accent; by default whichever reads. |
+| `border` | the style's | The card's edges and its dividers. |
+| `error` | the style's | The remove button and failure icons. |
+| `mark` | the text colour or the accent | The Bach mark and one-colour (SVG) logos. Styles that colour the mark keep it in the accent, also when you change the accent. |
+
+Colours are `#rrggbb`, or `#rrggbbaa` to let what's behind show through.
+The quieter colours (icon wells, hover washes, the progress track, checkbox
+edges) are mixed from these, so the window stays consistent whatever you set.
+Fonts and the picture count toward the 16 MB the logo, fonts and picture may
+take together. `bach check` shows the look in one line:
+
+```console
+$ bach check
+  ...
+  Look         arcade style, dark, font Outfit, own colours, own corners, 1 font file, background picture
+```
 
 ## [[components]]
 

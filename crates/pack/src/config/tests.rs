@@ -625,8 +625,8 @@ github = \"me/hello\"
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// The editor schema (schema/bach.schema.json) knows every text and
-/// language, so autocompletion never misses one.
+/// The editor schema (schema/bach.schema.json) knows every text, language
+/// and style, so autocompletion never misses one.
 #[test]
 fn the_schema_knows_every_text() {
     let schema: serde_json::Value = serde_json::from_str(include_str!("../../../../schema/bach.schema.json")).unwrap();
@@ -636,6 +636,14 @@ fn the_schema_knows_every_text() {
     }
     let languages = schema["properties"]["installer"]["properties"]["languages"]["items"]["enum"].as_array().unwrap();
     assert_eq!(languages.len(), crate::i18n::LANGUAGES.len());
+    let styles: Vec<&str> = schema["properties"]["installer"]["properties"]["style"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|name| name.as_str())
+        .collect();
+    let presets: Vec<&str> = crate::style::PRESETS.iter().map(|preset| preset.name).collect();
+    assert_eq!(styles, presets, "schema/bach.schema.json lists every built-in style");
 }
 
 #[test]
@@ -990,6 +998,8 @@ fn the_docs_and_the_schema_name_the_same_settings() {
         !["silent", "dir", "with", "without", "lang", "log", "theme", "preview", "json", "launch", "update", "uninstall"]
             .contains(&name.as_str())
     });
+    // The table of built-in styles names values of installer.style.
+    unknown.retain(|name| crate::style::preset(name).is_none());
     assert!(unknown.is_empty(), "named in docs/config.md tables but not in the schema: {unknown:?}");
 }
 
