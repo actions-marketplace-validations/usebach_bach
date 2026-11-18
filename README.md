@@ -130,7 +130,7 @@ Every setting is in the [config reference](docs/config.md).
 
 | Command | What it does |
 | --- | --- |
-| `bach init` | Writes a starter `bach.toml`; fills it in for Rust, Tauri, Electron, .NET, Godot and Unity projects, and suggests a style that suits them. In a GitHub checkout it also writes the release workflow (`--no-workflow` skips that). |
+| `bach init` | Writes a starter `bach.toml`; fills it in for Rust, Tauri, Electron, .NET, Godot and Unity projects. In a GitHub checkout it also writes the release workflow (`--no-workflow` skips that). |
 | `bach workflow` | Adds, or updates, the one-click release workflow in `.github/workflows/bach-release.yml`. See [releasing](docs/releasing.md). |
 | `bach version [patch\|minor\|major\|X.Y.Z]` | Lists the version in every file that has one, or raises it in all of them at once: `bach.toml`, `package.json` and its lock file, `Cargo.toml` and `Cargo.lock`, Tauri's config, `.csproj`. |
 | `bach check` | Validates the config and lists every file and option, with warnings. `--strict` (or `BACH_STRICT=1`) turns a warning into an error, so a pipeline can't ship what check complains about. |

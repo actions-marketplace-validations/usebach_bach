@@ -291,8 +291,11 @@ Every style has a light and a dark version and follows `installer.theme`;
 the ones marked "dark by default" start dark when `theme` isn't set. Each
 uses fonts every Windows 10 and 11 PC has (Cascadia Mono or Consolas,
 Bahnschrift, Georgia) and falls back to Inter, which every setup
-file carries, when one is missing. `bach init` suggests a style for the kind
-of project it finds.
+file carries, when one is missing.
+
+The default is always `bach`, whatever kind of app you ship: `bach init`
+doesn't pick a style for you. The "Suits" column is only a hint; any
+style works for any app, and you switch by setting `installer.style`.
 
 ### Your own look
 

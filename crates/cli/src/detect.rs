@@ -16,7 +16,7 @@ mod engines;
 #[derive(Debug, Default, PartialEq)]
 pub struct Detected {
     /// "Rust", "Tauri", "Wails", "Electron", ".NET", "Flutter", "PyInstaller", "Qt", "Godot" or
-    /// "Unity", for the message and the style `bach init` suggests.
+    /// "Unity", for the message `bach init` prints.
     pub stack: &'static str,
     pub name: Option<String>,
     pub version: Option<String>,

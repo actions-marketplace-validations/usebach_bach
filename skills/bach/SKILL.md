@@ -75,8 +75,9 @@ next to it (DLLs, resources). Find or produce that folder first, for example:
 Run `bach init` (it won't overwrite an existing file). In a Rust, Tauri,
 Wails, Electron, .NET, Flutter, PyInstaller, Qt, Godot or Unity project it fills in name, version, publisher, the program,
 the build folder, leftovers to exclude and needed runtimes (WebView2, .NET)
-from the project's own files, and suggests an `installer.style` that suits it;
-check them, then edit. Minimal by hand:
+from the project's own files; check them, then edit. The window always starts
+in Bach's own style (`bach`), whatever the project: set `installer.style` only
+when the developer asks for another look. Minimal by hand:
 
 ```toml
 [app]
@@ -117,7 +118,7 @@ description = "One line about the app."   # subtitle on the first page
 icon = "assets/app.ico"                   # setup file icon; also the logo if it holds a PNG
 
 [installer]
-style = "aurora"                          # the window's look; `bach styles` lists all 14
+# style = "aurora"                        # default "bach"; `bach styles` lists all 14
 accent = "#2563eb"
 logo = "assets/logo.png"                  # .svg (one colour), .png, or "none"
 languages = ["en", "de"]                  # default: all 19; one entry = always that language
