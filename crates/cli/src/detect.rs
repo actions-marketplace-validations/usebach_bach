@@ -3,15 +3,20 @@
 //!
 //! Reads Cargo.toml (Rust), src-tauri/tauri.conf.json (Tauri), wails.json
 //! (Go with Wails), package.json (Electron), *.csproj (.NET), pubspec.yaml
-//! (Flutter), a PyInstaller *.spec and CMakeLists.txt or a *.pro file (Qt).
-//! Anything it can't read is simply left for the developer to fill in.
+//! (Flutter), a PyInstaller *.spec, CMakeLists.txt or a *.pro file (Qt),
+//! and the game engines in `engines.rs`: project.godot (Godot) and
+//! ProjectSettings (Unity). Anything it can't read is simply left for the
+//! developer to fill in.
 
 use std::path::Path;
+
+mod engines;
 
 /// What the project says about itself; None where it doesn't say.
 #[derive(Debug, Default, PartialEq)]
 pub struct Detected {
-    /// "Rust", "Tauri", "Wails", "Electron", ".NET", "Flutter", "PyInstaller" or "Qt", for the message.
+    /// "Rust", "Tauri", "Wails", "Electron", ".NET", "Flutter", "PyInstaller", "Qt", "Godot" or
+    /// "Unity", for the message and the style `bach init` suggests.
     pub stack: &'static str,
     pub name: Option<String>,
     pub version: Option<String>,
@@ -24,7 +29,9 @@ pub struct Detected {
 }
 
 pub fn detect(dir: &Path) -> Option<Detected> {
-    let mut found = tauri(dir)
+    let mut found = engines::godot(dir)
+        .or_else(|| engines::unity(dir))
+        .or_else(|| tauri(dir))
         .or_else(|| wails(dir))
         .or_else(|| electron(dir))
         .or_else(|| dotnet(dir))
