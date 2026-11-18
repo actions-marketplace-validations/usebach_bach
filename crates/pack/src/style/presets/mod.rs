@@ -24,12 +24,10 @@ pub(super) const fn a(value: u32) -> Option<Color> {
     Some(Color(value))
 }
 
-pub(super) const SEGOE_TEXT: &[&str] = &["Segoe UI Variable Text", "Segoe UI"];
-pub(super) const SEGOE_DISPLAY: &[&str] = &["Segoe UI Variable Display", "Segoe UI"];
 pub(super) const MONOSPACE: &[&str] = &["Cascadia Mono", "Consolas"];
 pub(super) const BAHNSCHRIFT: &[&str] = &["Bahnschrift"];
 pub(super) const SANS: &[&str] = &[INTER];
 pub(super) const DISPLAY: &[&str] = &[INTER_DISPLAY];
 
-pub static PRESETS: [Preset; 15] =
-    [BACH, FLUENT, AURORA, TERMINAL, ARCADE, FORGE, LAGOON, PIXEL, MIDNIGHT, PAPER, EMBER, FOREST, BLOSSOM, MONO, FROST];
+pub static PRESETS: [Preset; 14] =
+    [BACH, AURORA, TERMINAL, ARCADE, FORGE, LAGOON, PIXEL, MIDNIGHT, PAPER, EMBER, FOREST, BLOSSOM, MONO, FROST];

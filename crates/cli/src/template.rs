@@ -196,7 +196,7 @@ pub(crate) fn fill(found: Option<&Detected>, folder_name: &str, dir: &Path) -> S
 pub(crate) fn suggested_style(stack: &str) -> Option<&'static str> {
     match stack {
         "Tauri" | "Electron" | "Wails" | "Flutter" => Some("aurora"),
-        ".NET" | "Qt" => Some("fluent"),
+        ".NET" | "Qt" => Some("frost"),
         "PyInstaller" => Some("frost"),
         "Godot" => Some("lagoon"),
         "Unity" => Some("forge"),

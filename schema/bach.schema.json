@@ -117,7 +117,6 @@
         "style": {
           "enum": [
             "bach",
-            "fluent",
             "aurora",
             "terminal",
             "arcade",
@@ -605,11 +604,10 @@
             "classic",
             "showcase",
             "spotlight",
+            "hero",
             "banner",
-            "split",
-            "editorial",
             "floating",
-            "native",
+            "editorial",
             "compact",
             "tiles",
             "minimal"
@@ -741,9 +739,10 @@
         "rows": {
           "enum": [
             "joined",
-            "separate"
+            "separate",
+            "plain"
           ],
-          "description": "One card with dividers, or each row a card of its own."
+          "description": "One card with dividers, each row a card of its own, or plain rows straight on the window."
         },
         "columns": {
           "type": "integer",

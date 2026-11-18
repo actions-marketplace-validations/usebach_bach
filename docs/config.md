@@ -11,7 +11,7 @@ default, so a five-line config already builds a complete installer.
 - [`[files]`](#files): what gets installed
 - [`[installer]`](#installer): look, languages, license and options
 - [`[style]`](#style): the window's style, and your own fonts, colours and background
-- [`[layout]`](#layout): eleven layout presets, and the window's size, panel, spacing and animation
+- [`[layout]`](#layout): ten layout presets, and the window's size, panel, spacing and animation
 - [`[[components]]`](#components): optional parts the user can leave out
 - [`[[protocols]]`](#protocols): links like `myapp://` that open your app
 - [`[[file_types]]`](#file_types): files your app opens
@@ -106,7 +106,7 @@ The source folder may not contain symbolic links or a file named
 | --- | --- | --- |
 | `output` | `dist/{name}-Setup-{version}.exe` | Where the setup file goes. `{name}`, `{version}` and `{id}` are filled in. |
 | `theme` | `system` | `system` follows Windows' light or dark setting, live. `light` or `dark` fixes it. A style that looks best dark (see [`[style]`](#style)) starts dark unless you set this. |
-| `style` | `bach` | The window's built-in style, like `"fluent"` or `"arcade"`: its colours, fonts and corners. See [`[style]`](#style) for all 15 and how to change them. |
+| `style` | `bach` | The window's built-in style, like `"aurora"` or `"arcade"`: its colours, fonts and corners. See [`[style]`](#style) for all 14 and how to change them. |
 | `accent` | none (black / white) | A colour like `#2563eb` for buttons, the progress bar and ticked boxes. The button text picks black or white for contrast. |
 | `logo` | your icon, else the Bach mark | An `.svg` or `.png` shown at the top of the window, or `"none"` for no logo at all. An SVG is drawn in one colour that follows the theme; use a PNG for a full-colour logo. A wide PNG (a wordmark) keeps its shape. Give a PNG twice the size it's shown at for sharp results. |
 | `logo_height` | `56` | The logo's height in points, 32 to 96. |
@@ -258,7 +258,7 @@ Bahasa Indonesia, `hi` हिन्दी.
 
 ## [style]
 
-The window comes in 15 built-in styles. Pick one with `installer.style`, then
+The window comes in 14 built-in styles. Pick one with `installer.style`, then
 change whatever you like in `[style]`: the font, every colour, the corners,
 a gradient or a picture behind the window.
 
@@ -273,25 +273,24 @@ own app without changing `bach.toml`.
 | Style | What it looks like | Suits |
 | --- | --- | --- |
 | `bach` | Bach's own look: white or graphite, black buttons, Inter. The default. | any app |
-| `fluent` | Like part of Windows 11: Segoe UI, a soft grey window, white cards, Windows blue. | .NET, WinUI, WPF, Qt and Tauri apps that should feel native |
 | `aurora` | A soft violet-to-blue wash, frosted cards and pill buttons. | Tauri, Electron, Wails and Flutter apps |
-| `terminal` | A monospaced face (Cascadia Mono), near-black and a green prompt. Dark by default. | command-line tools |
-| `arcade` | Hot pink on deep violet, with a bold condensed heading. Dark by default. | indie and web-tech games |
+| `terminal` | A monospaced face (Cascadia Mono), near-black with a green glow on every edge, and a green prompt. Dark by default. | command-line tools |
+| `arcade` | Neon pink on a deep violet glow, with a heavy heading and a dark-on-pink button. Dark by default. | indie and web-tech games |
 | `forge` | Brushed steel and molten orange, with tight corners. Dark by default. | 3D games made with Unity or Unreal |
 | `lagoon` | Calm sea blue on a pale wash, rounded and friendly. | games and tools made with Godot |
-| `pixel` | Square corners, a monospaced face and a warm retro palette. Dark by default. | pixel-art and retro games |
-| `midnight` | Deep navy and electric blue. | developer tools |
+| `pixel` | Square corners, a monospaced face, a night-blue screen and a warm gold frame. Dark by default. | pixel-art and retro games |
+| `midnight` | Deep navy fading to black, blue-tinted glass cards and an electric blue button. Dark by default. | developer tools |
 | `paper` | Warm paper, a serif heading (Georgia) and a terracotta accent. | writing, reading and note apps |
 | `ember` | Charcoal with a warm amber glow. Dark by default. | audio, video and creative tools |
-| `forest` | Quiet greens, white cards and pill buttons. | productivity, health and outdoor apps |
+| `forest` | Moss and sage on a soft green wash, cream cards and pill buttons. | productivity, health and outdoor apps |
 | `blossom` | Soft pink, generous corners and pill buttons. | friendly consumer apps |
-| `mono` | Pure black and white, hard edges and a heavy heading. | strict, plain utilities |
+| `mono` | Black and white only: hairlines, small corners and a heavy heading. | strict, plain utilities |
 | `frost` | Cool blue-grey, calm and quiet. | system utilities, backup and sync tools |
 
 Every style has a light and a dark version and follows `installer.theme`;
 the ones marked "dark by default" start dark when `theme` isn't set. Each
-uses fonts every Windows 10 and 11 PC has (Segoe UI, Cascadia Mono or
-Consolas, Bahnschrift, Georgia) and falls back to Inter, which every setup
+uses fonts every Windows 10 and 11 PC has (Cascadia Mono or Consolas,
+Bahnschrift, Georgia) and falls back to Inter, which every setup
 file carries, when one is missing. `bach init` suggests a style for the kind
 of project it finds.
 
@@ -382,14 +381,13 @@ options the window offers in [`[installer]`](#options).
 | `classic` | One calm centred column. The default. | |
 | `showcase` | The choices on the left, a large picture on the right, inset with rounded corners. | `panel_image` |
 | `spotlight` | Key art down the left with the heading on it, the choices as tiles beside it. | `panel_image` |
-| `banner` | A picture across the top with the heading on it, the choices below. | `panel_image` |
-| `split` | The heading on a tinted panel on the left, the choices on the right. | |
-| `editorial` | A picture edge to edge on the right, the heading set large on the left. | `panel_image` |
+| `hero` | A wide rounded picture on top with the heading on it, the choices as tiles below. | `panel_image` |
+| `banner` | A picture across the top, edge to edge, with the heading on it; the choices below. | `panel_image` |
 | `floating` | Everything on one card floating over the window's picture or colour. | `[style] background_image` |
-| `native` | Like a Windows dialog: aligned left, the logo beside the heading, the main button first. | |
-| `compact` | A narrow, tall window with tiles and full-width buttons. | |
-| `tiles` | A wide window with the choices as tiles in two columns. | |
-| `minimal` | Aligned left, no icons, dividers or footer line. | |
+| `editorial` | A picture edge to edge on the right, a large heading and plain rows on the left. | `panel_image` |
+| `compact` | A narrow window: a rounded picture on top, then dense rows and full-width buttons. | `panel_image` |
+| `tiles` | A wide window with the install folder across the top and the options as tiles below. | |
+| `minimal` | No card and no icons: the rows sit on the window, divided by hairlines. | |
 
 A preset that is best with a picture still works without one: a panel
 without a picture shows the app's logo large on a tint of the accent.
@@ -428,11 +426,11 @@ light tint of the accent), its text `[style] panel_text`.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `rows` | `"joined"` | `"joined"`: one card with the rows divided by hairlines. `"separate"`: each row a card of its own. |
+| `rows` | `"joined"` | `"joined"`: one card with the rows divided by hairlines. `"separate"`: each row a card of its own. `"plain"`: no card, the rows straight on the window with hairlines between them. |
 | `columns` | `1` | `2` lays separate rows out as tiles in two columns. |
 | `row_padding` | `16` | Points inside each row, 6 to 32. |
 | `icons` | `true` | Whether rows show their icon. |
-| `dividers` | `true` | Whether joined rows have hairlines between them. |
+| `dividers` | `true` | Whether joined and plain rows have hairlines between them. |
 | `button_height` | `32` | Points, 24 to 56. |
 | `buttons` | `"right"` | `"right"`, `"left"`, `"center"`, or `"stretch"` to share the whole width. |
 | `primary` | `"last"` | The main button (Install, Remove, Open) `"last"` or `"first"`. Tab follows the order they are drawn in. |

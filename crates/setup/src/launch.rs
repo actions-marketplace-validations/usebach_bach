@@ -44,7 +44,7 @@ pub const HELP: &str = "Setup file and uninstall.exe options
   --lang CODE             Use this language (en, de, fr, ...) instead of Windows'.
   --theme light|dark|system
   --preview               Show the window; nothing is installed or removed.
-  --style NAME            With --preview: try another built-in style (bach, fluent, arcade, ...).
+  --style NAME            With --preview: try another built-in style (bach, aurora, arcade, ...).
   --layout NAME           With --preview: try another built-in layout (classic, showcase, banner, ...).
 
 uninstall.exe only
@@ -519,7 +519,7 @@ mod tests {
         assert!(mistake("--silent stray").contains("stray"));
         assert!(mistake("--silent=yes").contains("doesn't take a value"));
         assert!(mistake("--theme purple").contains("light, dark or system"));
-        assert!(mistake("--preview --style vaporwave").contains("bach, fluent"));
+        assert!(mistake("--preview --style vaporwave").contains("bach, aurora"));
         assert!(mistake("--style arcade").contains("only works with --preview"));
         assert!(mistake("--preview --layout carousel").contains("classic, showcase"));
         assert!(mistake("--layout banner").contains("only works with --preview"));

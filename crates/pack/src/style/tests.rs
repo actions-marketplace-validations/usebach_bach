@@ -149,7 +149,7 @@ fn the_developers_changes_win() {
     let custom = resolve(&look, None);
     assert_eq!(custom.fonts, ["Nunito", "Inter"]);
     assert_eq!(custom.radius, 4.0);
-    assert_eq!(custom.control_radius, 10.0);
+    assert_eq!(custom.control_radius, 12.0);
     assert_eq!(custom.image_opacity, 1.0);
     assert_eq!(custom.dark.background, Some(Color::rgb(0)));
     // A plain background replaces the preset's gradient.

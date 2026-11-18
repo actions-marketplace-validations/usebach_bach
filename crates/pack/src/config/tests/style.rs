@@ -106,7 +106,7 @@ fn style_mistakes_name_their_setting() {
     std::fs::write(dir.join("b.ttf"), font(&[(3, 1, 0x0409, 1, "Beta")], 400)).unwrap();
     let cases = [
         ("[installer]\nstyle = \"arcde\"", "did you mean \"arcade\""),
-        ("[installer]\nstyle = \"vaporwave\"", "use one of bach, fluent"),
+        ("[installer]\nstyle = \"vaporwave\"", "use one of bach, aurora"),
         ("[style]\naccent = \"pink\"", "style.accent"),
         ("[style.dark]\ncard = \"#12345\"", "style.dark.card"),
         ("[style]\nbackground = \"#ffffff80\"", "can't be see-through"),
