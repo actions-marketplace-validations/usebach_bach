@@ -2,6 +2,17 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.7.6 (2026-11-18)
+
+### Improvements
+
+- Document what an update keeps, and the journal that stays when a roll-back is stuck ([03945f7](https://github.com/usebach/bach/commit/03945f7657a92a979f666769d30c993b235f0993))
+- Never let the install progress bar run backwards ([960ea65](https://github.com/usebach/bach/commit/960ea65dc184dadcc5deb07253c8892fa49e8db8))
+- Keep a file the user changed when an update stops shipping it ([98c09f0](https://github.com/usebach/bach/commit/98c09f0c89a4c80a25e3f8c94ad0ae30c5ee2da1))
+- Keep the update journal until putting the earlier version back is confirmed ([162a300](https://github.com/usebach/bach/commit/162a300c26a5f0cfad083a6b46afb71479628e21))
+
+All changes: [v0.7...v0.7.6](https://github.com/usebach/bach/compare/v0.7...v0.7.6)
+
 ## 0.7.5 (2026-11-17)
 
 No changes since the last release.
