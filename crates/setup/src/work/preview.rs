@@ -40,9 +40,9 @@ pub fn pretend(texts: &Texts, removing: bool, online: bool, tasks: &[String], re
             .into_iter()
             .chain([(scale(0.02), texts.get(Key::step_preparing), 420)])
             .chain((1..=20).map(|step| (scale(0.04 + 0.8 * step as f32 / 20.0), copying.clone(), 90)))
-            .chain([(scale(0.86), texts.get(Key::step_tidying), 300), (scale(0.89), texts.get(Key::step_uninstaller), 420)])
             .chain(tasks.iter().map(|task| (scale(0.9), texts.with(Key::step_running, &[("task", task)]), 700)))
-            .chain([(scale(0.92), texts.get(Key::step_shortcuts), 420), (scale(0.97), texts.get(Key::step_registering), 420)])
+            .chain([(scale(0.92), texts.get(Key::step_shortcuts), 420), (scale(0.95), texts.get(Key::step_uninstaller), 420)])
+            .chain([(scale(0.97), texts.get(Key::step_registering), 420), (scale(0.99), texts.get(Key::step_tidying), 300)])
             .collect()
     };
     for (progress, label, pause) in steps {

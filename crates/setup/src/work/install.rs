@@ -176,7 +176,7 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
         }
         return Err(problem);
     }
-    report(0.86, &texts.get(Key::step_tidying));
+    report(0.99, &texts.get(Key::step_tidying));
     committed.finish();
     if let Some(uninstaller) = uninstaller_before {
         let _ = fs::remove_file(uninstaller);
