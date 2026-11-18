@@ -94,7 +94,7 @@ pub(super) fn layout(section: &LayoutSection, root: &Path) -> Result<(Layout, Op
         heading_size: number(section.heading_size, "heading_size", bounds::HEADING_SIZE, "points")?,
         text_size: number(section.text_size, "text_size", bounds::TEXT_SIZE, "points")?,
         row_padding: number(section.row_padding, "row_padding", bounds::ROW_PADDING, "points")?,
-        rows: choice(&section.rows, "rows", &[("joined", Rows::Joined), ("separate", Rows::Separate)])?,
+        rows: choice(&section.rows, "rows", &[("joined", Rows::Joined), ("separate", Rows::Separate), ("plain", Rows::Plain)])?,
         columns: number(section.columns, "columns", bounds::COLUMNS, "columns")?,
         icons: section.icons,
         dividers: section.dividers,

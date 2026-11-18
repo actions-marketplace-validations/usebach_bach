@@ -16,7 +16,7 @@ use crate::launch::{self, Args, Mode};
 use crate::package::{Logo, Package};
 use crate::pages::{footer, frame, page_icon, row_count, subtitle_text, PageLayout};
 use crate::texts::Texts;
-use bach_pack::style::layout::{Arrangement, Footer, Panel, Rows, Surface, SIDE_HEIGHT};
+use bach_pack::style::layout::{Arrangement, Footer, LogoPlace, Panel, Rows, Surface, SIDE_HEIGHT};
 
 use crate::theme::{ActiveTheme, Emblem, Looks, Mode as Shade, Pictures};
 use crate::ui::FormButton;
@@ -260,14 +260,22 @@ fn window_size(layout: &Arrangement, rows: usize, tall: bool) -> (f32, f32) {
     let classic = layout.panel == Panel::None
         && layout.surface == Surface::Plain
         && !layout.two_columns()
+        && layout.logo == LogoPlace::Above
         && layout.width == f32::from(bach_pack::style::layout::DEFAULT_WIDTH);
     if !classic {
         // Add up what the column holds: the heading (unless the panel has
         // it), the rows (two to a line in two columns), the footer.
         let tile_gap = if layout.rows == Rows::Separate { 8. } else { 0. };
-        let lines = if layout.two_columns() { rows.div_ceil(2) } else { rows };
+        // In two columns the folder has a line of its own.
+        let lines = if layout.two_columns() { 1 + rows.saturating_sub(1).div_ceil(2) } else { rows };
         let footer = 16. + layout.button_height + if layout.footer == Footer::Above { 26. } else { 0. };
-        let header = if layout.header_on_panel() { 0. } else { 74. + (layout.heading_size * 32. / 22.).round() + 26. };
+        // The heading, under the logo or beside it, and the line under it.
+        let heading = (layout.heading_size * 32. / 22.).round();
+        let header = match (layout.header_on_panel(), layout.logo) {
+            (true, _) => 0.,
+            (false, LogoPlace::Above) => 74. + heading + 26.,
+            (false, LogoPlace::Beside) => heading.max(56.) + 26.,
+        };
         let card = if layout.surface == Surface::Card { 56. } else { 0. };
         // A narrow column wraps the install folder onto a second line.
         let room = match layout.panel {

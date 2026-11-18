@@ -65,6 +65,9 @@ pub enum Rows {
     Joined,
     /// Each row its own card, with a gap between.
     Separate,
+    /// No card at all: the rows sit straight on the window, divided by
+    /// hairlines.
+    Plain,
 }
 
 /// What the choices and buttons sit on.

@@ -72,16 +72,27 @@ impl SetupView {
             .overflow_y_scroll();
         // Separate rows are cards of their own; joined ones share this one.
         let list = if theme.layout.two_columns() {
-            // Two tiles to a line; an odd last one keeps a tile's width.
-            let tiles =
-                rows.into_iter().map(|row| div().flex_grow().flex_basis(relative(0.45)).max_w(relative(0.493)).min_w_0().child(row));
+            // The folder (a long path and a button) gets a line of its own;
+            // the options follow two to a line, as tall as each other. An
+            // odd last one keeps a tile's width.
+            let tiles = rows.into_iter().enumerate().map(|(index, row)| {
+                let tile = div().flex().flex_col().min_w_0().child(row);
+                if index == 0 {
+                    tile.w_full()
+                } else {
+                    tile.flex_grow().flex_basis(relative(0.45)).max_w(relative(0.493))
+                }
+            });
             list.flex().flex_row().flex_wrap().content_start().gap(px(8.)).children(tiles)
-        } else if theme.layout.rows == Rows::Separate {
-            list.flex().flex_col().gap(px(8.)).children(rows)
         } else {
-            list.rounded(theme.radius).bg(theme.card).border_1().border_color(theme.border).children(rows)
+            match theme.layout.rows {
+                Rows::Separate => list.flex().flex_col().gap(px(8.)).children(rows),
+                Rows::Plain => list.children(rows),
+                Rows::Joined => list.rounded(theme.radius).bg(theme.card).border_1().border_color(theme.border).children(rows),
+            }
         };
-        let choices = div().relative().mt(px(theme.layout.gap)).min_h_0().flex().flex_col().child(list).children(self.scrollbar(&theme));
+        let holder = if theme.layout.rows == Rows::Plain { crate::ui::row::plain(&theme) } else { div() };
+        let choices = holder.relative().mt(px(theme.layout.gap)).min_h_0().flex().flex_col().child(list).children(self.scrollbar(&theme));
         PageLayout {
             mark: self.mark(false, &theme),
             subtitle: subtitle.map(|text| subtitle_text(text, &theme)),
@@ -211,7 +222,12 @@ impl SetupView {
             Action::Location => Target::Location,
             Action::Toggle(toggle) => Target::Toggle(toggle),
         };
-        let row = Row::new(choice.title).icon(choice.icon).divided(index > 0).last(last).focused(self.is_focused(target));
+        let row = Row::new(choice.title)
+            .icon(choice.icon)
+            .divided(index > 0)
+            .last(last)
+            .fill(cx.theme().layout.two_columns())
+            .focused(self.is_focused(target));
         let row = match choice.description {
             Some(description) => row.description(description),
             None => row,
