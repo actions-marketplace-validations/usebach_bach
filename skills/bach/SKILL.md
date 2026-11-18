@@ -73,9 +73,11 @@ next to it (DLLs, resources). Find or produce that folder first, for example:
 ## 3. Write bach.toml
 
 Run `bach init` (it won't overwrite an existing file). In a Rust, Tauri,
-Wails, Electron, .NET, Flutter, PyInstaller or Qt project it fills in name, version, publisher, the program,
+Wails, Electron, .NET, Flutter, PyInstaller, Qt, Godot or Unity project it fills in name, version, publisher, the program,
 the build folder, leftovers to exclude and needed runtimes (WebView2, .NET)
-from the project's own files; check them, then edit. Minimal by hand:
+from the project's own files; check them, then edit. The window always starts
+in Bach's own style (`bach`), whatever the project: set `installer.style` only
+when the developer asks for another look. Minimal by hand:
 
 ```toml
 [app]
@@ -116,6 +118,7 @@ description = "One line about the app."   # subtitle on the first page
 icon = "assets/app.ico"                   # setup file icon; also the logo if it holds a PNG
 
 [installer]
+# style = "aurora"                        # default "bach"; `bach styles` lists all 14
 accent = "#2563eb"
 logo = "assets/logo.png"                  # .svg (one colour), .png, or "none"
 languages = ["en", "de"]                  # default: all 19; one entry = always that language
@@ -128,6 +131,23 @@ add_to_path = "never"                     # "always"/true for CLI tools
 path_folder = "bin"
 change_folder = true
 open_button = true
+
+[style]                                   # your own look on top of installer.style
+font = "fonts/MyFont.ttf"                 # or a font Windows has, like "Segoe UI"
+background = ["#1d0b36", "#0a0416"]       # one colour, or a top-to-bottom gradient
+radius = 12                               # card corners, 0 to 24
+[style.dark]
+card = "#ffffff0b"                        # any colour per mode; [style] sets both modes
+
+[layout]                                  # size, arrangement, spacing, motion (all optional)
+preset = "showcase"                       # `bach layouts`: classic, showcase, spotlight, banner, ...
+panel_image = "art/hero.jpg"              # panel = "left" | "right" | "top"; header = "content" | "panel"
+width = 940                               # height too; portrait or landscape
+align = "left"                            # heading: left | center | right
+rows = "separate"                         # or "joined"; icons, dividers, row_padding
+buttons = "stretch"                       # right | left | center | stretch; primary = "first"
+footer = "above"                          # beside | above | hidden
+animation = "slide"                       # rise | fade | slide | drop | none; animation_speed
 
 [[components]]                            # optional parts, one box each
 id = "samples"
@@ -195,6 +215,7 @@ refused; `[text]` keys must be real text names (listed in docs/config.md).
 bach check                 # validates and lists every file; prints warnings
 bach preview               # opens the real window; installs nothing (Windows only)
 bach preview --lang de --theme dark
+bach preview --style arcade  # try another built-in style; bach styles lists them
 bach preview --uninstall
 bach watch                 # for people: like preview, reopens it on every save; never exits, so agents must not run it
 bach build                 # writes dist/<name>-Setup-<version>.exe

@@ -47,6 +47,7 @@ mod preview;
 mod resources;
 mod runtime;
 mod sign;
+mod styles;
 mod template;
 mod update;
 mod verify;
@@ -91,6 +92,12 @@ struct PreviewArgs {
     /// Override the theme: system, light or dark.
     #[arg(long)]
     theme: Option<String>,
+    /// Try another built-in style without changing bach.toml (`bach styles` lists them).
+    #[arg(long)]
+    style: Option<String>,
+    /// Try another built-in layout without changing bach.toml (`bach layouts` lists them).
+    #[arg(long)]
+    layout: Option<String>,
     /// Show it in this language (en, de, fr, …) instead of Windows' own.
     #[arg(long)]
     lang: Option<String>,
@@ -104,6 +111,8 @@ impl PreviewArgs {
         preview::PreviewOptions {
             uninstall: self.uninstall,
             theme: self.theme.as_deref(),
+            style: self.style.as_deref(),
+            layout: self.layout.as_deref(),
             lang: self.lang.as_deref(),
             runtime: self.runtime.as_deref(),
         }
@@ -332,6 +341,10 @@ enum Command {
         #[arg(long, value_enum, default_value = "commit")]
         pin: PinArg,
     },
+    /// List the built-in styles of the installer window, for installer.style.
+    Styles,
+    /// List the built-in layouts of the installer window, for [layout] preset.
+    Layouts,
     /// Check that everything a build needs is in place.
     Doctor {
         /// The config file.
@@ -387,6 +400,8 @@ fn main() -> ExitCode {
         Command::Preview(args) => preview::preview(&args.config, args.options()),
         Command::Watch(args) => watch::command(watch::Options { config: &args.config, preview: args.options() }),
         Command::Inspect { file } => inspect::inspect(&file),
+        Command::Styles => styles::command(),
+        Command::Layouts => styles::layouts(),
         Command::Doctor { config } => doctor::doctor(&config),
         Command::Version { target, config, dry_run } => {
             version::command(version::Options { config: &config, target: target.as_deref(), dry_run })

@@ -54,7 +54,7 @@ pub fn command(options: Options) -> Result<()> {
     let mut warnings = Vec::new();
     let logo = match (&manifest.look.logo, manifest.look.hide_logo) {
         (Some(LogoKind::Png), false) => {
-            let bytes = container::read_logo(&mut file, &layout)?;
+            let bytes = container::read_look(&mut file, &layout, &manifest)?.logo;
             if bytes.len() > MAX_LOGO_BYTES {
                 warnings
                     .push(format!("the logo is {} KB, too big to carry inside the page; the page shows the name only", bytes.len() / 1024));

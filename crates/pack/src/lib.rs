@@ -13,6 +13,8 @@
 //!   shell wrote them.
 //! - [`protect`]: access keys, and the encryption that keeps a setup file's
 //!   contents from anyone without one.
+//! - [`style`]: the built-in styles of the setup window, and the
+//!   developer's changes to them.
 //!
 //! No UI and no Windows calls live here, so the builder runs on any OS and
 //! the format is tested in isolation.
@@ -26,6 +28,7 @@ pub mod manifest;
 pub mod paths;
 pub mod pe;
 pub mod protect;
+pub mod style;
 pub mod textfile;
 pub mod version;
 

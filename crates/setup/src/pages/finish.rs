@@ -22,9 +22,9 @@ impl SetupView {
         let line = div()
             .mt(px(6.))
             .max_w(px(420.))
-            .text_size(px(14.))
-            .line_height(px(20.))
-            .child(Shimmer::new(label).color(theme.muted_foreground));
+            .text_size(theme.text().0)
+            .line_height(theme.text().1)
+            .child(Shimmer::new(label).color(theme.header_muted));
         let bar = div().mt(px(32.)).px(px(56.)).child(ProgressBar::new(("setup-progress", self.attempt), progress));
         // Only while the files are being unpacked: that can be undone without a trace.
         let buttons = if self.can_cancel() {
@@ -44,7 +44,7 @@ impl SetupView {
             content: Some(bar.into_any_element()),
             ..PageLayout::new(title, footer(Some(self.meta()), buttons, theme))
         }
-        .render()
+        .render(theme)
     }
 
     pub(super) fn done_page(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -57,7 +57,7 @@ impl SetupView {
                 .on_click(cx.listener(|this, _, _, cx| this.close(cx)));
             if primary { button } else { button.outline() }.into_any_element()
         };
-        let done_icon = page_icon("circle-check-filled", theme.foreground);
+        let done_icon = page_icon("circle-check-filled", theme.mark, &theme);
         // The website after installing, the feedback page after removing.
         let link = self.done_link().map(|_| {
             let label = if self.is_removing() { texts.get(Key::feedback) } else { texts.get(Key::website) };
@@ -80,7 +80,7 @@ impl SetupView {
                 subtitle: Some(subtitle_text(subtitle, &theme)),
                 ..PageLayout::new(texts.get(Key::removed_title), footer(None, link.into_iter().chain([close(true, cx)]).collect(), &theme))
             }
-            .render();
+            .render(&theme);
         }
         let title = if self.existing.is_some() { texts.get(Key::updated_title) } else { texts.get(Key::installed_title) };
         let manifest = &self.package.manifest;
@@ -105,7 +105,7 @@ impl SetupView {
             subtitle: Some(subtitle_text(subtitle, &theme)),
             ..PageLayout::new(title, footer(None, buttons, &theme))
         }
-        .render()
+        .render(&theme)
     }
 
     pub(super) fn failed_page(&mut self, message: SharedString, cx: &mut Context<Self>) -> AnyElement {
@@ -120,7 +120,7 @@ impl SetupView {
         };
         PageLayout {
             centered: true,
-            mark: Some(page_icon("alert-triangle-filled", theme.destructive)),
+            mark: Some(page_icon("alert-triangle-filled", theme.destructive, &theme)),
             subtitle: Some(subtitle_text(message, &theme)),
             ..PageLayout::new(
                 title,
@@ -162,7 +162,7 @@ impl SetupView {
                 ),
             )
         }
-        .render()
+        .render(&theme)
     }
 }
 

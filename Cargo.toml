@@ -5,7 +5,7 @@ default-members = ["crates/pack", "crates/cli", "crates/setup"]
 
 [workspace.package]
 edition = "2021"
-version = "0.7.6"
+version = "0.8.0"
 license = "MIT"
 repository = "https://github.com/usebach/bach"
 

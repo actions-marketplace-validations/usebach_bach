@@ -135,6 +135,10 @@ bach preview
 bach preview --uninstall --theme dark --lang de
 ```
 
+Want another look? `bach styles` lists the 14 built-in styles, and
+`bach preview --style aurora` shows one on your app before you set
+`installer.style` (see [`[style]`](config.md#style)).
+
 Designing the window? `bach watch` keeps it open and shows every change
 again as soon as you save: `bach.toml`, and the logo, license or text files it
 names. A mistake in the config is printed and the window stays as it was until

@@ -1,4 +1,4 @@
-//! Entrances and exits made of an opacity fade and a vertical offset — the
+//! Entrances and exits made of an opacity fade and an offset — the
 //! web's `initial/animate/exit` blocks (TRIM_FADE, RUN_ENTER, ROW_ENTER,
 //! BLOCK_ENTER, TOAST…).
 //!
@@ -67,7 +67,7 @@ struct AppearState {
 
 /// Opacity and y offset of a transition right now, and whether it is still
 /// moving (keep requesting frames while it is).
-pub fn transition_frame(transition: &Transition, mounted: Instant, animate: bool, exiting: Option<Instant>) -> ((f32, f32), bool) {
+pub fn transition_frame(transition: &Transition, mounted: Instant, animate: bool, exiting: Option<Instant>) -> ((f32, (f32, f32)), bool) {
     let length = transition.duration();
     match exiting {
         Some(since) => {
@@ -77,12 +77,12 @@ pub fn transition_frame(transition: &Transition, mounted: Instant, animate: bool
         None if animate => {
             let elapsed = mounted.elapsed();
             if elapsed >= length {
-                ((1.0, 0.0), false)
+                ((1.0, (0.0, 0.0)), false)
             } else {
                 (transition.enter_at(elapsed), true)
             }
         }
-        None => ((1.0, 0.0), false),
+        None => ((1.0, (0.0, 0.0)), false),
     }
 }
 
@@ -94,11 +94,11 @@ impl RenderOnce for Appear {
             let state = state.read(cx);
             (state.mounted, state.animate)
         };
-        let ((opacity, y), moving) = transition_frame(&self.transition, mounted, animate, self.exiting);
+        let ((opacity, (x, y)), moving) = transition_frame(&self.transition, mounted, animate, self.exiting);
         if moving {
             window.request_animation_frame();
         }
-        self.base.relative().top(px(y)).opacity(opacity.clamp(0.0, 1.0)).child(self.child)
+        self.base.relative().top(px(y)).left(px(x)).opacity(opacity.clamp(0.0, 1.0)).child(self.child)
     }
 }
 

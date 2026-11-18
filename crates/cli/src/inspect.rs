@@ -116,6 +116,7 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
         manifest.locale.languages.join(", ")
     };
     field("Languages", languages);
+    field("Look", look(manifest));
     if let Some(license) = &manifest.locale.license {
         let codes: Vec<&str> = license.keys().map(|code| if code == ANY_LANGUAGE { "all languages" } else { code }).collect();
         field("License", format!("shown first ({})", codes.join(", ")));
@@ -178,4 +179,63 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
     if !manifest.uninstall.data.is_empty() {
         field("Data", manifest.uninstall.data.join(", "));
     }
+}
+
+/// The window's style and what the developer changed about it, in a line.
+fn look(manifest: &Manifest) -> String {
+    let look = &manifest.look;
+    let theme = match look.theme {
+        bach_pack::manifest::Theme::System => "follows Windows' light or dark",
+        bach_pack::manifest::Theme::Light => "light",
+        bach_pack::manifest::Theme::Dark => "dark",
+    };
+    let mut parts = vec![format!("{} style", look.style.as_deref().unwrap_or(bach_pack::style::DEFAULT)), theme.to_string()];
+    if let Some(custom) = &look.custom {
+        if let Some(font) = &custom.font {
+            parts.push(format!("font {font}"));
+        }
+        if custom.heading_font.is_some() && custom.heading_font != custom.font {
+            parts.push(format!("headings in {}", custom.heading_font.as_deref().unwrap_or_default()));
+        }
+        if !custom.light.is_empty() || !custom.dark.is_empty() || look.accent.is_some() {
+            parts.push("own colours".into());
+        }
+        if custom.radius.is_some() || custom.button_radius.is_some() {
+            parts.push("own corners".into());
+        }
+    } else if look.accent.is_some() {
+        parts.push("own accent".into());
+    }
+    let shipped = |kind: bach_pack::manifest::LookFileKind| look.files.iter().filter(|file| file.kind == kind).count();
+    let fonts = shipped(bach_pack::manifest::LookFileKind::Font);
+    if fonts > 0 {
+        parts.push(format!("{fonts} font file{}", if fonts == 1 { "" } else { "s" }));
+    }
+    if shipped(bach_pack::manifest::LookFileKind::BackgroundPng) + shipped(bach_pack::manifest::LookFileKind::BackgroundJpeg) > 0 {
+        parts.push("background picture".into());
+    }
+    if let Some(layout) = &look.layout {
+        use bach_pack::style::layout::Panel;
+        let arranged = layout.resolve();
+        let mut what = vec![match arranged.height {
+            Some(height) => format!("{}×{height}", arranged.width),
+            None => format!("{} wide", arranged.width),
+        }];
+        let side = match arranged.panel {
+            Panel::None => None,
+            Panel::Left => Some("panel at the left"),
+            Panel::Right => Some("panel at the right"),
+            Panel::Top => Some("banner on top"),
+        };
+        what.extend(side.map(String::from));
+        if arranged.header_on_panel() {
+            what.push("heading on it".into());
+        }
+        let name = layout.preset.as_deref().map(|preset| format!("{preset} layout")).unwrap_or_else(|| "own layout".into());
+        parts.push(format!("{name} ({})", what.join(", ")));
+    }
+    if shipped(bach_pack::manifest::LookFileKind::PanelPng) + shipped(bach_pack::manifest::LookFileKind::PanelJpeg) > 0 {
+        parts.push("panel picture".into());
+    }
+    parts.join(", ")
 }

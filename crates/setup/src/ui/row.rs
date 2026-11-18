@@ -21,13 +21,28 @@ use super::color::{clear, mix};
 use super::icon::Icon;
 use super::interaction::{use_interaction, Interaction};
 use super::surface::Surfaces;
-use crate::theme::{ActiveTheme, RADIUS};
+use bach_pack::style::layout::Rows;
+
+use crate::theme::{ActiveTheme, Theme};
 
 type Handler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
-/// A bordered card; rows divide themselves with hairlines.
-pub fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> impl IntoElement {
-    div().rounded(RADIUS).border_1().border_color(cx.theme().border).children(rows)
+/// A bordered card; rows divide themselves with hairlines. With
+/// `[layout] rows = "separate"` each row is its own card instead, and this
+/// only stacks them; with `"plain"` there is no card at all.
+pub fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> gpui::Div {
+    let theme = cx.theme();
+    match theme.layout.rows {
+        Rows::Separate => div().flex().flex_col().gap(px(8.)).children(rows),
+        Rows::Plain => plain(theme).children(rows),
+        Rows::Joined => div().rounded(theme.radius).bg(theme.card).border_1().border_color(theme.border).children(rows),
+    }
+}
+
+/// What plain rows sit in: pulled out by their padding, so their text lines
+/// up with the heading while the hover wash still has room around it.
+pub fn plain(theme: &Theme) -> gpui::Div {
+    div().mx(px(-theme.layout.row_padding))
 }
 
 #[derive(IntoElement)]
@@ -39,12 +54,23 @@ pub struct Row {
     divided: bool,
     last: bool,
     focused: bool,
+    fill: bool,
     click: Option<(ElementId, Handler)>,
 }
 
 impl Row {
     pub fn new(title: impl Into<SharedString>) -> Self {
-        Self { title: title.into(), description: None, icon: None, control: None, divided: false, last: false, focused: false, click: None }
+        Self {
+            title: title.into(),
+            description: None,
+            icon: None,
+            control: None,
+            divided: false,
+            last: false,
+            focused: false,
+            fill: false,
+            click: None,
+        }
     }
 
     pub fn description(mut self, text: impl Into<SharedString>) -> Self {
@@ -82,6 +108,12 @@ impl Row {
         self
     }
 
+    /// Grows to the height of its holder, so tiles on one line match.
+    pub fn fill(mut self, fill: bool) -> Self {
+        self.fill = fill;
+        self
+    }
+
     /// Makes the whole row clickable. The control's own click stops there,
     /// so a click on the box doesn't count twice.
     pub fn on_click(mut self, id: impl Into<ElementId>, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
@@ -94,8 +126,10 @@ impl RenderOnce for Row {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let hover = self.click.as_ref().map(|(id, _)| use_interaction(id.clone(), window, cx));
         let theme = cx.theme();
+        let layout = &theme.layout;
+        let separate = layout.rows == Rows::Separate;
         let wash = hover.as_ref().map(|state| state.read(cx).hover()).unwrap_or(0.0);
-        let icon = self.icon.map(|name| {
+        let icon = self.icon.filter(|_| layout.icons).map(|name| {
             div()
                 .relative()
                 .flex()
@@ -103,24 +137,33 @@ impl RenderOnce for Row {
                 .items_center()
                 .justify_center()
                 .size(px(36.))
-                .well(theme, RADIUS)
+                .well(theme, theme.control_radius)
                 .text_color(theme.foreground)
                 .child(div().relative().flex().child(Icon::new(name).size(18.)))
         });
-        let copy = div()
-            .flex_1()
-            .min_w_0()
-            .child(div().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::MEDIUM).child(self.title))
-            .children(
-                self.description
-                    .map(|text| div().mt(px(2.)).text_size(px(13.)).line_height(px(18.)).text_color(theme.muted_foreground).child(text)),
-            );
+        let ((title_size, title_line), (small_size, small_line)) = (theme.text(), theme.small_text());
+        let copy =
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(div().text_size(title_size).line_height(title_line).font_weight(FontWeight::MEDIUM).child(self.title))
+                .children(self.description.map(|text| {
+                    div().mt(px(2.)).text_size(small_size).line_height(small_line).text_color(theme.muted_foreground).child(text)
+                }));
         let ring = self.focused.then(|| {
-            div().absolute().top(px(2.)).left(px(2.)).right(px(2.)).bottom(px(2.)).rounded(px(9.)).border_2().border_color(theme.ring)
+            div()
+                .absolute()
+                .top(px(2.))
+                .left(px(2.))
+                .right(px(2.))
+                .bottom(px(2.))
+                .rounded(Theme::inner_radius(theme.radius, 3.))
+                .border_2()
+                .border_color(theme.ring)
         });
         let mut row = div()
             .relative()
-            .p(px(16.))
+            .p(px(layout.row_padding))
             .flex()
             .items_center()
             .gap(px(12.))
@@ -129,19 +172,35 @@ impl RenderOnce for Row {
             .child(copy)
             .children(self.control.map(|control| div().flex_none().child(control)))
             .children(ring);
-        // The card's border is 1px, so the wash sits inside a 1px smaller radius.
-        let inner = RADIUS - px(1.);
-        let corners = &mut row.style().corner_radii;
-        if !self.divided {
-            corners.top_left = Some(inner.into());
-            corners.top_right = Some(inner.into());
+        if self.fill {
+            row = row.flex_1();
         }
-        if self.last {
-            corners.bottom_left = Some(inner.into());
-            corners.bottom_right = Some(inner.into());
-        }
-        if self.divided {
-            row = row.border_t_1().border_color(theme.border);
+        if separate {
+            // Its own card: every corner, its own edge and fill.
+            row = row.rounded(theme.radius).border_1().border_color(theme.border).bg(mix(theme.card, theme.hover, wash));
+        } else if layout.rows == Rows::Plain {
+            // No card: the wash is rounded all round, and the hairline spans
+            // only the text, from the row's padding to its padding.
+            row = row.rounded(theme.control_radius);
+            if self.divided && layout.dividers {
+                let pad = px(layout.row_padding);
+                row = row.child(div().absolute().top_0().left(pad).right(pad).h(px(1.)).bg(theme.border));
+            }
+        } else {
+            // The card's border is 1px, so the wash sits inside a 1px smaller radius.
+            let inner = Theme::inner_radius(theme.radius, 1.);
+            let corners = &mut row.style().corner_radii;
+            if !self.divided {
+                corners.top_left = Some(inner.into());
+                corners.top_right = Some(inner.into());
+            }
+            if self.last {
+                corners.bottom_left = Some(inner.into());
+                corners.bottom_right = Some(inner.into());
+            }
+            if self.divided && layout.dividers {
+                row = row.border_t_1().border_color(theme.border);
+            }
         }
         match (self.click, hover) {
             (Some((id, handler)), Some(state)) => {

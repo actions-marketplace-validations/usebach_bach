@@ -2,6 +2,46 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.8.0 (2026-11-18)
+
+### New
+
+- Add plain rows, and give tiles a full-width folder line and equal heights ([e2aa100](https://github.com/usebach/bach/commit/e2aa1007a7203879b095d2cffa37c191e827558f))
+- Add bach layouts: every built-in layout and what it suits ([aecb187](https://github.com/usebach/bach/commit/aecb187a4cc5de38128798aceedb576f284dbdd9))
+- Show the window's layout and panel picture in the Look line ([960a33f](https://github.com/usebach/bach/commit/960a33f6c6f6c5a9adcb97778fa3cc3c34df5389))
+- Add fade, slide, drop and no page animation, at any speed ([b73fb9c](https://github.com/usebach/bach/commit/b73fb9ca03a93e7dcbb9a0f8f4b8ea34a45392d9))
+- Let [style] set the text colour on a side panel ([11b289e](https://github.com/usebach/bach/commit/11b289e3df3d82007721221677b469456166a2d7))
+- Let bach preview and bach watch try a style with --style ([6fd7f47](https://github.com/usebach/bach/commit/6fd7f478e6331be05ea5e99043ff88f5622e18fa))
+- Add bach styles: every built-in style, what it looks like and suits ([4aca04f](https://github.com/usebach/bach/commit/4aca04f104b6922ec7f5ba0ae252c5c9c6c75217))
+- Let a preview try any built-in style with --style ([672cfcb](https://github.com/usebach/bach/commit/672cfcb232336cfcdf26094ff7681ff52a0ecaa3))
+- Add fifteen built-in styles for the installer window ([c298e57](https://github.com/usebach/bach/commit/c298e5747f7e6bd2089ea2ff320ba231dce87a8a))
+
+### Improvements
+
+- Start every project in Bach's own style ([2a61184](https://github.com/usebach/bach/commit/2a61184c093576a124b046ba736eaa29f87cf247))
+- Document the preview flags of setup files, and what bach watch reloads ([b8f2203](https://github.com/usebach/bach/commit/b8f2203e1b278429549194f4c3131632c066e20a))
+- Calm the new layouts: no icon wells, spacing on a 4-point scale ([e1da966](https://github.com/usebach/bach/commit/e1da966aa5e86ee42fe119523217c85897d6490d))
+- Replace the compact layout with portrait, and set Inter headings in Inter Display ([5ffb4f3](https://github.com/usebach/bach/commit/5ffb4f3f7695ccb7dd858311fdd6738755c59652))
+- Centre the logo on the heading when it sits beside it ([79e8528](https://github.com/usebach/bach/commit/79e8528694bcfdf0704167285fc70961ea6cf8d5))
+- Update the README, guide and agent skill for 14 styles and 10 layouts ([55e1763](https://github.com/usebach/bach/commit/55e1763c40b423fbf84db10495b89915e20f4fd9))
+- Rework the built-in layouts and styles after the first review ([b45dd0c](https://github.com/usebach/bach/commit/b45dd0c45f22787d137bd1152bc98a10befc52cb))
+- Keep a heading on a banner picture readable ([49fd420](https://github.com/usebach/bach/commit/49fd420a3cdd46d72241360b5649c1ec2e787480))
+- Document the layout presets and panels, and teach the schema them ([9fcb2f1](https://github.com/usebach/bach/commit/9fcb2f126b26653c2ab81dfced776a8e870b314d))
+- Rework [layout] around a panel, with eleven layout presets ([442827e](https://github.com/usebach/bach/commit/442827e7517448bed72b074fa476f62c045de1d1))
+- Cut a panel picture to its panel, so rounded corners show ([80d97bb](https://github.com/usebach/bach/commit/80d97bb962a2166997b2337d9f7a4f1f773ac6d3))
+- Document [layout] with recipes, and teach the editor schema it ([b0e4f38](https://github.com/usebach/bach/commit/b0e4f38d898efe0863209569b765dac480946bc1))
+- Arrange the setup window by [layout] ([da7c8ac](https://github.com/usebach/bach/commit/da7c8ac888a379f13d203610d3f5b4fd4d46790f))
+- Read [layout] from bach.toml: size, arrangement, spacing and motion ([093579c](https://github.com/usebach/bach/commit/093579c40e373ffa0009082a5922963914d39126))
+- Mention styles in the README, getting started and the agent skill ([5e7927d](https://github.com/usebach/bach/commit/5e7927dea72e551335c7f1cc30e5232ae1846988))
+- Document installer.style and [style], and teach the editor schema them ([f314ef0](https://github.com/usebach/bach/commit/f314ef05b328800f705c5faa8cd398695652e753))
+- Suggest a style in bach init for the kind of project ([e5b381e](https://github.com/usebach/bach/commit/e5b381ee2d5e716ac90831c055a540d697ee8a2f))
+- Recognise Godot and Unity games in bach init ([5777152](https://github.com/usebach/bach/commit/57771526a8f7d8d051a49d75de30675040567238))
+- Paint the setup window in the app's style ([880fd6b](https://github.com/usebach/bach/commit/880fd6b8abb26bac84b33db0b44e5c80a2c285b4))
+- Ship a style's fonts and picture in the setup file ([6023c3c](https://github.com/usebach/bach/commit/6023c3cb9f35c27785e664e0614e1a0cebad9526))
+- Read installer.style and [style] from bach.toml ([0ca2ef4](https://github.com/usebach/bach/commit/0ca2ef4cc3285d76de1e9bdd952d39231fa5b9eb))
+
+All changes: [v0.7...v0.8.0](https://github.com/usebach/bach/compare/v0.7...v0.8.0)
+
 ## 0.7.6 (2026-11-18)
 
 ### Improvements

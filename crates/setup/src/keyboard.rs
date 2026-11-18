@@ -80,10 +80,27 @@ pub fn page_targets(stage: &Stage, facts: &PageFacts) -> Vec<Target> {
     }
 }
 
+/// The buttons along the bottom, which `[layout] primary = "first"` shows
+/// in reverse order: Tab follows them as they are drawn.
+fn is_footer_button(target: &Target) -> bool {
+    matches!(target, Target::Cancel | Target::Primary | Target::Secondary | Target::Skip | Target::Support | Target::Link | Target::GetKey)
+}
+
+/// `targets` with its footer buttons in reverse order, everything else in place.
+fn footer_reversed(mut targets: Vec<Target>) -> Vec<Target> {
+    let mut buttons: Vec<Target> = targets.iter().copied().filter(is_footer_button).collect();
+    for target in targets.iter_mut().filter(|target| is_footer_button(target)) {
+        if let Some(button) = buttons.pop() {
+            *target = button;
+        }
+    }
+    targets
+}
+
 impl SetupView {
     /// The page's controls in Tab order.
     pub fn targets(&self) -> Vec<Target> {
-        page_targets(
+        let targets = page_targets(
             &self.stage,
             &PageFacts {
                 get_key_link: self.has_get_key_link(),
@@ -92,7 +109,14 @@ impl SetupView {
                 rows: self.row_targets(),
                 cancellable: self.can_cancel(),
             },
-        )
+        );
+        let layout = self.package.manifest.look.layout.as_ref();
+        let first = layout.and_then(|layout| layout.primary) == Some(bach_pack::style::layout::Primary::First);
+        if first {
+            footer_reversed(targets)
+        } else {
+            targets
+        }
     }
 
     /// The link the last page offers: the website after installing, the
@@ -226,6 +250,13 @@ mod tests {
         let working = Stage::Working { progress: 0.5, label: "x".into() };
         assert!(page_targets(&working, &nothing).is_empty());
         assert_eq!(page_targets(&working, &PageFacts { cancellable: true, ..facts() }), [Target::Cancel]);
+    }
+
+    #[test]
+    fn primary_first_reverses_only_the_footer_buttons() {
+        let access = [Target::GetKey, Target::Paste, Target::Cancel, Target::Primary];
+        assert_eq!(footer_reversed(access.to_vec()), [Target::Primary, Target::Paste, Target::Cancel, Target::GetKey]);
+        assert_eq!(footer_reversed(vec![Target::Cancel, Target::Primary]), [Target::Primary, Target::Cancel]);
     }
 
     #[test]
