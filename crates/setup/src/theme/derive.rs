@@ -107,6 +107,7 @@ fn theme(mode: Mode, style: &Resolved, faces: &Faces, pictures: &Pictures, layou
         }
         (false, _) => (text, muted),
     };
+    let on_picture = layout.header_on_panel() && pictures.panel.is_some();
     Theme {
         surface,
         surface_end: palette.background_end.map(hsla),
@@ -134,8 +135,10 @@ fn theme(mode: Mode, style: &Resolved, faces: &Faces, pictures: &Pictures, layou
         input: tuned(|p| p.input, text.opacity(0.18)),
         ring: tuned(|p| p.ring, mix(base, text, 0.5)),
         hover: tuned(|p| p.hover, text.opacity(0.05)),
-        // The mark sits in the header, so it follows the header's ink.
-        mark: tuned(|p| p.mark, header_text),
+        // The mark sits in the header, so it follows the header's ink. On a
+        // picture nobody has seen, a coloured mark could vanish: it is light
+        // like the heading there.
+        mark: if on_picture { header_text } else { tuned(|p| p.mark, header_text) },
         font: faces.text.clone(),
         heading_font: faces.heading.clone(),
         heading_weight: FontWeight(f32::from(style.heading_weight)),

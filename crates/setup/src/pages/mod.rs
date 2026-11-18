@@ -230,15 +230,21 @@ fn panel(header: Option<gpui::Div>, theme: &Theme) -> gpui::Div {
     }
     card = match header {
         Some(header) => {
+            // A banner is short, so its heading covers more of the picture:
+            // the shade starts higher and ends darker there.
+            let (from, to) = if layout.panel == Panel::Top { (0.12, 0.74) } else { (0.35, 0.62) };
             let shade = picture.is_some().then(|| {
                 div().absolute().top_0().left_0().size_full().rounded(radius).bg(linear_gradient(
                     180.,
-                    linear_color_stop(black().opacity(0.0), 0.35),
-                    linear_color_stop(black().opacity(0.62), 1.),
+                    linear_color_stop(black().opacity(0.0), from),
+                    linear_color_stop(black().opacity(to), 1.),
                 ))
             });
-            // On a picture the heading sits low, on the shade; on a colour, in the middle.
-            let place = div().relative().size_full().flex().flex_col().pt(px(top)).pb(px(bottom)).px(px(left.max(right)));
+            // On a picture the heading sits low, on the shade; on a colour, in
+            // the middle. It keeps clear of the panel's edges even when the
+            // window's own padding is tight.
+            let side = left.max(right).max(28.);
+            let place = div().relative().size_full().flex().flex_col().pt(px(top.max(24.))).pb(px(bottom.max(24.))).px(px(side));
             let place = if picture.is_some() { place.justify_end() } else { place.justify_center() };
             card.children(shade).child(place.child(header))
         }
