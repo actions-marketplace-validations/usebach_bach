@@ -11,7 +11,7 @@ default, so a five-line config already builds a complete installer.
 - [`[files]`](#files): what gets installed
 - [`[installer]`](#installer): look, languages, license and options
 - [`[style]`](#style): the window's style, and your own fonts, colours and background
-- [`[layout]`](#layout): the window's size, arrangement, spacing and animation
+- [`[layout]`](#layout): eleven layout presets, and the window's size, panel, spacing and animation
 - [`[[components]]`](#components): optional parts the user can leave out
 - [`[[protocols]]`](#protocols): links like `myapp://` that open your app
 - [`[[file_types]]`](#file_types): files your app opens
@@ -341,8 +341,8 @@ text = "#1b1b1b"
 | `border` | the style's | The card's edges and its dividers. |
 | `error` | the style's | The remove button and failure icons. |
 | `mark` | the text colour or the accent | The Bach mark and one-colour (SVG) logos. Styles that colour the mark keep it in the accent, also when you change the accent. |
-| `panel` | the card, or a soft wash of the text colour | A side header's panel (see [`[layout]`](#layout)). |
-| `panel_text` | whatever reads on the panel | The heading and subtitle on that panel; light on a `panel_image`. |
+| `panel` | a light tint of the accent | The panel of [`[layout]`](#layout) where it shows no picture. |
+| `panel_text` | whatever reads on the panel | The heading and subtitle on the panel; light on a `panel_image`. |
 
 Colours are `#rrggbb`, or `#rrggbbaa` to let what's behind show through.
 The quieter colours (icon wells, hover washes, the progress track, checkbox
@@ -360,42 +360,67 @@ $ bach check
 
 How the window is sized, arranged and animated, on top of its style.
 Everything is optional; without `[layout]` the window is the classic
-column it always was. Change as much or as little as you like:
+column it always was. The quickest start is a preset, and every setting
+below changes it:
 
 ```toml
 [layout]
-width = 820                 # landscape
-header = "left"             # logo, heading and subtitle in a side panel
-panel_image = "art/key-art.png"
-rows = "separate"           # each choice a tile of its own
-buttons = "stretch"
-footer = "above"
-animation = "slide"
+preset = "showcase"               # the choices on the left, a rounded picture on the right
+panel_image = "art/hero.jpg"
+heading_size = 34                 # anything else you want different
 ```
 
-`bach preview` (or `bach watch`, which reopens on every save) shows the
-result. Texts themselves are changed in [`[text]`](#text), and which
+`bach layouts` lists the presets, and `bach preview --layout NAME` shows
+one on your app without changing `bach.toml` (`bach watch` reopens the
+window on every save). Texts are changed in [`[text]`](#text), and which
 options the window offers in [`[installer]`](#options).
 
-### Window
+### Presets
+
+| Preset | What it looks like | Best with |
+| --- | --- | --- |
+| `classic` | One calm centred column. The default. | |
+| `showcase` | The choices on the left, a large picture on the right, inset with rounded corners. | `panel_image` |
+| `spotlight` | Key art down the left with the heading on it, the choices as tiles beside it. | `panel_image` |
+| `banner` | A picture across the top with the heading on it, the choices below. | `panel_image` |
+| `split` | The heading on a tinted panel on the left, the choices on the right. | |
+| `editorial` | A picture edge to edge on the right, the heading set large on the left. | `panel_image` |
+| `floating` | Everything on one card floating over the window's picture or colour. | `[style] background_image` |
+| `native` | Like a Windows dialog: aligned left, the logo beside the heading, the main button first. | |
+| `compact` | A narrow, tall window with tiles and full-width buttons. | |
+| `tiles` | A wide window with the choices as tiles in two columns. | |
+| `minimal` | Aligned left, no icons, dividers or footer line. | |
+
+A preset that is best with a picture still works without one: a panel
+without a picture shows the app's logo large on a tint of the accent.
+
+### Window and panel
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `width` | `540` (`780` with the header at the side) | The window's width in points, 380 to 1400. |
+| `preset` | none | A built-in layout to start from (above). |
+| `width` | `540`; `880` with a side panel; `600` with a banner | The window's width in points, 380 to 1400. |
 | `height` | as tall as the choices need | The window's height in points, 340 to 1000. Taller than the width makes a portrait window; when the choices don't fit, the card scrolls. The window never grows past 85% of the screen. |
-| `header` | `"top"` | Where the logo, heading and subtitle sit: `"top"`, or in a side panel at the `"left"` or `"right"` with the choices and buttons beside it. |
-| `header_width` | 40% of the window | The side panel's width in points, 160 to 700. The choices keep at least 220 points. |
-| `panel` | `true` | Whether the side panel has a colour of its own (`[style] panel`; by default the card colour, or a soft wash of the text colour). |
-| `panel_image` | none | A PNG or JPEG that fills the side panel, like a game's key art (up to 8 MB). The heading and subtitle on it turn light unless `[style] panel_text` says otherwise. |
+| `panel` | `"none"` | A panel at the `"left"` or `"right"` of the choices, or a banner across the `"top"`. |
+| `panel_size` | 46% of the window (40% with the heading on it); `190` for a banner | The panel's width, or a banner's height, in points (120 to 800). The choices keep at least 300 points. |
+| `panel_image` | none | A PNG or JPEG that fills the panel, cut to its shape around the middle (up to 8 MB). |
+| `panel_inset` | `0` | Space around the panel in points, 0 to 48. With a radius the panel floats as a card. |
+| `panel_radius` | `0` | The panel's corners in points, 0 to 48. |
+| `header` | `"content"` | With a panel: the logo, heading and subtitle above the choices (`"content"`), or on the `"panel"`. On a picture they sit low over a shade and turn light, unless `[style] panel_text` says otherwise. |
+| `content_width` | the room there is | The widest the choices and buttons get, in points (260 to 1200), centred in their room. |
+| `surface` | `"plain"` | `"card"` puts the heading, choices and buttons on one card floating over the window's colour or picture. |
+
+The panel's colour without a picture is `[style] panel` (by default a
+light tint of the accent), its text `[style] panel_text`.
 
 ### Text and spacing
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `align` | `"center"` (`"left"` at the side) | How the logo, heading, subtitle and the footer line above the buttons align: `"left"`, `"center"` or `"right"`. |
+| `align` | `"center"` (`"left"` with a panel) | How the logo, heading, subtitle and the footer line above the buttons align: `"left"`, `"center"` or `"right"`. |
 | `logo` | `"above"` | The logo `"above"` the heading, or `"beside"` it on one line. |
 | `padding` | `[44, 32, 24, 32]` | Space inside the window in points, 0 to 96: one number for every side, `[top and bottom, sides]`, or `[top, right, bottom, left]`. |
-| `gap` | `28` (`0` at the side) | Points between the header and the choices. |
+| `gap` | `28` (`0` with the heading on a side panel) | Points between the heading and the choices. |
 | `heading_size` | `22` | The heading's size in points, 14 to 48. A long heading still steps down so it wraps calmly. |
 | `text_size` | `14` | The text's size in points, 11 to 20. Descriptions are a point smaller, the footer line two. |
 
@@ -404,6 +429,7 @@ options the window offers in [`[installer]`](#options).
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `rows` | `"joined"` | `"joined"`: one card with the rows divided by hairlines. `"separate"`: each row a card of its own. |
+| `columns` | `1` | `2` lays separate rows out as tiles in two columns. |
 | `row_padding` | `16` | Points inside each row, 6 to 32. |
 | `icons` | `true` | Whether rows show their icon. |
 | `dividers` | `true` | Whether joined rows have hairlines between them. |
@@ -419,50 +445,23 @@ options the window offers in [`[installer]`](#options).
 | `animation` | `"rise"` | How each page comes in: `"rise"` (fades in, rising a few points), `"fade"`, `"slide"` (in from the right), `"drop"` (from above) or `"none"`. |
 | `animation_speed` | `1` | 0.25 to 4: 2 plays twice as fast, 0.5 half as fast. |
 
-### Recipes
+### Your own layout
 
-A game launcher, landscape with key art at the side:
-
-```toml
-[installer]
-style = "arcade"
-
-[layout]
-header = "left"
-panel_image = "art/key-art.png"
-heading_size = 30
-rows = "separate"
-buttons = "stretch"
-footer = "above"
-animation = "slide"
-```
-
-A native-looking dialog, aligned left, logo beside the heading, the main
-button first:
+Every setting works without a preset too. A banner with the heading on
+it, tiles in two columns and stretched buttons:
 
 ```toml
-[installer]
-style = "fluent"
-
 [layout]
+panel = "top"
+panel_size = 220
+panel_image = "art/banner.jpg"
+header = "panel"
 align = "left"
-logo = "beside"
-icons = false
-footer = "above"
-buttons = "left"
-primary = "first"
-```
-
-A tall, compact window:
-
-```toml
-[layout]
-width = 420
-height = 680
-padding = [56, 28, 28, 28]
+width = 760
 rows = "separate"
+columns = 2
 buttons = "stretch"
-footer = "hidden"
+footer = "above"
 animation = "drop"
 ```
 

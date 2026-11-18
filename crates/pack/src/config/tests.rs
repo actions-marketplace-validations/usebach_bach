@@ -645,6 +645,14 @@ fn the_schema_knows_every_text() {
         .collect();
     let presets: Vec<&str> = crate::style::PRESETS.iter().map(|preset| preset.name).collect();
     assert_eq!(styles, presets, "schema/bach.schema.json lists every built-in style");
+    let layouts: Vec<&str> = schema["properties"]["layout"]["properties"]["preset"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|name| name.as_str())
+        .collect();
+    let presets: Vec<&str> = crate::style::layout::LAYOUT_PRESETS.iter().map(|preset| preset.name).collect();
+    assert_eq!(layouts, presets, "schema/bach.schema.json lists every built-in layout");
 }
 
 #[test]
@@ -999,8 +1007,8 @@ fn the_docs_and_the_schema_name_the_same_settings() {
         !["silent", "dir", "with", "without", "lang", "log", "theme", "preview", "json", "launch", "update", "uninstall"]
             .contains(&name.as_str())
     });
-    // The table of built-in styles names values of installer.style.
-    unknown.retain(|name| crate::style::preset(name).is_none());
+    // The tables of built-in styles and layouts name values, not settings.
+    unknown.retain(|name| crate::style::preset(name).is_none() && crate::style::layout::preset(name).is_none());
     assert!(unknown.is_empty(), "named in docs/config.md tables but not in the schema: {unknown:?}");
 }
 

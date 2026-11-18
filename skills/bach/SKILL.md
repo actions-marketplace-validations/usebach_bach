@@ -139,10 +139,10 @@ radius = 12                               # card corners, 0 to 24
 card = "#ffffff0b"                        # any colour per mode; [style] sets both modes
 
 [layout]                                  # size, arrangement, spacing, motion (all optional)
-width = 820                               # height too; portrait or landscape
-header = "left"                           # "top" | "left" | "right": a side panel
-panel_image = "art/key-art.png"
-align = "left"                            # header text: left | center | right
+preset = "showcase"                       # `bach layouts`: classic, showcase, spotlight, banner, ...
+panel_image = "art/hero.jpg"              # panel = "left" | "right" | "top"; header = "content" | "panel"
+width = 940                               # height too; portrait or landscape
+align = "left"                            # heading: left | center | right
 rows = "separate"                         # or "joined"; icons, dividers, row_padding
 buttons = "stretch"                       # right | left | center | stretch; primary = "first"
 footer = "above"                          # beside | above | hidden

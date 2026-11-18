@@ -118,7 +118,7 @@ your app.
 | --- | --- |
 | **Choices** | Desktop and Start menu shortcuts, start with Windows, add to `PATH`, each offered ticked, unticked, always or never; optional components |
 | **Integration** | `myapp://` link schemes and file types, never taking over another app's |
-| **Look and words** | 15 built-in styles (native Windows, soft gradients, terminal, game looks, ...) and your own fonts, colours, corners and background picture; your own layout: window size, portrait or landscape, a side panel with key art, alignment, spacing, button placement and page animation; your logo and icon; light, dark or system theme; any text, per language; a license page |
+| **Look and words** | 15 built-in styles (native Windows, soft gradients, terminal, game looks, ...) and your own fonts, colours, corners and background picture; 11 layout presets and your own layout: window size, portrait or landscape, a picture panel or banner, a floating card, tiles, alignment, spacing, button placement and page animation; your logo and icon; light, dark or system theme; any text, per language; a license page |
 | **Safety** | Free-space check, archive checksum, one setup per app at a time, "close and continue" when the app is open, data deleted only on request |
 | **Automation** | `Setup.exe /S` with `--dir`, `--with`, `--without`, `--log`; quiet uninstall from Settings › Apps |
 | **Online and private** | An online installer that always downloads the newest version; access keys that encrypt the files and keep updates private: see [config](docs/config.md#installer) |
@@ -134,7 +134,7 @@ Every setting is in the [config reference](docs/config.md).
 | `bach workflow` | Adds, or updates, the one-click release workflow in `.github/workflows/bach-release.yml`. See [releasing](docs/releasing.md). |
 | `bach version [patch\|minor\|major\|X.Y.Z]` | Lists the version in every file that has one, or raises it in all of them at once: `bach.toml`, `package.json` and its lock file, `Cargo.toml` and `Cargo.lock`, Tauri's config, `.csproj`. |
 | `bach check` | Validates the config and lists every file and option, with warnings. `--strict` (or `BACH_STRICT=1`) turns a warning into an error, so a pipeline can't ship what check complains about. |
-| `bach preview` | Opens the window without installing; `--uninstall`, `--theme dark`, `--lang de`, `--style arcade` (try another style without changing `bach.toml`). |
+| `bach preview` | Opens the window without installing; `--uninstall`, `--theme dark`, `--lang de`, `--style arcade` and `--layout showcase` (try another style or layout without changing `bach.toml`). |
 | `bach watch` | Like `bach preview`, and opens the window again every time you save `bach.toml` (or the logo, license or text files it names). A mistake is printed and the window stays as it was. |
 | `bach build` | Writes the setup file; `--fast` compresses less, `--out` picks the path, `--app-version v1.4.0` sets the version (from a release tag), `--online` also writes the online installer, `--key-file` gives the access key, `--patch-from OLD.exe` also writes an update patch with only the files that changed, `--strict` stops before building when `bach check` would warn. |
 | `bach sign FILE` | Signs a setup file with the program `[signing]` names; `bach build --sign` does it for the files it writes. Optional. |
@@ -143,6 +143,7 @@ Every setting is in the [config reference](docs/config.md).
 | `bach verify FILE` | Checks a setup file for damage without installing it: the archive and every file against the checksums recorded at build, and whether it carries a signature. `--key-file` opens an encrypted one. See [Checking a setup file](docs/config.md#checking-a-setup-file). |
 | `bach page FILE --url URL` | Writes a download page for a setup file: one HTML file with the name, version, size, a download button and the SHA-256 (`--notes-file`, `--winget ID`). See [A download page](docs/config.md#a-download-page). |
 | `bach styles` | Lists the 15 built-in styles of the window (`installer.style`): what each looks like and what kind of app it suits. See [`[style]`](docs/config.md#style). |
+| `bach layouts` | Lists the 11 built-in layouts (`[layout] preset`). See [`[layout]`](docs/config.md#layout). |
 | `bach doctor` | Says whether everything a build needs is in place. |
 | `bach update [VERSION]` | Updates `bach` itself to the newest release (or exactly `VERSION`). `--check` only says whether a newer release exists, `--force` installs again. A copy managed by npm, Scoop, winget or Cargo gets the command that updates it instead. See [Keeping bach up to date](#keeping-bach-up-to-date). |
 | `bach feed FILE` | Writes the update feed for a (signed) setup file; the link comes from `bach.toml` (or `--url`), `--notes-file` says what's new, `--rollout 10` offers it to 10% of computers first, `--patch FILE` offers an update patch. |

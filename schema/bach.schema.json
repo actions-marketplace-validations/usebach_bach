@@ -499,12 +499,12 @@
             "panel": {
               "type": "string",
               "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
-              "description": "A side header's panel ([layout] header). Default: the card, or a soft wash of the text colour."
+              "description": "The panel of [layout] where it shows no picture. Default: a light tint of the accent."
             },
             "panel_text": {
               "type": "string",
               "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
-              "description": "The heading and subtitle on that panel. Default: whatever reads on it."
+              "description": "The heading and subtitle on the panel. Default: whatever reads on it (light on a picture)."
             }
           }
         },
@@ -574,37 +574,53 @@
             "panel": {
               "type": "string",
               "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
-              "description": "A side header's panel ([layout] header). Default: the card, or a soft wash of the text colour."
+              "description": "The panel of [layout] where it shows no picture. Default: a light tint of the accent."
             },
             "panel_text": {
               "type": "string",
               "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
-              "description": "The heading and subtitle on that panel. Default: whatever reads on it."
+              "description": "The heading and subtitle on the panel. Default: whatever reads on it (light on a picture)."
             }
           }
         },
         "panel": {
           "type": "string",
           "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
-          "description": "A side header's panel ([layout] header). Default: the card, or a soft wash of the text colour."
+          "description": "The panel of [layout] where it shows no picture. Default: a light tint of the accent."
         },
         "panel_text": {
           "type": "string",
           "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
-          "description": "The heading and subtitle on that panel. Default: whatever reads on it."
+          "description": "The heading and subtitle on the panel. Default: whatever reads on it (light on a picture)."
         }
       }
     },
     "layout": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Optional. How the window is sized, arranged and animated. Without it the window is Bach's classic column.",
+      "description": "Optional. How the window is sized, arranged and animated. Without it the window is Bach's classic column. Start from a preset and change any setting.",
       "properties": {
+        "preset": {
+          "enum": [
+            "classic",
+            "showcase",
+            "spotlight",
+            "banner",
+            "split",
+            "editorial",
+            "floating",
+            "native",
+            "compact",
+            "tiles",
+            "minimal"
+          ],
+          "description": "A built-in layout to start from; bach layouts shows each. Every other setting here changes it."
+        },
         "width": {
           "type": "integer",
           "minimum": 380,
           "maximum": 1400,
-          "description": "The window's width in points. Default 540 (780 with the header at the side)."
+          "description": "The window's width in points. Default 540 (880 with a side panel, 600 with a banner)."
         },
         "height": {
           "type": "integer",
@@ -612,27 +628,56 @@
           "maximum": 1000,
           "description": "The window's height in points. Default: as tall as the choices need."
         },
-        "header": {
-          "enum": [
-            "top",
-            "left",
-            "right"
-          ],
-          "description": "Where the logo, heading and subtitle sit: on top, or in a side panel."
-        },
-        "header_width": {
-          "type": "integer",
-          "minimum": 160,
-          "maximum": 700,
-          "description": "The side panel's width in points. Default 40% of the window."
-        },
         "panel": {
-          "type": "boolean",
-          "description": "Whether a side header gets a panel of its own colour. Default true."
+          "enum": [
+            "none",
+            "left",
+            "right",
+            "top"
+          ],
+          "description": "A panel beside the choices, or a banner across the top."
+        },
+        "panel_size": {
+          "type": "integer",
+          "minimum": 120,
+          "maximum": 800,
+          "description": "The panel's width (left, right) or height (top) in points."
+        },
+        "panel_inset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 48,
+          "description": "Space around the panel; with a radius it floats as a card."
+        },
+        "panel_radius": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 48,
+          "description": "The panel's corners in points."
         },
         "panel_image": {
           "type": "string",
-          "description": "A PNG or JPEG that fills the side panel."
+          "description": "A PNG or JPEG that fills the panel."
+        },
+        "header": {
+          "enum": [
+            "content",
+            "panel"
+          ],
+          "description": "Where the logo, heading and subtitle sit when there is a panel: with the choices, or on the panel."
+        },
+        "content_width": {
+          "type": "integer",
+          "minimum": 260,
+          "maximum": 1200,
+          "description": "The widest the choices and buttons get, centred in their room."
+        },
+        "surface": {
+          "enum": [
+            "plain",
+            "card"
+          ],
+          "description": "The choices on the window, or on a card floating over it."
         },
         "align": {
           "enum": [
@@ -640,7 +685,7 @@
             "center",
             "right"
           ],
-          "description": "How the header aligns. Default center (left at the side)."
+          "description": "How the heading aligns. Default center (left with a panel)."
         },
         "logo": {
           "enum": [
@@ -673,7 +718,7 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 96,
-          "description": "Points between the header and the choices. Default 28 (0 at the side)."
+          "description": "Points between the heading and the choices. Default 28."
         },
         "heading_size": {
           "type": "integer",
@@ -699,6 +744,12 @@
             "separate"
           ],
           "description": "One card with dividers, or each row a card of its own."
+        },
+        "columns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2,
+          "description": "Separate rows in one or two columns."
         },
         "icons": {
           "type": "boolean",
