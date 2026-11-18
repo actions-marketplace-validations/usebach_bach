@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use bach_pack::style::layout::Arrangement;
 use bach_pack::style::{Color, Palette, Resolved, PRESETS};
 use gpui::{black, px, rgb, white, FontWeight, Hsla, Image, Rgba, SharedString};
 
@@ -34,15 +35,20 @@ impl Faces {
 }
 
 impl Looks {
-    pub fn new(style: &Resolved, faces: &Faces, picture: Option<Arc<Image>>) -> Self {
-        let make = |mode| theme(mode, style, faces, picture.clone());
+    pub fn new(style: &Resolved, faces: &Faces, pictures: Pictures, layout: Arrangement) -> Self {
+        let make = |mode| theme(mode, style, faces, &pictures, layout);
         Self { light: make(Mode::Light), dark: make(Mode::Dark) }
     }
 
     /// Bach's own style.
     #[cfg(test)]
     pub fn bach() -> Self {
-        Self::new(&bach_pack::style::resolve(&Default::default(), None), &Faces::inter(), None)
+        Self::new(
+            &bach_pack::style::resolve(&Default::default(), None),
+            &Faces::inter(),
+            Pictures::default(),
+            Arrangement::default_window(),
+        )
     }
 
     pub fn get(&self, mode: Mode) -> Theme {
@@ -58,7 +64,14 @@ fn hsla(color: Color) -> Hsla {
     Rgba { r: channel(24), g: channel(16), b: channel(8), a: channel(0) }.into()
 }
 
-fn theme(mode: Mode, style: &Resolved, faces: &Faces, picture: Option<Arc<Image>>) -> Theme {
+/// The pictures a look ships: behind the window, and in a side panel.
+#[derive(Clone, Debug, Default)]
+pub struct Pictures {
+    pub background: Option<Arc<Image>>,
+    pub panel: Option<Arc<Image>>,
+}
+
+fn theme(mode: Mode, style: &Resolved, faces: &Faces, pictures: &Pictures, layout: Arrangement) -> Theme {
     let (own, fallback) = match mode {
         Mode::Light => (&style.light, &PRESETS[0].light),
         Mode::Dark => (&style.dark, &PRESETS[0].dark),
@@ -76,17 +89,38 @@ fn theme(mode: Mode, style: &Resolved, faces: &Faces, picture: Option<Arc<Image>
     let white = white();
     let ink = if relative_luminance(accent) < 0.45 { white } else { rgb(0x0f0f0f).into() };
     let toward = if mode == Mode::Dark { white } else { black() };
+    let muted = tuned(|p| p.muted_text, mix(base, text, 0.6));
+    let panel = tuned(|p| p.panel, if card.a > 0.9 { card } else { mix(surface, text, 0.04) });
+    // On a side panel the header reads on the panel, not the window: light
+    // on a picture (key art is rarely pale), else whatever reads on its colour.
+    let (header_text, header_muted) = match (layout.side() && layout.panel, palette.panel_text.map(hsla)) {
+        (true, Some(own)) => (own, own.opacity(0.75)),
+        (true, None) if pictures.panel.is_some() => (rgb(0xfafafa).into(), white.opacity(0.78)),
+        (true, None) if (relative_luminance(panel) < 0.4) != (relative_luminance(text) < 0.4) => (text, muted),
+        (true, None) => {
+            let ink: Hsla = if relative_luminance(panel) < 0.4 { rgb(0xfafafa).into() } else { rgb(0x141414).into() };
+            (ink, ink.opacity(0.72))
+        }
+        (false, _) => (text, muted),
+    };
     Theme {
         surface,
         surface_end: palette.background_end.map(hsla),
-        picture: picture.map(|picture| (picture, style.image_opacity)),
+        picture: pictures.background.clone().map(|picture| (picture, style.image_opacity)),
+        // A card that hides the window makes a good panel; else a soft wash of the text colour.
+        panel,
+        // The panel's own picture shows fully; the developer dims it in the file.
+        panel_picture: pictures.panel.clone().map(|picture| (picture, 1.0)),
+        header_text,
+        header_muted,
+        layout,
         card,
         well: tuned(|p| p.well, mix(base, text, 0.05)),
         well_outline: text.opacity(0.05),
         well_highlight: white.opacity(if mode == Mode::Dark { 0.12 } else { 0.9 }),
         border: tuned(|p| p.border, text.opacity(0.08)),
         foreground: text,
-        muted_foreground: tuned(|p| p.muted_text, mix(base, text, 0.6)),
+        muted_foreground: muted,
         primary: accent,
         primary_hover: tuned(|p| p.accent_hover, mix(accent, toward, 0.12)),
         primary_foreground: tuned(|p| p.accent_text, ink),
@@ -95,7 +129,8 @@ fn theme(mode: Mode, style: &Resolved, faces: &Faces, picture: Option<Arc<Image>
         input: tuned(|p| p.input, text.opacity(0.18)),
         ring: tuned(|p| p.ring, mix(base, text, 0.5)),
         hover: tuned(|p| p.hover, text.opacity(0.05)),
-        mark: tuned(|p| p.mark, text),
+        // The mark sits in the header, so it follows the header's ink.
+        mark: tuned(|p| p.mark, header_text),
         font: faces.text.clone(),
         heading_font: faces.heading.clone(),
         heading_weight: FontWeight(f32::from(style.heading_weight)),
@@ -124,7 +159,7 @@ mod tests {
     use super::*;
 
     fn looks(look: &Look) -> Looks {
-        Looks::new(&bach_pack::style::resolve(look, None), &Faces::inter(), None)
+        Looks::new(&bach_pack::style::resolve(look, None), &Faces::inter(), Pictures::default(), Arrangement::default_window())
     }
 
     fn hex(value: u32) -> Hsla {

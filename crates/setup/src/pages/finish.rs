@@ -22,9 +22,9 @@ impl SetupView {
         let line = div()
             .mt(px(6.))
             .max_w(px(420.))
-            .text_size(px(14.))
-            .line_height(px(20.))
-            .child(Shimmer::new(label).color(theme.muted_foreground));
+            .text_size(theme.text().0)
+            .line_height(theme.text().1)
+            .child(Shimmer::new(label).color(theme.header_muted));
         let bar = div().mt(px(32.)).px(px(56.)).child(ProgressBar::new(("setup-progress", self.attempt), progress));
         // Only while the files are being unpacked: that can be undone without a trace.
         let buttons = if self.can_cancel() {

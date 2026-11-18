@@ -21,13 +21,20 @@ use super::color::{clear, mix};
 use super::icon::Icon;
 use super::interaction::{use_interaction, Interaction};
 use super::surface::Surfaces;
+use bach_pack::style::layout::Rows;
+
 use crate::theme::{ActiveTheme, Theme};
 
 type Handler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
-/// A bordered card; rows divide themselves with hairlines.
+/// A bordered card; rows divide themselves with hairlines. With
+/// `[layout] rows = "separate"` each row is its own card instead, and this
+/// only stacks them.
 pub fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
+    if theme.layout.rows == Rows::Separate {
+        return div().flex().flex_col().gap(px(8.)).children(rows);
+    }
     div().rounded(theme.radius).bg(theme.card).border_1().border_color(theme.border).children(rows)
 }
 
@@ -95,8 +102,10 @@ impl RenderOnce for Row {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let hover = self.click.as_ref().map(|(id, _)| use_interaction(id.clone(), window, cx));
         let theme = cx.theme();
+        let layout = &theme.layout;
+        let separate = layout.rows == Rows::Separate;
         let wash = hover.as_ref().map(|state| state.read(cx).hover()).unwrap_or(0.0);
-        let icon = self.icon.map(|name| {
+        let icon = self.icon.filter(|_| layout.icons).map(|name| {
             div()
                 .relative()
                 .flex()
@@ -108,14 +117,15 @@ impl RenderOnce for Row {
                 .text_color(theme.foreground)
                 .child(div().relative().flex().child(Icon::new(name).size(18.)))
         });
-        let copy = div()
-            .flex_1()
-            .min_w_0()
-            .child(div().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::MEDIUM).child(self.title))
-            .children(
-                self.description
-                    .map(|text| div().mt(px(2.)).text_size(px(13.)).line_height(px(18.)).text_color(theme.muted_foreground).child(text)),
-            );
+        let ((title_size, title_line), (small_size, small_line)) = (theme.text(), theme.small_text());
+        let copy =
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(div().text_size(title_size).line_height(title_line).font_weight(FontWeight::MEDIUM).child(self.title))
+                .children(self.description.map(|text| {
+                    div().mt(px(2.)).text_size(small_size).line_height(small_line).text_color(theme.muted_foreground).child(text)
+                }));
         let ring = self.focused.then(|| {
             div()
                 .absolute()
@@ -129,7 +139,7 @@ impl RenderOnce for Row {
         });
         let mut row = div()
             .relative()
-            .p(px(16.))
+            .p(px(layout.row_padding))
             .flex()
             .items_center()
             .gap(px(12.))
@@ -138,19 +148,24 @@ impl RenderOnce for Row {
             .child(copy)
             .children(self.control.map(|control| div().flex_none().child(control)))
             .children(ring);
-        // The card's border is 1px, so the wash sits inside a 1px smaller radius.
-        let inner = Theme::inner_radius(theme.radius, 1.);
-        let corners = &mut row.style().corner_radii;
-        if !self.divided {
-            corners.top_left = Some(inner.into());
-            corners.top_right = Some(inner.into());
-        }
-        if self.last {
-            corners.bottom_left = Some(inner.into());
-            corners.bottom_right = Some(inner.into());
-        }
-        if self.divided {
-            row = row.border_t_1().border_color(theme.border);
+        if separate {
+            // Its own card: every corner, its own edge and fill.
+            row = row.rounded(theme.radius).border_1().border_color(theme.border).bg(mix(theme.card, theme.hover, wash));
+        } else {
+            // The card's border is 1px, so the wash sits inside a 1px smaller radius.
+            let inner = Theme::inner_radius(theme.radius, 1.);
+            let corners = &mut row.style().corner_radii;
+            if !self.divided {
+                corners.top_left = Some(inner.into());
+                corners.top_right = Some(inner.into());
+            }
+            if self.last {
+                corners.bottom_left = Some(inner.into());
+                corners.bottom_right = Some(inner.into());
+            }
+            if self.divided && layout.dividers {
+                row = row.border_t_1().border_color(theme.border);
+            }
         }
         match (self.click, hover) {
             (Some((id, handler)), Some(state)) => {

@@ -16,14 +16,15 @@ use crate::launch::{self, Args, Mode};
 use crate::package::{Logo, Package};
 use crate::pages::{footer, frame, page_icon, row_count, subtitle_text, PageLayout};
 use crate::texts::Texts;
-use crate::theme::{ActiveTheme, Looks, Mode as Shade};
+use bach_pack::style::layout::{Arrangement, Footer, Rows, SIDE_HEIGHT};
+
+use crate::theme::{ActiveTheme, Looks, Mode as Shade, Pictures};
 use crate::ui::FormButton;
 use crate::view::{SetupView, Stage};
 
-/// The window's width and its height with up to two rows of choices.
-const WINDOW_SIZE: (f32, f32) = (540., 490.);
-/// Each row of choices past the second adds this much height.
-const ROW_HEIGHT: f32 = 73.;
+/// The window's height with up to two rows of choices, in the default
+/// layout; each row past the second adds a row's height.
+const BASE_HEIGHT: f32 = 490.;
 /// The window never grows past this share of the screen; the card scrolls.
 const MAX_SCREEN_SHARE: f32 = 0.85;
 
@@ -94,7 +95,12 @@ pub fn main() {
             // A previewed style shows in the theme it looks best in, unless --theme says.
             let preferred = args.style.as_deref().and_then(bach_pack::style::preset).and_then(|preset| preset.theme);
             let theme = args.theme.or(preferred).unwrap_or(package.manifest.look.theme);
-            let look = WindowLook { style, fonts: package.fonts.clone(), picture: package.picture.clone() };
+            let look = WindowLook {
+                style,
+                fonts: package.fonts.clone(),
+                pictures: Pictures { background: package.picture.clone(), panel: package.panel.clone() },
+                layout: package.manifest.look.layout.clone().unwrap_or_default().resolve(),
+            };
             let logo_svg = match &package.logo {
                 Some(Logo::Svg(bytes)) => Some(bytes.clone()),
                 _ => None,
@@ -140,12 +146,18 @@ pub fn main() {
 struct WindowLook {
     style: bach_pack::style::Resolved,
     fonts: Vec<Vec<u8>>,
-    picture: Option<Arc<gpui::Image>>,
+    pictures: Pictures,
+    layout: Arrangement,
 }
 
 impl WindowLook {
     fn bach() -> Self {
-        Self { style: bach_pack::style::resolve(&Default::default(), None), fonts: Vec::new(), picture: None }
+        Self {
+            style: bach_pack::style::resolve(&Default::default(), None),
+            fonts: Vec::new(),
+            pictures: Pictures::default(),
+            layout: Arrangement::default_window(),
+        }
     }
 }
 
@@ -167,18 +179,22 @@ fn open<V: Render + 'static>(
         if let Some(missing) = missing {
             crate::log::line(&missing);
         }
-        let looks = Looks::new(&look.style, &faces, look.picture);
+        let layout = look.layout;
+        let looks = Looks::new(&look.style, &faces, look.pictures, layout);
         cx.set_global(looks.get(Shade::Light));
         crate::ui::init(cx);
 
-        let extra = rows.saturating_sub(2) as f32 * ROW_HEIGHT;
-        let wanted = WINDOW_SIZE.1 + extra.max(if tall { 2. * ROW_HEIGHT } else { 0. });
-        let screen = cx.primary_display().map(|display| f32::from(display.bounds().size.height));
-        let height = match screen {
-            Some(screen) if screen > 0. => wanted.min(screen * MAX_SCREEN_SHARE).max(WINDOW_SIZE.1.min(screen)),
-            _ => wanted,
+        let (width, height) = window_size(&layout, rows, tall);
+        let screen = cx.primary_display().map(|display| display.bounds().size);
+        let (width, height) = match screen {
+            Some(screen) if f32::from(screen.height) > 0. => {
+                let (screen_width, screen_height) = (f32::from(screen.width), f32::from(screen.height));
+                let floor = if layout.height.is_some() { 0. } else { BASE_HEIGHT.min(screen_height) };
+                (width.min(screen_width * MAX_SCREEN_SHARE), height.min(screen_height * MAX_SCREEN_SHARE).max(floor))
+            }
+            _ => (width, height),
         };
-        let bounds = Bounds::centered(None, size(px(WINDOW_SIZE.0), px(height)), cx);
+        let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions { title: Some(title.into()), ..Default::default() }),
@@ -207,6 +223,27 @@ fn open<V: Render + 'static>(
         })
         .detach();
     });
+}
+
+/// The window's size: `[layout]`'s when it gives one, else tall enough for
+/// `rows` rows of choices (or a license, `tall`), as the window always grew.
+fn window_size(layout: &Arrangement, rows: usize, tall: bool) -> (f32, f32) {
+    if let Some(height) = layout.height {
+        return (layout.width, height);
+    }
+    let row = layout.row_height();
+    let [top, _, bottom, _] = layout.padding;
+    if layout.side() {
+        // The choices and the footer stand alone beside the header.
+        let tile_gap = if layout.rows == Rows::Separate { 8. } else { 0. };
+        let footer = 16. + layout.button_height + if layout.footer == Footer::Above { 26. } else { 0. };
+        let content = top + bottom + layout.gap + rows.max(if tall { 4 } else { 0 }) as f32 * (row + tile_gap) + 2. + footer;
+        return (layout.width, content.max(f32::from(SIDE_HEIGHT)));
+    }
+    let extra = rows.saturating_sub(2) as f32 * row;
+    // Padding and type larger than the default make room for themselves.
+    let grown = (top + bottom - 68.) + (layout.heading_size - 22.) * 1.5 + (layout.gap - 28.) + (row - 73.) * 2.;
+    (layout.width, BASE_HEIGHT + grown.max(-120.) + extra.max(if tall { 2. * row } else { 0. }))
 }
 
 /// Keeps the window open while files are moving: closing it then would

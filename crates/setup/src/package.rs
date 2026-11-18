@@ -21,6 +21,8 @@ pub struct Package {
     pub fonts: Vec<Vec<u8>>,
     /// The style's background picture.
     pub picture: Option<Arc<gpui::Image>>,
+    /// The picture in a side header's panel (`[layout] panel_image`).
+    pub panel: Option<Arc<gpui::Image>>,
 }
 
 pub enum Logo {
@@ -48,17 +50,19 @@ impl Package {
         let manifest = container::read_manifest(&mut file, &layout)?;
         let look = container::read_look(&mut file, &layout, &manifest)?;
         let bytes = look.logo;
-        let picture = look.background.map(|(bytes, jpeg)| {
+        let image = |(bytes, jpeg): (Vec<u8>, bool)| {
             let format = if jpeg { gpui::ImageFormat::Jpeg } else { gpui::ImageFormat::Png };
             Arc::new(gpui::Image::from_bytes(format, bytes))
-        });
+        };
+        let picture = look.background.map(image);
+        let panel = look.panel.map(image);
         let logo = match manifest.look.logo {
             _ if bytes.is_empty() => None,
             Some(LogoKind::Svg) => Some(Logo::Svg(bytes.into())),
             Some(LogoKind::Png) => Some(Logo::Png(Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, bytes)))),
             None => None,
         };
-        Ok(Some(Self { manifest, exe, layout: Some(layout), logo, fonts: look.fonts, picture }))
+        Ok(Some(Self { manifest, exe, layout: Some(layout), logo, fonts: look.fonts, picture, panel }))
     }
 
     /// A made-up app for previewing the window on a bare runtime.
@@ -106,7 +110,7 @@ impl Package {
             archive_sha256: None,
             patch_from: None,
         };
-        Self { manifest, exe: PathBuf::new(), layout: None, logo: None, fonts: Vec::new(), picture: None }
+        Self { manifest, exe: PathBuf::new(), layout: None, logo: None, fonts: Vec::new(), picture: None, panel: None }
     }
 
     /// Whether this carries files to install.

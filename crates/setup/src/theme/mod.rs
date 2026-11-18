@@ -6,11 +6,12 @@
 
 use std::sync::Arc;
 
+use bach_pack::style::layout::Arrangement;
 use gpui::{px, App, FontWeight, Global, Hsla, Image, Pixels, SharedString, WindowAppearance};
 
 mod derive;
 
-pub use derive::{Faces, Looks};
+pub use derive::{Faces, Looks, Pictures};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -35,6 +36,15 @@ pub struct Theme {
     pub surface_end: Option<Hsla>,
     /// A picture over the window's colour, and how strongly it shows.
     pub picture: Option<(Arc<Image>, f32)>,
+    /// A side header's panel, and its picture (`[layout]`).
+    pub panel: Hsla,
+    pub panel_picture: Option<(Arc<Image>, f32)>,
+    /// The heading and subtitle colours where the header sits: on the
+    /// window, or on a side panel (which may be dark in light mode).
+    pub header_text: Hsla,
+    pub header_muted: Hsla,
+    /// The window's size, arrangement, spacing and motion (`[layout]`).
+    pub layout: Arrangement,
     /// The fill of the card of choices, the license box and the key field;
     /// clear when the window shows through.
     pub card: Hsla,
@@ -79,6 +89,24 @@ pub const FONT_SANS: &str = bach_pack::style::INTER;
 pub const FONT_DISPLAY: &str = bach_pack::style::INTER_DISPLAY;
 
 impl Theme {
+    /// Body text: the layout's size, with the line height Inter wants.
+    pub fn text(&self) -> (Pixels, Pixels) {
+        let size = self.layout.text_size;
+        (px(size), px((size * 20. / 14.).round()))
+    }
+
+    /// Descriptions and small print, a point below the body.
+    pub fn small_text(&self) -> (Pixels, Pixels) {
+        let size = self.layout.text_size - 1.;
+        (px(size), px((size * 18. / 13.).round()))
+    }
+
+    /// The footer line, two points below the body.
+    pub fn meta_text(&self) -> (Pixels, Pixels) {
+        let size = self.layout.text_size - 2.;
+        (px(size), px((size * 16. / 12.).round()))
+    }
+
     /// A checkbox's corners: the controls' radius, kept small on a 16px box.
     pub fn checkbox_radius(&self) -> Pixels {
         self.control_radius.min(px(5.))

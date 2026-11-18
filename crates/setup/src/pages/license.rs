@@ -51,7 +51,7 @@ impl SetupView {
                     text = text.with_highlights([(range, highlight)]);
                 }
                 layouts.push(text.layout().clone());
-                div().text_size(px(13.)).line_height(px(19.)).child(text).into_any_element()
+                div().text_size(theme.small_text().0).line_height(theme.small_text().1).child(text).into_any_element()
             })
             .collect();
         self.license.layouts = layouts;
@@ -69,7 +69,7 @@ impl SetupView {
         // make the same calm page; a long one scrolls inside it.
         let mut card = div()
             .relative()
-            .mt(px(24.))
+            .mt(px((theme.layout.gap - 4.).max(0.)))
             .flex_1()
             .min_h_0()
             .rounded(theme.radius)

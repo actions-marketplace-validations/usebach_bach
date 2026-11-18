@@ -8,6 +8,8 @@ use gpui::{
 
 use super::{footer, subtitle_text, PageLayout};
 use crate::keyboard::Target;
+use bach_pack::style::layout::Rows;
+
 use crate::theme::{ActiveTheme, Theme};
 use crate::ui::prelude::*;
 use crate::ui::scroll::Thumb;
@@ -66,13 +68,14 @@ impl SetupView {
             .track_scroll(&self.choices_scroll)
             .on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()))
             .size_full()
-            .overflow_y_scroll()
-            .rounded(theme.radius)
-            .bg(theme.card)
-            .border_1()
-            .border_color(theme.border)
-            .children(rows);
-        let choices = div().relative().mt(px(28.)).min_h_0().flex().flex_col().child(list).children(self.scrollbar(&theme));
+            .overflow_y_scroll();
+        // Separate rows are cards of their own; joined ones share this one.
+        let list = if theme.layout.rows == Rows::Separate {
+            list.flex().flex_col().gap(px(8.)).children(rows)
+        } else {
+            list.rounded(theme.radius).bg(theme.card).border_1().border_color(theme.border).children(rows)
+        };
+        let choices = div().relative().mt(px(theme.layout.gap)).min_h_0().flex().flex_col().child(list).children(self.scrollbar(&theme));
         PageLayout {
             mark: self.mark(false, &theme),
             subtitle: subtitle.map(|text| subtitle_text(text, &theme)),
