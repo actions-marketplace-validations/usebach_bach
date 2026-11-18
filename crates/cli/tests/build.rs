@@ -118,6 +118,13 @@ accent = \"#2563eb\"
     let inspected = run(&dir, &["inspect", "dist/Hello-Setup-1.0.0.exe"]);
     let out = text(&inspected.stdout);
     assert!(out.contains("arcade style, dark, own colours, background picture"), "{out}");
+
+    // A [layout] with a side panel's picture says so too.
+    std::fs::write(dir.join("side.png"), b"\x89PNG\r\n\x1a\nrest").unwrap();
+    let layout = "[layout]\nheader = \"left\"\nwidth = 820\nheight = 480\npanel_image = \"side.png\"\n";
+    std::fs::write(dir.join("bach.toml"), config(&format!("[installer]\nstyle = \"arcade\"\n\n{layout}"))).unwrap();
+    let checked = text(&run(&dir, &["check"]).stdout);
+    assert!(checked.contains("own layout (820×480, header at the left), panel picture"), "{checked}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

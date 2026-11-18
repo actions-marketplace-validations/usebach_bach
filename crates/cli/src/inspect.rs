@@ -214,5 +214,21 @@ fn look(manifest: &Manifest) -> String {
     if shipped(bach_pack::manifest::LookFileKind::BackgroundPng) + shipped(bach_pack::manifest::LookFileKind::BackgroundJpeg) > 0 {
         parts.push("background picture".into());
     }
+    if let Some(layout) = &look.layout {
+        let arranged = layout.resolve();
+        let header = match arranged.header {
+            bach_pack::style::layout::Header::Top => "header on top",
+            bach_pack::style::layout::Header::Left => "header at the left",
+            bach_pack::style::layout::Header::Right => "header at the right",
+        };
+        let size = match arranged.height {
+            Some(height) => format!("{}×{height}", arranged.width),
+            None => format!("{} wide", arranged.width),
+        };
+        parts.push(format!("own layout ({size}, {header})"));
+    }
+    if shipped(bach_pack::manifest::LookFileKind::PanelPng) + shipped(bach_pack::manifest::LookFileKind::PanelJpeg) > 0 {
+        parts.push("panel picture".into());
+    }
     parts.join(", ")
 }
