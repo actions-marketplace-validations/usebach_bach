@@ -117,7 +117,7 @@ description = "One line about the app."   # subtitle on the first page
 icon = "assets/app.ico"                   # setup file icon; also the logo if it holds a PNG
 
 [installer]
-style = "fluent"                          # the window's look; `bach styles` lists all 15
+style = "aurora"                          # the window's look; `bach styles` lists all 14
 accent = "#2563eb"
 logo = "assets/logo.png"                  # .svg (one colour), .png, or "none"
 languages = ["en", "de"]                  # default: all 19; one entry = always that language

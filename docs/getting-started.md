@@ -135,8 +135,8 @@ bach preview
 bach preview --uninstall --theme dark --lang de
 ```
 
-Want another look? `bach styles` lists the 15 built-in styles, and
-`bach preview --style fluent` shows one on your app before you set
+Want another look? `bach styles` lists the 14 built-in styles, and
+`bach preview --style aurora` shows one on your app before you set
 `installer.style` (see [`[style]`](config.md#style)).
 
 Designing the window? `bach watch` keeps it open and shows every change

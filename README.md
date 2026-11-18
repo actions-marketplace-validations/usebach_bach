@@ -118,7 +118,7 @@ your app.
 | --- | --- |
 | **Choices** | Desktop and Start menu shortcuts, start with Windows, add to `PATH`, each offered ticked, unticked, always or never; optional components |
 | **Integration** | `myapp://` link schemes and file types, never taking over another app's |
-| **Look and words** | 15 built-in styles (native Windows, soft gradients, terminal, game looks, ...) and your own fonts, colours, corners and background picture; 11 layout presets and your own layout: window size, portrait or landscape, a picture panel or banner, a floating card, tiles, alignment, spacing, button placement and page animation; your logo and icon; light, dark or system theme; any text, per language; a license page |
+| **Look and words** | 14 built-in styles (soft gradients, terminal, game looks, ...) and your own fonts, colours, corners and background picture; 10 layout presets and your own layout: window size, portrait or landscape, a picture panel or banner, a floating card, tiles, alignment, spacing, button placement and page animation; your logo and icon; light, dark or system theme; any text, per language; a license page |
 | **Safety** | Free-space check, archive checksum, one setup per app at a time, "close and continue" when the app is open, data deleted only on request |
 | **Automation** | `Setup.exe /S` with `--dir`, `--with`, `--without`, `--log`; quiet uninstall from Settings › Apps |
 | **Online and private** | An online installer that always downloads the newest version; access keys that encrypt the files and keep updates private: see [config](docs/config.md#installer) |
@@ -142,8 +142,8 @@ Every setting is in the [config reference](docs/config.md).
 | `bach inspect FILE` | Shows what a setup file or an installed `uninstall.exe` carries. |
 | `bach verify FILE` | Checks a setup file for damage without installing it: the archive and every file against the checksums recorded at build, and whether it carries a signature. `--key-file` opens an encrypted one. See [Checking a setup file](docs/config.md#checking-a-setup-file). |
 | `bach page FILE --url URL` | Writes a download page for a setup file: one HTML file with the name, version, size, a download button and the SHA-256 (`--notes-file`, `--winget ID`). See [A download page](docs/config.md#a-download-page). |
-| `bach styles` | Lists the 15 built-in styles of the window (`installer.style`): what each looks like and what kind of app it suits. See [`[style]`](docs/config.md#style). |
-| `bach layouts` | Lists the 11 built-in layouts (`[layout] preset`). See [`[layout]`](docs/config.md#layout). |
+| `bach styles` | Lists the 14 built-in styles of the window (`installer.style`): what each looks like and what kind of app it suits. See [`[style]`](docs/config.md#style). |
+| `bach layouts` | Lists the 10 built-in layouts (`[layout] preset`). See [`[layout]`](docs/config.md#layout). |
 | `bach doctor` | Says whether everything a build needs is in place. |
 | `bach update [VERSION]` | Updates `bach` itself to the newest release (or exactly `VERSION`). `--check` only says whether a newer release exists, `--force` installs again. A copy managed by npm, Scoop, winget or Cargo gets the command that updates it instead. See [Keeping bach up to date](#keeping-bach-up-to-date). |
 | `bach feed FILE` | Writes the update feed for a (signed) setup file; the link comes from `bach.toml` (or `--url`), `--notes-file` says what's new, `--rollout 10` offers it to 10% of computers first, `--patch FILE` offers an update patch. |
