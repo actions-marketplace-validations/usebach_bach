@@ -16,8 +16,8 @@ pub const ARCADE: Preset = Preset {
     radius: 14,
     control_radius: 12,
     light: Palette {
-        background: c(0xfff0f7),
-        background_end: c(0xece4ff),
+        background: c(0xfff2f8),
+        background_end: c(0xfbe3ee),
         card: a(0xffffffe0),
         text: c(0x2a0f3d),
         muted_text: c(0x6b5780),

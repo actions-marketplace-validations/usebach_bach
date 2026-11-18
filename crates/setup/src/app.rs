@@ -276,7 +276,7 @@ fn window_size(layout: &Arrangement, rows: usize, tall: bool) -> (f32, f32) {
             (false, LogoPlace::Above) => 74. + heading + 26.,
             (false, LogoPlace::Beside) => heading.max(56.) + 26.,
         };
-        let card = if layout.surface == Surface::Card { 56. } else { 0. };
+        let card = if layout.surface == Surface::Card { 64. } else { 0. };
         // A narrow column wraps the install folder onto a second line.
         let room = match layout.panel {
             Panel::Left | Panel::Right => layout.width - layout.panel_size,

@@ -182,15 +182,21 @@ impl PageLayout {
                     .w_full()
                     .flex()
                     .flex_col()
-                    .p(px(28.))
-                    .rounded(theme.radius + px(6.))
+                    .p(px(32.))
+                    .rounded(theme.radius + px(8.))
                     .bg(fill)
                     .border_1()
                     .border_color(theme.border)
-                    .shadow_lg()
+                    // A soft, neutral lift; the hairline does the separating.
+                    .shadow(vec![gpui::BoxShadow {
+                        color: black().opacity(0.08),
+                        offset: gpui::point(px(0.), px(8.)),
+                        blur_radius: px(24.),
+                        spread_radius: px(0.),
+                    }])
                     .child(column);
                 div().flex_1().min_h_0().w_full().flex().justify_center().child(match layout.content_width {
-                    Some(width) => card.max_w(px(width + 56.)),
+                    Some(width) => card.max_w(px(width + 64.)),
                     None => card,
                 })
             }
@@ -244,7 +250,7 @@ fn panel(header: Option<gpui::Div>, theme: &Theme) -> gpui::Div {
             // On a picture the heading sits low, on the shade; on a colour, in
             // the middle. It keeps clear of the panel's edges even when the
             // window's own padding is tight.
-            let side = left.max(right).max(28.);
+            let side = left.max(right).max(32.);
             let place = div().relative().size_full().flex().flex_col().pt(px(top.max(24.))).pb(px(bottom.max(24.))).px(px(side));
             let place = if picture.is_some() { place.justify_end() } else { place.justify_center() };
             card.children(shade).child(place.child(header))
@@ -284,7 +290,7 @@ fn header(mark: Option<AnyElement>, title: SharedString, subtitle: Option<AnyEle
         // One line: the mark as tall as the heading's line, both centred on
         // it, however the block itself is aligned.
         (Some(mark), LogoPlace::Beside) => {
-            let line = div().flex().items_center().gap(px((size * 0.3).round().max(10.))).child(slot(mark)).child(title);
+            let line = div().flex().items_center().gap(px(12.)).child(slot(mark)).child(title);
             if layout.align == Align::Right {
                 line.flex_row_reverse()
             } else {

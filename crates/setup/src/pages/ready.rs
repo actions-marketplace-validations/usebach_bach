@@ -74,13 +74,17 @@ impl SetupView {
         let list = if theme.layout.two_columns() {
             // The folder (a long path and a button) gets a line of its own;
             // the options follow two to a line, as tall as each other. An
-            // odd last one keeps a tile's width.
+            // odd last one keeps a tile's width. Two on a line share it
+            // exactly, so their outer edges meet the folder's.
+            let alone = count > 1 && (count - 1) % 2 == 1;
             let tiles = rows.into_iter().enumerate().map(|(index, row)| {
                 let tile = div().flex().flex_col().min_w_0().child(row);
                 if index == 0 {
                     tile.w_full()
+                } else if alone && index + 1 == count {
+                    tile.flex_grow().flex_basis(relative(0.45)).max_w(relative(0.494))
                 } else {
-                    tile.flex_grow().flex_basis(relative(0.45)).max_w(relative(0.493))
+                    tile.flex_grow().flex_basis(relative(0.45))
                 }
             });
             list.flex().flex_row().flex_wrap().content_start().gap(px(8.)).children(tiles)
