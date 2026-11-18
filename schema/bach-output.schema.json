@@ -35,6 +35,19 @@
     "updated": { "type": "boolean", "description": "update: whether bach was replaced. Not there with --check." },
     "install": { "type": "string", "enum": ["standalone", "npm", "scoop", "winget", "cargo", "checkout"], "description": "update: how this bach was installed; only a standalone copy replaces itself." },
     "page": { "type": "string", "description": "page: the download page (index.html) that was written." },
+    "layouts": {
+      "type": "array",
+      "description": "layouts: the built-in layouts of the installer window, in the order bach layouts lists them.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "What [layout] preset calls it." },
+          "description": { "type": "string" },
+          "suits": { "type": "string" },
+          "picture": { "type": ["string", "null"], "description": "The setting whose picture it shows best (panel_image or background_image), or null." }
+        }
+      }
+    },
     "styles": {
       "type": "array",
       "description": "styles: the built-in styles of the installer window, in the order bach styles lists them.",

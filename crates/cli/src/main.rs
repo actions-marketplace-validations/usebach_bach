@@ -343,6 +343,8 @@ enum Command {
     },
     /// List the built-in styles of the installer window, for installer.style.
     Styles,
+    /// List the built-in layouts of the installer window, for [layout] preset.
+    Layouts,
     /// Check that everything a build needs is in place.
     Doctor {
         /// The config file.
@@ -399,6 +401,7 @@ fn main() -> ExitCode {
         Command::Watch(args) => watch::command(watch::Options { config: &args.config, preview: args.options() }),
         Command::Inspect { file } => inspect::inspect(&file),
         Command::Styles => styles::command(),
+        Command::Layouts => styles::layouts(),
         Command::Doctor { config } => doctor::doctor(&config),
         Command::Version { target, config, dry_run } => {
             version::command(version::Options { config: &config, target: target.as_deref(), dry_run })
