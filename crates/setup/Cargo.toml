@@ -20,6 +20,8 @@ serde_json.workspace = true
 # so `cargo test --workspace` still works on every OS.
 [target.'cfg(windows)'.dependencies]
 gpui = "0.2.2"
+# GPUI already builds it; used to cut a panel picture to its panel's shape.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
 futures = "0.3"
 rfd = "0.18"
 raw-window-handle = "0.6"
