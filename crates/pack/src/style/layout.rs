@@ -181,7 +181,8 @@ pub struct Arrangement {
 
 /// The window Bach draws without `[layout]`.
 pub const DEFAULT_WIDTH: u16 = 540;
-/// A window with the header at the side starts wider and lower.
+/// A window with the header at the side starts wider, and at least this
+/// tall when its choices need less.
 pub const SIDE_WIDTH: u16 = 780;
 pub const SIDE_HEIGHT: u16 = 470;
 /// Top, right, bottom, left.
@@ -210,7 +211,7 @@ impl Layout {
         let header = self.header.unwrap_or_default();
         let side = header != Header::Top;
         let width = f32::from(self.width.unwrap_or(if side { SIDE_WIDTH } else { DEFAULT_WIDTH }));
-        let height = self.height.map(f32::from).or(side.then_some(f32::from(SIDE_HEIGHT)));
+        let height = self.height.map(f32::from);
         let header_width = self.header_width.map(f32::from).unwrap_or((width * 0.4).round()).min(width - 220.0).max(120.0);
         Arrangement {
             width,
@@ -239,6 +240,11 @@ impl Layout {
 }
 
 impl Arrangement {
+    /// The window without `[layout]`.
+    pub fn default_window() -> Self {
+        Layout::default().resolve()
+    }
+
     /// Whether the header sits in a side panel.
     pub fn side(&self) -> bool {
         self.header != Header::Top
@@ -269,7 +275,7 @@ mod tests {
     #[test]
     fn a_side_header_changes_its_defaults() {
         let side = Layout { header: Some(Header::Left), ..Layout::default() }.resolve();
-        assert_eq!((side.width, side.height), (780.0, Some(470.0)));
+        assert_eq!((side.width, side.height), (780.0, None));
         assert_eq!(side.header_width, 312.0);
         assert!(side.panel);
         assert_eq!(side.align, Align::Left);

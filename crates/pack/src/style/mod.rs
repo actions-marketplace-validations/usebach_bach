@@ -98,6 +98,8 @@ pub struct Palette {
     pub mark: Option<Color>,
     /// A side header's panel (`[layout] header`); derived when None.
     pub panel: Option<Color>,
+    /// The heading and subtitle on that panel; whatever reads on it when None.
+    pub panel_text: Option<Color>,
     /// Hand-tuned tokens the runtime otherwise derives.
     pub well: Option<Color>,
     pub track: Option<Color>,
@@ -120,6 +122,7 @@ impl Palette {
         error: None,
         mark: None,
         panel: None,
+        panel_text: None,
         well: None,
         track: None,
         input: None,
@@ -132,7 +135,21 @@ impl Palette {
         macro_rules! take {
             ($($field:ident),*) => { $( if other.$field.is_some() { self.$field = other.$field; } )* };
         }
-        take!(background, background_end, card, text, muted_text, accent, accent_text, accent_hover, border, error, mark, panel);
+        take!(
+            background,
+            background_end,
+            card,
+            text,
+            muted_text,
+            accent,
+            accent_text,
+            accent_hover,
+            border,
+            error,
+            mark,
+            panel,
+            panel_text
+        );
         take!(well, track, input, ring, hover);
         // A new background without its own gradient end is a solid window.
         if other.background.is_some() && other.background_end.is_none() {
@@ -244,6 +261,8 @@ pub struct Colors {
     pub mark: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub panel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel_text: Option<String>,
 }
 
 impl Colors {
@@ -266,6 +285,7 @@ impl Colors {
             error: color(&self.error),
             mark: color(&self.mark),
             panel: color(&self.panel),
+            panel_text: color(&self.panel_text),
             ..Palette::EMPTY
         }
     }

@@ -40,6 +40,7 @@ pub(super) struct StyleSection {
     error: Option<String>,
     mark: Option<String>,
     panel: Option<String>,
+    panel_text: Option<String>,
     light: Option<ColorSection>,
     dark: Option<ColorSection>,
 }
@@ -57,6 +58,7 @@ struct ColorSection {
     error: Option<String>,
     mark: Option<String>,
     panel: Option<String>,
+    panel_text: Option<String>,
 }
 
 /// The style as the manifest carries it, and the files it ships.
@@ -136,6 +138,7 @@ pub(super) fn style(name: Option<&str>, section: Option<&StyleSection>, accent: 
         error: section.error.clone(),
         mark: section.mark.clone(),
         panel: section.panel.clone(),
+        panel_text: section.panel_text.clone(),
     };
     let shared = colors(&shared, "style")?;
     for (mode, own, out) in [("light", &section.light, &mut custom.light), ("dark", &section.dark, &mut custom.dark)] {
@@ -264,6 +267,7 @@ fn colors(section: &ColorSection, prefix: &str) -> Result<Colors> {
         error: color(&section.error, "error")?,
         mark: color(&section.mark, "mark")?,
         panel: color(&section.panel, "panel")?,
+        panel_text: color(&section.panel_text, "panel_text")?,
     })
 }
 
@@ -287,5 +291,6 @@ fn merge(shared: &Colors, own: Colors) -> Colors {
         error: pick(own.error, &shared.error),
         mark: pick(own.mark, &shared.mark),
         panel: pick(own.panel, &shared.panel),
+        panel_text: pick(own.panel_text, &shared.panel_text),
     }
 }
