@@ -47,6 +47,7 @@ mod preview;
 mod resources;
 mod runtime;
 mod sign;
+mod styles;
 mod template;
 mod update;
 mod verify;
@@ -332,6 +333,8 @@ enum Command {
         #[arg(long, value_enum, default_value = "commit")]
         pin: PinArg,
     },
+    /// List the built-in styles of the installer window, for installer.style.
+    Styles,
     /// Check that everything a build needs is in place.
     Doctor {
         /// The config file.
@@ -387,6 +390,7 @@ fn main() -> ExitCode {
         Command::Preview(args) => preview::preview(&args.config, args.options()),
         Command::Watch(args) => watch::command(watch::Options { config: &args.config, preview: args.options() }),
         Command::Inspect { file } => inspect::inspect(&file),
+        Command::Styles => styles::command(),
         Command::Doctor { config } => doctor::doctor(&config),
         Command::Version { target, config, dry_run } => {
             version::command(version::Options { config: &config, target: target.as_deref(), dry_run })

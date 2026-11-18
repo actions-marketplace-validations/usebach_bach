@@ -35,6 +35,19 @@
     "updated": { "type": "boolean", "description": "update: whether bach was replaced. Not there with --check." },
     "install": { "type": "string", "enum": ["standalone", "npm", "scoop", "winget", "cargo", "checkout"], "description": "update: how this bach was installed; only a standalone copy replaces itself." },
     "page": { "type": "string", "description": "page: the download page (index.html) that was written." },
+    "styles": {
+      "type": "array",
+      "description": "styles: the built-in styles of the installer window, in the order bach styles lists them.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "What installer.style calls it." },
+          "description": { "type": "string" },
+          "suits": { "type": "string", "description": "The kind of app it suits." },
+          "theme": { "type": "string", "enum": ["system", "light", "dark"], "description": "The theme it uses when installer.theme isn't set." }
+        }
+      }
+    },
     "verified": { "type": "boolean", "description": "verify: whether the setup file is intact (a damaged file is an error instead)." },
     "signature": { "type": "string", "enum": ["signed", "unsigned"], "description": "verify: whether the file carries a signature (Windows decides whether it is valid)." },
     "install_command": { "type": "string", "description": "intune: the command that installs the setup file silently." },

@@ -122,6 +122,18 @@ accent = \"#2563eb\"
 }
 
 #[test]
+fn bach_styles_lists_every_built_in_style() {
+    let listed = bach().args(["styles", "--json"]).output().unwrap();
+    assert!(listed.status.success(), "{}", text(&listed.stderr));
+    let object = json_of(&listed);
+    let names: Vec<&str> = object["styles"].as_array().unwrap().iter().map(|style| style["name"].as_str().unwrap()).collect();
+    let expected: Vec<&str> = bach_pack::style::PRESETS.iter().map(|preset| preset.name).collect();
+    assert_eq!(names, expected);
+    let plain = text(&bach().arg("styles").output().unwrap().stdout);
+    assert!(plain.contains("arcade") && plain.contains("bach preview --style"), "{plain}");
+}
+
+#[test]
 fn the_online_installer_is_the_same_window_without_the_files() {
     need_runtime!();
     let dir = project("online", &config(&format!("[installer]\nonline = true\n\n{UPDATES}")));
