@@ -18,7 +18,7 @@ use gpui::{
 use super::{footer, subtitle_text, PageLayout};
 use crate::keyboard::Target;
 use crate::license::Drag;
-use crate::theme::{ActiveTheme, Theme, RADIUS};
+use crate::theme::{ActiveTheme, Theme};
 use crate::ui::prelude::*;
 use crate::ui::scroll::Thumb;
 use crate::view::SetupView;
@@ -67,8 +67,16 @@ impl SetupView {
             .child(div().p(px(16.)).flex().flex_col().gap(px(10.)).children(paragraphs));
         // The card fills the room left, so a short license and a long one
         // make the same calm page; a long one scrolls inside it.
-        let mut card =
-            div().relative().mt(px(24.)).flex_1().min_h_0().rounded(RADIUS).border_1().border_color(theme.border).child(viewport);
+        let mut card = div()
+            .relative()
+            .mt(px(24.))
+            .flex_1()
+            .min_h_0()
+            .rounded(theme.radius)
+            .bg(theme.card)
+            .border_1()
+            .border_color(theme.border)
+            .child(viewport);
         card = card.children(self.license_scrollbar(&theme, cx));
         if self.license.drag != Drag::None {
             card = card.child(self.license_drag_listeners(cx));
@@ -93,7 +101,7 @@ impl SetupView {
             grow: true,
             ..PageLayout::new(texts.get(Key::license_title), footer(Some(self.meta()), buttons, &theme))
         }
-        .render()
+        .render(&theme)
     }
 
     /// Called every frame the license page is drawn: advances the glide, and

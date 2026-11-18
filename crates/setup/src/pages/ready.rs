@@ -8,7 +8,7 @@ use gpui::{
 
 use super::{footer, subtitle_text, PageLayout};
 use crate::keyboard::Target;
-use crate::theme::{ActiveTheme, Theme, RADIUS};
+use crate::theme::{ActiveTheme, Theme};
 use crate::ui::prelude::*;
 use crate::ui::scroll::Thumb;
 use crate::view::{SetupView, Toggle};
@@ -67,7 +67,8 @@ impl SetupView {
             .on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()))
             .size_full()
             .overflow_y_scroll()
-            .rounded(RADIUS)
+            .rounded(theme.radius)
+            .bg(theme.card)
             .border_1()
             .border_color(theme.border)
             .children(rows);
@@ -92,7 +93,7 @@ impl SetupView {
                 ),
             )
         }
-        .render()
+        .render(&theme)
     }
 
     /// A thin thumb showing where the card is scrolled, when it scrolls.

@@ -48,13 +48,15 @@ impl RenderOnce for ProgressBar {
         keep_animating(window, moving);
 
         let theme = cx.theme();
-        div()
-            .relative()
-            .w_full()
-            .h(px(4.))
-            .rounded_full()
-            .overflow_hidden()
-            .bg(theme.muted)
-            .child(div().absolute().left_0().top_0().h_full().w(relative(fill.clamp(0.0, 1.0))).rounded_full().bg(theme.primary))
+        div().relative().w_full().h(px(4.)).rounded(theme.bar_radius(px(4.))).overflow_hidden().bg(theme.muted).child(
+            div()
+                .absolute()
+                .left_0()
+                .top_0()
+                .h_full()
+                .w(relative(fill.clamp(0.0, 1.0)))
+                .rounded(theme.bar_radius(px(4.)))
+                .bg(theme.primary),
+        )
     }
 }

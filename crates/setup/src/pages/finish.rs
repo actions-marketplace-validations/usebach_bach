@@ -44,7 +44,7 @@ impl SetupView {
             content: Some(bar.into_any_element()),
             ..PageLayout::new(title, footer(Some(self.meta()), buttons, theme))
         }
-        .render()
+        .render(theme)
     }
 
     pub(super) fn done_page(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -57,7 +57,7 @@ impl SetupView {
                 .on_click(cx.listener(|this, _, _, cx| this.close(cx)));
             if primary { button } else { button.outline() }.into_any_element()
         };
-        let done_icon = page_icon("circle-check-filled", theme.foreground);
+        let done_icon = page_icon("circle-check-filled", theme.mark);
         // The website after installing, the feedback page after removing.
         let link = self.done_link().map(|_| {
             let label = if self.is_removing() { texts.get(Key::feedback) } else { texts.get(Key::website) };
@@ -80,7 +80,7 @@ impl SetupView {
                 subtitle: Some(subtitle_text(subtitle, &theme)),
                 ..PageLayout::new(texts.get(Key::removed_title), footer(None, link.into_iter().chain([close(true, cx)]).collect(), &theme))
             }
-            .render();
+            .render(&theme);
         }
         let title = if self.existing.is_some() { texts.get(Key::updated_title) } else { texts.get(Key::installed_title) };
         let manifest = &self.package.manifest;
@@ -105,7 +105,7 @@ impl SetupView {
             subtitle: Some(subtitle_text(subtitle, &theme)),
             ..PageLayout::new(title, footer(None, buttons, &theme))
         }
-        .render()
+        .render(&theme)
     }
 
     pub(super) fn failed_page(&mut self, message: SharedString, cx: &mut Context<Self>) -> AnyElement {
@@ -162,7 +162,7 @@ impl SetupView {
                 ),
             )
         }
-        .render()
+        .render(&theme)
     }
 }
 

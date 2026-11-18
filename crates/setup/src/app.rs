@@ -16,7 +16,7 @@ use crate::launch::{self, Args, Mode};
 use crate::package::{Logo, Package};
 use crate::pages::{footer, frame, page_icon, row_count, subtitle_text, PageLayout};
 use crate::texts::Texts;
-use crate::theme::{ActiveTheme, Theme};
+use crate::theme::{ActiveTheme, Looks, Mode as Shade};
 use crate::ui::FormButton;
 use crate::view::{SetupView, Stage};
 
@@ -90,8 +90,11 @@ pub fn main() {
         Ok(package) => {
             let mode = launch::mode(&args, &package);
             let texts = Arc::new(Texts::new(&package.manifest, args.lang.as_deref()));
-            let theme = args.theme.unwrap_or(package.manifest.look.theme);
-            let accent = package.accent();
+            let style = bach_pack::style::resolve(&package.manifest.look, args.style.as_deref());
+            // A previewed style shows in the theme it looks best in, unless --theme says.
+            let preferred = args.style.as_deref().and_then(bach_pack::style::preset).and_then(|preset| preset.theme);
+            let theme = args.theme.or(preferred).unwrap_or(package.manifest.look.theme);
+            let look = WindowLook { style, fonts: package.fonts.clone(), picture: package.picture.clone() };
             let logo_svg = match &package.logo {
                 Some(Logo::Svg(bytes)) => Some(bytes.clone()),
                 _ => None,
@@ -107,7 +110,7 @@ pub fn main() {
                 let kept = !args.preview && package.manifest.access.is_some();
                 kept.then(|| crate::system::secret::load(&package.manifest.app.id)).flatten()
             });
-            open(Assets { logo_svg }, title, theme, accent, (rows, tall), move |window, cx| {
+            open(Assets { logo_svg }, title, theme, look, (rows, tall), move |window, cx| {
                 let view = SetupView::new(package, texts, mode, args.preview, given_key, cx);
                 window.focus(&view.focus_handle);
                 view
@@ -124,12 +127,25 @@ pub fn main() {
                 Some(error) => i18n::fill(language.strings.problem_damaged, &[("error", &error)]),
             };
             let title = language.strings.problem_title.to_string();
-            open(Assets { logo_svg: None }, title.clone(), theme, None, (0, false), move |_, _| Problem {
+            open(Assets { logo_svg: None }, title.clone(), theme, WindowLook::bach(), (0, false), move |_, _| Problem {
                 title: title.into(),
                 message: message.into(),
                 close: language.strings.close.into(),
             });
         }
+    }
+}
+
+/// The window's style, and the fonts and picture it ships.
+struct WindowLook {
+    style: bach_pack::style::Resolved,
+    fonts: Vec<Vec<u8>>,
+    picture: Option<Arc<gpui::Image>>,
+}
+
+impl WindowLook {
+    fn bach() -> Self {
+        Self { style: bach_pack::style::resolve(&Default::default(), None), fonts: Vec::new(), picture: None }
     }
 }
 
@@ -139,15 +155,20 @@ fn open<V: Render + 'static>(
     assets: Assets,
     title: String,
     theme: ThemeChoice,
-    accent: Option<u32>,
+    look: WindowLook,
     (rows, tall): (usize, bool),
     build: impl FnOnce(&mut Window, &mut Context<V>) -> V + 'static,
 ) {
     Application::new().with_assets(assets).run(move |cx: &mut App| {
-        cx.set_global(Theme::light().with_accent(accent));
         if let Err(reason) = assets::load_fonts(cx) {
             eprintln!("bach-setup: Inter didn't load ({reason}); using Segoe UI");
         }
+        let (faces, missing) = assets::style_faces(cx, &look.style, &look.fonts);
+        if let Some(missing) = missing {
+            crate::log::line(&missing);
+        }
+        let looks = Looks::new(&look.style, &faces, look.picture);
+        cx.set_global(looks.get(Shade::Light));
         crate::ui::init(cx);
 
         let extra = rows.saturating_sub(2) as f32 * ROW_HEIGHT;
@@ -166,7 +187,7 @@ fn open<V: Render + 'static>(
             ..Default::default()
         };
         let opened = cx.open_window(options, move |window, cx| {
-            follow_appearance(theme, accent, window, cx);
+            follow_appearance(theme, looks, window, cx);
             let view = cx.new(|cx| build(window, cx));
             guard_close(&view, window, cx);
             view
@@ -199,14 +220,14 @@ fn guard_close<V: 'static>(view: &gpui::Entity<V>, window: &mut Window, cx: &mut
 }
 
 /// Paints with the chosen theme, or the system's, following it live.
-fn follow_appearance(choice: ThemeChoice, accent: Option<u32>, window: &mut Window, cx: &mut App) {
+fn follow_appearance(choice: ThemeChoice, looks: Looks, window: &mut Window, cx: &mut App) {
     let apply = move |window: &Window, cx: &mut App| {
-        let theme = match choice {
-            ThemeChoice::Light => Theme::light(),
-            ThemeChoice::Dark => Theme::dark(),
-            ThemeChoice::System => Theme::for_appearance(window.appearance()),
+        let mode = match choice {
+            ThemeChoice::Light => Shade::Light,
+            ThemeChoice::Dark => Shade::Dark,
+            ThemeChoice::System => Shade::for_appearance(window.appearance()),
         };
-        cx.set_global(theme.with_accent(accent));
+        cx.set_global(looks.get(mode));
         cx.refresh_windows();
     };
     apply(window, cx);
@@ -236,7 +257,7 @@ impl Render for Problem {
                 ),
             )
         }
-        .render();
+        .render(&theme);
         frame(div().flex_1().min_h_0().flex().flex_col().child(body), &theme)
     }
 }

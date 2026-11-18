@@ -1,5 +1,5 @@
 //! The setup window's buttons (shadcn's `Button size="sm"`): 32px tall,
-//! 10px sides, radius 12, 14 / 20 medium. Primary fills with `--primary`;
+//! 10px sides, the style's control radius (12 in Bach's), 14 / 20 medium. Primary fills with `--primary`;
 //! outline sits on a hairline with the hover wash; destructive fills red. Both nudge down a pixel
 //! while pressed (`active:translate-y-px`), fade their fill over 150ms, and
 //! sit at 50% while disabled. A pending button keeps its label and leads
@@ -20,7 +20,7 @@ use gpui::{
 use super::color::{clear, mix};
 use super::interaction::{use_interaction, Interaction};
 use super::spinner::Spinner;
-use crate::theme::{ActiveTheme, RADIUS};
+use crate::theme::ActiveTheme;
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
@@ -118,7 +118,7 @@ impl RenderOnce for FormButton {
             .gap(px(6.))
             .h(px(32.))
             .px(px(10.))
-            .rounded(RADIUS)
+            .rounded(theme.control_radius)
             .bg(bg)
             .text_color(fg)
             .text_size(px(14.))
@@ -135,7 +135,7 @@ impl RenderOnce for FormButton {
                     .left(px(-4.))
                     .right(px(-4.))
                     .bottom(px(-4.))
-                    .rounded(RADIUS + px(4.))
+                    .rounded(theme.control_radius + px(4.))
                     .border_2()
                     .border_color(theme.ring)
             }));

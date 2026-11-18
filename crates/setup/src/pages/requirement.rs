@@ -42,6 +42,6 @@ impl SetupView {
             subtitle: Some(subtitle_text(texts.with(Key::requirement_subtitle, &values), &theme)),
             ..PageLayout::new(texts.with(Key::requirement_title, &values), footer(None, buttons, &theme))
         }
-        .render()
+        .render(&theme)
     }
 }

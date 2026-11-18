@@ -92,7 +92,7 @@ impl RenderOnce for BachMark {
             window.request_animation_frame();
         }
 
-        let color = cx.theme().foreground;
+        let color = cx.theme().mark;
         let scale = self.size / VIEW_SIZE;
 
         let petals = (0..PETAL_COUNT).map(|index| {

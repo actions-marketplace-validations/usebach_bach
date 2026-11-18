@@ -17,6 +17,10 @@ pub struct Package {
     /// None for the built-in sample, which has nothing to unpack.
     pub layout: Option<Layout>,
     pub logo: Option<Logo>,
+    /// Font files the style ships, registered before the window opens.
+    pub fonts: Vec<Vec<u8>>,
+    /// The style's background picture.
+    pub picture: Option<Arc<gpui::Image>>,
 }
 
 pub enum Logo {
@@ -42,14 +46,19 @@ impl Package {
             return Ok(None);
         };
         let manifest = container::read_manifest(&mut file, &layout)?;
-        let bytes = container::read_logo(&mut file, &layout)?;
+        let look = container::read_look(&mut file, &layout, &manifest)?;
+        let bytes = look.logo;
+        let picture = look.background.map(|(bytes, jpeg)| {
+            let format = if jpeg { gpui::ImageFormat::Jpeg } else { gpui::ImageFormat::Png };
+            Arc::new(gpui::Image::from_bytes(format, bytes))
+        });
         let logo = match manifest.look.logo {
             _ if bytes.is_empty() => None,
             Some(LogoKind::Svg) => Some(Logo::Svg(bytes.into())),
             Some(LogoKind::Png) => Some(Logo::Png(Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, bytes)))),
             None => None,
         };
-        Ok(Some(Self { manifest, exe, layout: Some(layout), logo }))
+        Ok(Some(Self { manifest, exe, layout: Some(layout), logo, fonts: look.fonts, picture }))
     }
 
     /// A made-up app for previewing the window on a bare runtime.
@@ -97,7 +106,7 @@ impl Package {
             archive_sha256: None,
             patch_from: None,
         };
-        Self { manifest, exe: PathBuf::new(), layout: None, logo: None }
+        Self { manifest, exe: PathBuf::new(), layout: None, logo: None, fonts: Vec::new(), picture: None }
     }
 
     /// Whether this carries files to install.
@@ -113,10 +122,5 @@ impl Package {
 
     pub fn version(&self) -> &str {
         &self.manifest.app.version
-    }
-
-    /// The accent colour as `0xrrggbb`.
-    pub fn accent(&self) -> Option<u32> {
-        self.manifest.look.accent.as_deref().and_then(bach_pack::config::parse_hex)
     }
 }

@@ -6,7 +6,7 @@ use gpui::{div, px, AnyElement, Context, InteractiveElement, IntoElement, Parent
 
 use super::{footer, page_icon, subtitle_text, PageLayout};
 use crate::keyboard::Target;
-use crate::theme::{ActiveTheme, RADIUS};
+use crate::theme::ActiveTheme;
 use crate::ui::prelude::*;
 use crate::view::SetupView;
 
@@ -33,7 +33,8 @@ impl SetupView {
             .gap(px(8.))
             .pl(px(14.))
             .pr(px(6.))
-            .rounded(RADIUS)
+            .rounded(theme.radius)
+            .bg(theme.card)
             .border_1()
             .border_color(border)
             .child(
@@ -97,7 +98,7 @@ impl SetupView {
             content: Some(div().flex().flex_col().child(field).child(problem).into_any_element()),
             ..PageLayout::new(texts.get(Key::access_title), footer(Some(self.meta()), buttons, &theme))
         }
-        .render()
+        .render(&theme)
     }
 }
 

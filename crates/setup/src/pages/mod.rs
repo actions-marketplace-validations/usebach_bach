@@ -17,13 +17,13 @@ mod requirement;
 
 use bach_pack::i18n::Key;
 use gpui::{
-    div, img, px, AnyElement, Context, ElementId, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ObjectFit, ParentElement,
-    Render, SharedString, Styled, StyledImage, Window,
+    div, img, linear_color_stop, linear_gradient, px, solid_background, AnyElement, Context, ElementId, FontWeight, InteractiveElement,
+    IntoElement, KeyDownEvent, ObjectFit, ParentElement, Render, SharedString, Styled, StyledImage, Window,
 };
 
 use crate::assets::LOGO_PATH;
 use crate::package::Logo;
-use crate::theme::{ActiveTheme, Theme, FONT_SANS};
+use crate::theme::{ActiveTheme, Theme};
 use crate::ui::motion::PAGE_ENTER;
 use crate::ui::prelude::*;
 use crate::view::{SetupView, Stage};
@@ -84,27 +84,35 @@ impl SetupView {
         // A wide logo keeps its shape, up to the width of the column.
         let width = (height * look.logo_aspect.unwrap_or(1.0)).clamp(height * 0.25, 420.);
         Some(match &self.package.logo {
-            Some(Logo::Svg(_)) => gpui::svg().path(LOGO_PATH).size(px(height)).text_color(theme.foreground).into_any_element(),
+            Some(Logo::Svg(_)) => gpui::svg().path(LOGO_PATH).size(px(height)).text_color(theme.mark).into_any_element(),
             Some(Logo::Png(image)) => img(image.clone()).w(px(width)).h(px(height)).object_fit(ObjectFit::Contain).into_any_element(),
             None if working => BachMark::new("setup-mark").size(68.).slot(MARK_SLOT).into_any_element(),
-            None => page_icon("bach", theme.foreground),
+            None => page_icon("bach", theme.mark),
         })
     }
 }
 
-/// The window's padding and type, shared by every view.
+/// The window's background, padding and type, shared by every view: the
+/// style's colour or gradient, its picture over that, and the page on top.
 pub fn frame(body: impl IntoElement, theme: &Theme) -> impl IntoElement {
+    let backdrop = match theme.surface_end {
+        Some(end) => linear_gradient(180., linear_color_stop(theme.surface, 0.), linear_color_stop(end, 1.)),
+        None => solid_background(theme.surface),
+    };
+    let picture = theme
+        .picture
+        .clone()
+        .map(|(picture, opacity)| img(picture).absolute().top_0().left_0().size_full().object_fit(ObjectFit::Cover).opacity(opacity));
     div()
+        .relative()
         .size_full()
         .flex()
         .flex_col()
-        .bg(theme.surface)
+        .bg(backdrop)
         .text_color(theme.foreground)
-        .font_family(FONT_SANS)
-        .px(px(32.))
-        .pt(px(44.))
-        .pb(px(24.))
-        .child(body)
+        .font_family(theme.font.clone())
+        .children(picture)
+        .child(div().relative().size_full().flex().flex_col().px(px(32.)).pt(px(44.)).pb(px(24.)).child(body))
 }
 
 /// One page: mark, heading, copy line, the content and the footer.
@@ -125,7 +133,7 @@ impl PageLayout {
         Self { centered: false, mark: None, title: title.into(), subtitle: None, content: None, grow: false, footer }
     }
 
-    pub fn render(self) -> AnyElement {
+    pub fn render(self, theme: &Theme) -> AnyElement {
         let heading_gap = if self.mark.is_some() { 18. } else { 0. };
         let content = self.content.map(|content| {
             let holder = div().flex().flex_col().min_h_0().child(content);
@@ -150,7 +158,7 @@ impl PageLayout {
                         self.mark
                             .map(|mark| div().min_w(px(MARK_SLOT)).min_h(px(MARK_SLOT)).flex().items_center().justify_center().child(mark)),
                     )
-                    .child(heading(self.title).mt(px(heading_gap)))
+                    .child(heading(self.title, (theme.heading_font.clone(), theme.heading_weight)).mt(px(heading_gap)))
                     .children(self.subtitle),
             )
             .children(content)
@@ -160,11 +168,12 @@ impl PageLayout {
     }
 }
 
-/// The page heading; a long one (a long app name, a wordy language) steps
-/// down a size so it wraps onto two calm lines instead of three.
-fn heading(title: SharedString) -> gpui::Div {
+/// The page heading in the style's face; a long one (a long app name, a
+/// wordy language) steps down a size so it wraps onto two calm lines
+/// instead of three.
+fn heading(title: SharedString, (font, weight): (SharedString, FontWeight)) -> gpui::Div {
     let long = title.chars().count() > 30;
-    let heading = div().max_w(px(460.)).text_heading().text_center();
+    let heading = div().max_w(px(460.)).text_heading().font_family(font).font_weight(weight).text_center();
     let heading = if long { heading.text_size(px(18.)).line_height(px(26.)) } else { heading };
     heading.child(title)
 }

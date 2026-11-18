@@ -70,7 +70,7 @@ impl RenderOnce for Checkbox {
             .items_center()
             .justify_center()
             .size(px(16.))
-            .rounded(px(5.))
+            .rounded(theme.checkbox_radius())
             .border(px(1.5))
             .border_color(mix(edge, theme.primary, fill))
             .bg(mix(clear(theme.primary), theme.primary, fill))
@@ -83,7 +83,7 @@ impl RenderOnce for Checkbox {
             .items_center()
             .justify_center()
             .size(px(28.))
-            .rounded(px(8.))
+            .rounded(theme.checkbox_radius() + px(3.))
             .cursor(CursorStyle::PointingHand)
             .child(square);
         let hit = match self.on_toggle {

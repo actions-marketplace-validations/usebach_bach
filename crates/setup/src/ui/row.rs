@@ -21,13 +21,14 @@ use super::color::{clear, mix};
 use super::icon::Icon;
 use super::interaction::{use_interaction, Interaction};
 use super::surface::Surfaces;
-use crate::theme::{ActiveTheme, RADIUS};
+use crate::theme::{ActiveTheme, Theme};
 
 type Handler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
 /// A bordered card; rows divide themselves with hairlines.
 pub fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> impl IntoElement {
-    div().rounded(RADIUS).border_1().border_color(cx.theme().border).children(rows)
+    let theme = cx.theme();
+    div().rounded(theme.radius).bg(theme.card).border_1().border_color(theme.border).children(rows)
 }
 
 #[derive(IntoElement)]
@@ -103,7 +104,7 @@ impl RenderOnce for Row {
                 .items_center()
                 .justify_center()
                 .size(px(36.))
-                .well(theme, RADIUS)
+                .well(theme, theme.control_radius)
                 .text_color(theme.foreground)
                 .child(div().relative().flex().child(Icon::new(name).size(18.)))
         });
@@ -116,7 +117,15 @@ impl RenderOnce for Row {
                     .map(|text| div().mt(px(2.)).text_size(px(13.)).line_height(px(18.)).text_color(theme.muted_foreground).child(text)),
             );
         let ring = self.focused.then(|| {
-            div().absolute().top(px(2.)).left(px(2.)).right(px(2.)).bottom(px(2.)).rounded(px(9.)).border_2().border_color(theme.ring)
+            div()
+                .absolute()
+                .top(px(2.))
+                .left(px(2.))
+                .right(px(2.))
+                .bottom(px(2.))
+                .rounded(Theme::inner_radius(theme.radius, 3.))
+                .border_2()
+                .border_color(theme.ring)
         });
         let mut row = div()
             .relative()
@@ -130,7 +139,7 @@ impl RenderOnce for Row {
             .children(self.control.map(|control| div().flex_none().child(control)))
             .children(ring);
         // The card's border is 1px, so the wash sits inside a 1px smaller radius.
-        let inner = RADIUS - px(1.);
+        let inner = Theme::inner_radius(theme.radius, 1.);
         let corners = &mut row.style().corner_radii;
         if !self.divided {
             corners.top_left = Some(inner.into());
