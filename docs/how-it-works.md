@@ -57,7 +57,10 @@ ship fewer, larger files (an asar archive for Electron).
    version was touched. After the first move there is no cancel.
 3. If an earlier version is installed, the files it installed and this one
    doesn't (including components the user unticked) are removed. The earlier
-   file list comes from its uninstaller.
+   file list comes from its uninstaller. This happens after the update is
+   complete, so it isn't part of the all-or-nothing swap: a file the user
+   changed since it was installed is kept (as the uninstaller keeps it), and a
+   file a program still holds stays and is written to the log.
 4. `uninstall.exe` is written: `bach-setup.exe` again, with the manifest of
    what was installed and the user's choices, and no archive.
 5. Shortcuts, start with Windows, the `PATH` entry, link schemes and file
@@ -126,6 +129,12 @@ move. The next install, update or removal, and each background round while
 the app is closed, reads it and puts back what was half moved. When all the
 moves are done, the new files are flushed to disk, then the journal and the
 old copies go. A journal can only act on paths inside the install folder.
+
+The journal is deleted only once every file is confirmed back as it was. If
+Windows refuses a delete or rename on the way (a program holds the file), the
+journal stays, and the next install, update or removal stops with the "in use"
+sentence naming that file instead of writing over a half-undone folder. Close
+the program that holds it and run setup again.
 
 ## Logs
 
