@@ -14,12 +14,19 @@
 //! flushed to disk before the journal and the old copies go, so a power cut
 //! right after an update can't leave empty files behind a finished-looking
 //! install.
+//!
+//! The journal is only deleted once putting the earlier version back is
+//! confirmed. If Windows refuses a delete or a rename on the way (a program
+//! holds the file), the journal stays, so the next run can try again with the
+//! full list instead of finding a half-undone folder and no way to tell.
 
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use bach_pack::archive;
+
+use super::remove_file_if_present;
 
 const NEW: &str = ".bach-new";
 const OLD: &str = ".bach-old";
@@ -114,11 +121,14 @@ impl Transaction {
             match swap_in(target) {
                 Ok(backup) => done.push((target.clone(), backup)),
                 Err(error) => {
-                    undo(&done);
                     for rest in &self.staged[index..] {
                         let _ = fs::remove_file(with_suffix(rest, NEW));
                     }
-                    let _ = fs::remove_file(journal);
+                    // The journal knows every file, also the one that failed
+                    // halfway, so it undoes this and goes only when that worked.
+                    if let Some(stuck) = settle(journal).stuck {
+                        crate::log::line(&format!("Couldn't put {} back; the update journal stays: {}", stuck.path.display(), stuck.error));
+                    }
                     return Err(CommitError { target: target.clone(), error });
                 }
             }
@@ -152,11 +162,42 @@ impl Committed {
 
     /// Puts the earlier version back: new files go, old ones return, and the
     /// paths of the files that were new are handed back so their empty
-    /// folders can be removed.
-    pub fn rollback(self) -> Vec<PathBuf> {
-        undo(&self.done);
-        let _ = fs::remove_file(&self.journal);
-        self.staged
+    /// folders can be removed. A file Windows won't let go of is reported as
+    /// `stuck`, and then the journal stays for the next run to finish.
+    pub fn rollback(self) -> RolledBack {
+        let stuck = settle(&self.journal).stuck;
+        RolledBack { staged: self.staged, stuck }
+    }
+}
+
+/// What [`Committed::rollback`] left to do.
+pub struct RolledBack {
+    pub staged: Vec<PathBuf>,
+    pub stuck: Option<Stuck>,
+}
+
+/// A file that couldn't be put right, and why. Setup stops and says so
+/// rather than carrying on over a folder that is half one version, half the other.
+#[derive(Debug)]
+pub struct Stuck {
+    pub path: PathBuf,
+    pub error: io::Error,
+}
+
+/// What [`recover`] did.
+#[derive(Debug, Default)]
+pub struct Recovery {
+    /// Files it put back or took away.
+    pub changed: usize,
+    /// The first file it couldn't. The journal is kept then.
+    pub stuck: Option<Stuck>,
+}
+
+/// Undoes what the journal at `journal` lists, in the folder it sits in.
+fn settle(journal: &Path) -> Recovery {
+    match journal.parent() {
+        Some(dir) => recover_at(journal, dir),
+        None => Recovery::default(),
     }
 }
 
@@ -196,13 +237,17 @@ fn flush(targets: &[PathBuf]) {
 /// Rolls back an update that stopped halfway (a power cut, a crash, the
 /// process killed), using the journal it left in `dir`. Does nothing when
 /// there is none. Safe to run again: a second run finds nothing to undo.
-/// Returns how many files it put back or took away.
-pub fn recover(dir: &Path) -> usize {
-    let journal = journal_path(dir);
-    let Ok(text) = fs::read_to_string(&journal) else {
-        return 0;
+/// The journal is deleted only when every file is back as it was; see
+/// [`Recovery::stuck`].
+pub fn recover(dir: &Path) -> Recovery {
+    recover_at(&journal_path(dir), dir)
+}
+
+fn recover_at(journal: &Path, dir: &Path) -> Recovery {
+    let Ok(text) = fs::read_to_string(journal) else {
+        return Recovery::default();
     };
-    let mut changed = 0;
+    let mut result = Recovery::default();
     for line in text.lines().rev() {
         let (kind, path) = line.split_at(line.chars().next().map_or(0, char::len_utf8));
         let target = PathBuf::from(path);
@@ -213,23 +258,34 @@ pub fn recover(dir: &Path) -> usize {
             continue;
         }
         let (old, new) = (with_suffix(&target, OLD), with_suffix(&target, NEW));
-        if fs::symlink_metadata(&old).is_ok() {
+        let step = if fs::symlink_metadata(&old).is_ok() {
             // A file that was replaced: the old one is still here.
-            let _ = fs::remove_file(&target);
-            if fs::rename(&old, &target).is_ok() {
-                changed += 1;
+            let put_back = remove_file_if_present(&target).and_then(|()| fs::rename(&old, &target));
+            if put_back.is_ok() {
+                let _ = fs::remove_file(&new);
             }
-            let _ = fs::remove_file(&new);
+            put_back.map(|()| 1)
         } else if fs::symlink_metadata(&new).is_ok() {
             // Not moved yet.
             let _ = fs::remove_file(&new);
-        } else if kind == "N" && fs::remove_file(&target).is_ok() {
+            Ok(0)
+        } else if kind == "N" && fs::symlink_metadata(&target).is_ok() {
             // A new file that made it in, and has nothing to go back to.
-            changed += 1;
+            remove_file_if_present(&target).map(|()| 1)
+        } else {
+            Ok(0)
+        };
+        match step {
+            Ok(count) => result.changed += count,
+            Err(error) => {
+                result.stuck.get_or_insert(Stuck { path: target, error });
+            }
         }
     }
-    let _ = fs::remove_file(&journal);
-    changed
+    if result.stuck.is_none() {
+        let _ = fs::remove_file(journal);
+    }
+    result
 }
 
 /// Moves `from` over `to`, also when `to` is a program that is running (the
@@ -275,16 +331,6 @@ fn swap_in(target: &Path) -> io::Result<Option<PathBuf>> {
         return Err(err);
     }
     Ok(backup)
-}
-
-/// Puts back what [`swap_in`] replaced, newest first.
-fn undo(done: &[(PathBuf, Option<PathBuf>)]) {
-    for (target, backup) in done.iter().rev() {
-        let _ = fs::remove_file(target);
-        if let Some(backup) = backup {
-            let _ = fs::rename(backup, target);
-        }
-    }
 }
 
 #[cfg(test)]
@@ -362,7 +408,7 @@ mod tests {
         transaction.stage(&target, &mut &b"new"[..], &mut |_| {}).unwrap();
         transaction.commit(&journal_path(&dir)).unwrap();
         assert!(!journal_path(&dir).exists());
-        assert_eq!(recover(&dir), 0, "nothing to undo");
+        assert_eq!(recover(&dir).changed, 0, "nothing to undo");
         assert_eq!(fs::read(&target).unwrap(), b"new");
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -385,14 +431,62 @@ mod tests {
         // ...power cut: b.txt wasn't reached, a.txt and fresh.txt were.
         assert_eq!(fs::read(&a).unwrap(), b"new a");
 
-        assert!(recover(&dir) >= 2);
+        assert!(recover(&dir).changed >= 2);
         assert_eq!(fs::read(&a).unwrap(), b"old a");
         assert_eq!(fs::read(&b).unwrap(), b"old b");
         assert!(!fresh.exists(), "a file the update added goes again");
         let left: Vec<_> = fs::read_dir(&dir).unwrap().map(|entry| entry.unwrap().file_name()).collect();
         assert_eq!(left.len(), 2, "only the two old files remain: {left:?}");
-        assert_eq!(recover(&dir), 0, "a second run changes nothing");
+        assert_eq!(recover(&dir).changed, 0, "a second run changes nothing");
         assert_eq!(fs::read(&a).unwrap(), b"old a");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Holds `path` open without sharing, like a running program.
+    fn hold(path: &Path) -> File {
+        use std::os::windows::fs::OpenOptionsExt;
+        fs::OpenOptions::new().read(true).share_mode(0).open(path).unwrap()
+    }
+
+    #[test]
+    fn a_recovery_that_gets_stuck_keeps_the_journal_for_the_next_run() {
+        let dir = temp("recover-stuck");
+        let a = dir.join("a.txt");
+        fs::write(&a, b"old a").unwrap();
+        let mut transaction = Transaction::default();
+        transaction.stage(&a, &mut &b"new a"[..], &mut |_| {}).unwrap();
+        write_journal(&journal_path(&dir), &transaction.staged).unwrap();
+        swap_in(&a).unwrap();
+        // The update is cut short, and now something holds the new a.txt.
+        let holder = hold(&a);
+        let first = recover(&dir);
+        assert_eq!(first.stuck.as_ref().map(|stuck| stuck.path.clone()), Some(a.clone()));
+        assert!(journal_path(&dir).exists(), "the journal stays while the roll-back isn't confirmed");
+        assert!(with_suffix(&a, OLD).exists(), "the old copy stays too");
+        drop(holder);
+        let second = recover(&dir);
+        assert!(second.stuck.is_none());
+        assert_eq!(fs::read(&a).unwrap(), b"old a");
+        assert!(!journal_path(&dir).exists(), "now it is confirmed, the journal goes");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_rollback_that_gets_stuck_keeps_the_journal_for_the_next_run() {
+        let dir = temp("rollback-stuck");
+        let a = dir.join("a.txt");
+        fs::write(&a, b"old a").unwrap();
+        let mut transaction = Transaction::default();
+        transaction.stage(&a, &mut &b"new a"[..], &mut |_| {}).unwrap();
+        let committed = transaction.commit_open(&journal_path(&dir)).unwrap();
+        let holder = hold(&a);
+        let rolled = committed.rollback();
+        assert!(rolled.stuck.is_some(), "the new a.txt can't be taken away while it is held");
+        assert!(journal_path(&dir).exists());
+        drop(holder);
+        assert!(recover(&dir).stuck.is_none(), "the next run finishes the job");
+        assert_eq!(fs::read(&a).unwrap(), b"old a");
+        assert!(!journal_path(&dir).exists());
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -404,7 +498,7 @@ mod tests {
         fs::write(&victim, b"mine").unwrap();
         fs::write(with_suffix(&victim, OLD), b"x").unwrap();
         fs::write(journal_path(&dir), format!("R{}\n", victim.display())).unwrap();
-        assert_eq!(recover(&dir), 0);
+        assert_eq!(recover(&dir).changed, 0);
         assert_eq!(fs::read(&victim).unwrap(), b"mine");
         fs::remove_dir_all(&dir).unwrap();
         fs::remove_dir_all(&outside).unwrap();

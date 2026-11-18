@@ -86,8 +86,11 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     }
     create_install_dir(dir, texts)?;
     check_elevated_folder(manifest, dir, texts)?;
-    // An update that was cut short earlier is undone first.
-    place::recover(dir);
+    // An update that was cut short earlier is undone first; if a file won't
+    // let go, nothing is written over it.
+    if let Some(stuck) = place::recover(dir).stuck {
+        return Err(super::recovery_failed(texts, &stuck));
+    }
     let program = manifest.executable_in(dir);
     ensure_closed(&program, texts)?;
     let previous = previous_install(dir, manifest);
@@ -152,8 +155,17 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     })();
     if let Err(problem) = later {
         crate::log::line("A step after the files were placed failed, so the earlier version is being put back.");
-        let staged = committed.rollback();
-        remove_empty_parents(dir, staged.iter().filter_map(|path| path.strip_prefix(dir).ok()).filter_map(|path| path.to_str()));
+        let rolled_back = committed.rollback();
+        if let Some(stuck) = &rolled_back.stuck {
+            crate::log::line(&format!(
+                "{} is held and couldn't be put back; the next run of setup finishes the undo.",
+                stuck.path.display()
+            ));
+        }
+        remove_empty_parents(
+            dir,
+            rolled_back.staged.iter().filter_map(|path| path.strip_prefix(dir).ok()).filter_map(|path| path.to_str()),
+        );
         restore_uninstaller(dir, uninstaller_before);
         if let Some(previous) = &previous {
             // What the failed update changed around the files goes back too.
@@ -164,7 +176,7 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
         }
         return Err(problem);
     }
-    report(0.86, &texts.get(Key::step_tidying));
+    report(0.99, &texts.get(Key::step_tidying));
     committed.finish();
     if let Some(uninstaller) = uninstaller_before {
         let _ = fs::remove_file(uninstaller);
@@ -314,7 +326,11 @@ pub fn is_running(program: &Path) -> bool {
 /// Undoes an update that was cut short in `dir` (see `place.rs`); how many
 /// files it put back or took away. Callers hold the setup lock.
 pub fn recover_interrupted(dir: &Path) -> usize {
-    place::recover(dir)
+    let recovery = place::recover(dir);
+    if let Some(stuck) = &recovery.stuck {
+        crate::log::line(&format!("Couldn't undo an update that was cut short: {} ({}).", stuck.path.display(), stuck.error));
+    }
+    recovery.changed
 }
 
 fn check_free_space(dir: &Path, needed: u64, texts: &Texts) -> Result<(), String> {
@@ -486,16 +502,24 @@ pub fn previous_install(dir: &Path, manifest: &Manifest) -> Option<Manifest> {
     (previous.app.id == manifest.app.id).then_some(previous)
 }
 
-/// Removes what the old install put there and the new one doesn't.
+/// Removes what the old install put there and the new one doesn't. A file
+/// the user changed since it was installed stays, exactly as the uninstaller
+/// treats it. One that won't go (a program holds it) stays too and is written
+/// to the log: the update itself is already complete and can't be undone here.
 fn remove_stale(dir: &Path, previous: &Manifest, installed: &Manifest) {
     let keep: HashSet<String> = installed.files.iter().map(|file| paths::fold_case(&file.path)).collect();
-    let stale: Vec<&str> =
-        previous.files.iter().map(|file| file.path.as_str()).filter(|path| !keep.contains(&paths::fold_case(path))).collect();
-    for path in &stale {
-        // A stale file that won't go is left behind, not a failed update.
-        let _ = remove_file_if_present(&paths::under(dir, path));
+    let mut gone: Vec<&str> = Vec::new();
+    for file in previous.files.iter().filter(|file| !keep.contains(&paths::fold_case(&file.path))) {
+        let path = paths::under(dir, &file.path);
+        if super::conflicts::changed_since_install(&path, file) {
+            crate::log::line(&format!("Kept {}: the new version doesn't ship it, but it changed after it was installed.", file.path));
+        } else if let Err(err) = remove_file_if_present(&path) {
+            crate::log::line(&format!("Couldn't remove {}, which the new version doesn't ship: {err}", file.path));
+        } else {
+            gone.push(file.path.as_str());
+        }
     }
-    remove_empty_parents(dir, stale.into_iter());
+    remove_empty_parents(dir, gone.into_iter());
 }
 
 /// `uninstall.exe`: the runtime's own bytes with the installed manifest and
@@ -676,6 +700,29 @@ mod tests {
         fs::remove_file(&kept).unwrap();
         fs::create_dir(&kept).unwrap();
         assert!(keep_uninstaller(&dir).is_err());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_update_removes_dropped_files_but_keeps_the_ones_the_user_changed() {
+        use bach_pack::manifest::FileEntry;
+        let dir = temp("stale");
+        let entry = |path: &str, content: &[u8]| {
+            let mut entry = FileEntry::new(path, content.len() as u64);
+            entry.sha256 = Some(bach_pack::protect::sha256_hex(content).unwrap());
+            entry
+        };
+        let base = crate::package::Package::sample().manifest;
+        let previous =
+            Manifest { files: vec![entry("kept.dll", b"same"), entry("old.dll", b"old"), entry("edited.cfg", b"default")], ..base.clone() };
+        let installed = Manifest { files: vec![entry("kept.dll", b"same")], ..base };
+        for (name, body) in [("kept.dll", "same"), ("old.dll", "old"), ("edited.cfg", "the user's settings")] {
+            fs::write(dir.join(name), body).unwrap();
+        }
+        remove_stale(&dir, &previous, &installed);
+        assert!(dir.join("kept.dll").exists(), "still shipped");
+        assert!(!dir.join("old.dll").exists(), "dropped and untouched: gone");
+        assert_eq!(fs::read_to_string(dir.join("edited.cfg")).unwrap(), "the user's settings", "changed: kept");
         fs::remove_dir_all(&dir).unwrap();
     }
 }
