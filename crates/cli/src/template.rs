@@ -30,6 +30,7 @@ source = "@SOURCE@"
 
 [installer]
 # output = "dist/{name}-Setup-{version}.exe"
+@STYLE@
 # theme = "system"            # system, light or dark
 # accent = "#2563eb"          # buttons, the progress bar and ticked boxes
 # logo = "logo.svg"           # .svg (one colour) or .png, or "none"
@@ -65,6 +66,15 @@ source = "@SOURCE@"
 # [[file_types]]
 # extension = ".@SCHEME@"
 # description = "@NAME@ document"
+
+# Your own fonts, colours, corners and background on top of the style:
+# [style]
+# font = "fonts/MyFont.ttf"   # or a font Windows has, like "Segoe UI"
+# background = ["#1d0b36", "#0a0416"]   # one colour, or a gradient from top to bottom
+# radius = 12                 # corners of the card, 0 to 24
+# background_image = "art/backdrop.png"
+# [style.dark]
+# card = "#ffffff0b"          # #rrggbbaa lets the background show through
 
 # Any text in the window, in one language or per language:
 # [text]
@@ -179,6 +189,27 @@ pub(crate) fn fill(found: Option<&Detected>, folder_name: &str, dir: &Path) -> S
         .replace("@REQUIREMENTS@", &requirements)
         .replace("@UPDATES@", &updates)
         .replace("@SCHEME@", &toml_text(&scheme))
+        .replace("@STYLE@", &style_line(found.stack))
+}
+
+/// The built-in style that suits a kind of project, if one stands out.
+pub(crate) fn suggested_style(stack: &str) -> Option<&'static str> {
+    match stack {
+        "Tauri" | "Electron" | "Wails" | "Flutter" => Some("aurora"),
+        ".NET" | "Qt" => Some("fluent"),
+        "PyInstaller" => Some("frost"),
+        "Godot" => Some("lagoon"),
+        "Unity" => Some("forge"),
+        _ => None,
+    }
+}
+
+/// `installer.style`: set to the suggestion for the project, or shown commented out.
+fn style_line(stack: &str) -> String {
+    match suggested_style(stack) {
+        Some(style) => format!("style = \"{style}\"{:<pad$}# suits {stack} apps; `bach styles` lists them all", "", pad = 14 - style.len()),
+        None => "# style = \"bach\"             # the window's look; `bach styles` lists them all".into(),
+    }
 }
 
 /// "My Cool App" → "my-cool-app": also a usable link scheme and extension.
@@ -270,6 +301,31 @@ mod tests {
         assert_eq!(project.update_github.as_deref(), Some("me/clip"));
         assert!(project.manifest.updates.is_some());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_style_is_suggested_for_the_kind_of_project() {
+        let tauri = Detected { stack: "Tauri", ..Detected::default() };
+        let text = fill(Some(&tauri), "Clip", Path::new("."));
+        assert!(
+            text.contains(
+                "
+style = \"aurora\""
+            ),
+            "{text}"
+        );
+        let unknown = fill(None, "Clip", Path::new("."));
+        assert!(
+            unknown.contains(
+                "
+# style = \"bach\""
+            ),
+            "{unknown}"
+        );
+        for stack in ["Tauri", "Electron", "Wails", "Flutter", ".NET", "Qt", "PyInstaller", "Godot", "Unity"] {
+            let style = suggested_style(stack).unwrap();
+            assert!(bach_pack::style::preset(style).is_some(), "{stack} suggests {style}");
+        }
     }
 
     #[test]
