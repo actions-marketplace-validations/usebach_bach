@@ -439,7 +439,15 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         app,
         install,
         uninstall: manifest::Uninstall { data: file.uninstall.data.clone(), data_description: None, feedback_url },
-        look: manifest::Look { theme, accent, logo: logo_kind, hide_logo, logo_height: file.installer.logo_height, logo_aspect },
+        look: manifest::Look {
+            theme,
+            accent,
+            logo: logo_kind,
+            hide_logo,
+            logo_height: file.installer.logo_height,
+            logo_aspect,
+            ..Default::default()
+        },
         files,
         components,
         protocols: options::protocols(&file.protocols)?,

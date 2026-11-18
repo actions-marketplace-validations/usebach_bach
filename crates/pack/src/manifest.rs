@@ -19,6 +19,7 @@ mod access;
 mod choices;
 pub mod extras;
 pub(crate) mod features;
+mod look_files;
 mod scope;
 pub mod system;
 mod validate;
@@ -30,6 +31,7 @@ pub use choices::{
 };
 pub use extras::{Check, DeltaEntry, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
 pub use features::{Component, FileType, Protocol};
+pub use look_files::{LookBytes, LookFile, LookFileKind};
 pub use scope::Scope;
 pub use system::{ContextMenuEntry, ContextTarget, EnvVar, Migrate, RegistryData, RegistryValue, RegistryView, SystemChanges};
 pub use validate::MAX_LICENSE;
@@ -186,6 +188,16 @@ pub struct Look {
     /// shape; the SVG and square logos leave it out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logo_aspect: Option<f32>,
+    /// The built-in style (`installer.style`); Bach's own when None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    /// The developer's changes to it (`[style]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom: Option<crate::style::Custom>,
+    /// Files stored after the logo in the look section, in order: fonts
+    /// and a background image. The logo is what comes before them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<LookFile>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
