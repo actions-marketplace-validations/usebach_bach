@@ -45,6 +45,8 @@ pub struct Theme {
     pub header_muted: Hsla,
     /// The window's size, arrangement, spacing and motion (`[layout]`).
     pub layout: Arrangement,
+    /// The app's logo, drawn large on a panel with no picture.
+    pub emblem: Emblem,
     /// The fill of the card of choices, the license box and the key field;
     /// clear when the window shows through.
     pub card: Hsla,
@@ -81,6 +83,20 @@ pub struct Theme {
 }
 
 impl Global for Theme {}
+
+/// The app's logo as a panel can draw it large.
+#[derive(Clone, Debug, Default)]
+pub enum Emblem {
+    /// The app asked for no logo.
+    #[default]
+    None,
+    /// No logo of the app's own: the Bach mark.
+    Bach,
+    /// A one-colour SVG, served as the logo asset.
+    Svg,
+    /// A PNG, and its width over its height.
+    Png(Arc<Image>, f32),
+}
 
 /// Inter, embedded as static instances (see assets.rs). If it can't be
 /// registered GPUI falls back to Segoe UI on its own.

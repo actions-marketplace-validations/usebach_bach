@@ -95,6 +95,9 @@ struct PreviewArgs {
     /// Try another built-in style without changing bach.toml (`bach styles` lists them).
     #[arg(long)]
     style: Option<String>,
+    /// Try another built-in layout without changing bach.toml (`bach layouts` lists them).
+    #[arg(long)]
+    layout: Option<String>,
     /// Show it in this language (en, de, fr, …) instead of Windows' own.
     #[arg(long)]
     lang: Option<String>,
@@ -109,6 +112,7 @@ impl PreviewArgs {
             uninstall: self.uninstall,
             theme: self.theme.as_deref(),
             style: self.style.as_deref(),
+            layout: self.layout.as_deref(),
             lang: self.lang.as_deref(),
             runtime: self.runtime.as_deref(),
         }

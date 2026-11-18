@@ -13,8 +13,8 @@
 //!   the exit code says how it went.
 //! - `--preview`: the windows, with the work only pretended.
 //! - `--theme light|dark|system` and `--lang <code>` override the payload's
-//!   theme and the user's language; `--style <name>` tries another
-//!   built-in style in a preview.
+//!   theme and the user's language; `--style <name>` and `--layout <name>`
+//!   try another built-in style or layout in a preview.
 //! - A setup file with an access key asks for it. `--key-file FILE` or the
 //!   `BACH_ACCESS_KEY` environment variable give it up front instead (never
 //!   an argument, which other programs can read).
@@ -45,6 +45,7 @@ pub const HELP: &str = "Setup file and uninstall.exe options
   --theme light|dark|system
   --preview               Show the window; nothing is installed or removed.
   --style NAME            With --preview: try another built-in style (bach, fluent, arcade, ...).
+  --layout NAME           With --preview: try another built-in layout (classic, showcase, banner, ...).
 
 uninstall.exe only
   --check-update [--json] Say whether a newer version is out (exit code 10: yes, 0: up to date).
@@ -133,6 +134,8 @@ pub struct Args {
     pub lang: Option<String>,
     /// `--style NAME`: a built-in style to preview instead of the payload's.
     pub style: Option<String>,
+    /// `--layout NAME`: a built-in layout to preview instead of the payload's.
+    pub layout: Option<String>,
 }
 
 impl Args {
@@ -202,6 +205,9 @@ impl Args {
         if parsed.style.is_some() && !parsed.preview {
             return Err("--style only works with --preview: a setup file always wears the style it was built with.".into());
         }
+        if parsed.layout.is_some() && !parsed.preview {
+            return Err("--layout only works with --preview: a setup file always keeps the layout it was built with.".into());
+        }
         Ok(parsed)
     }
 
@@ -242,6 +248,13 @@ impl Args {
                     return Err(format!("--style is one of {}, not \"{text}\".", names.join(", ")));
                 };
                 self.style = Some(style.name.to_string());
+            }
+            "layout" => {
+                let Some((layout, _)) = bach_pack::style::layout::preset(&text) else {
+                    let names: Vec<&str> = bach_pack::style::layout::LAYOUT_PRESETS.iter().map(|preset| preset.name).collect();
+                    return Err(format!("--layout is one of {}, not \"{text}\".", names.join(", ")));
+                };
+                self.layout = Some(layout.name.to_string());
             }
             "channel" => {
                 let channel = text.trim().to_ascii_lowercase();
@@ -299,6 +312,7 @@ const FLAGS: &[Flag] = &[
     valued(&["theme"]),
     valued(&["lang"]),
     valued(&["style"]),
+    valued(&["layout"]),
     valued(&["channel"]),
 ];
 
@@ -488,6 +502,7 @@ mod tests {
         assert!(args("/S").silent);
         assert!(args("--preview --theme dark").theme == Some(Theme::Dark));
         assert_eq!(args("--preview --style Arcade").style.as_deref(), Some("arcade"));
+        assert_eq!(args("--preview --layout Showcase").layout.as_deref(), Some("showcase"));
     }
 
     #[test]
@@ -506,6 +521,8 @@ mod tests {
         assert!(mistake("--theme purple").contains("light, dark or system"));
         assert!(mistake("--preview --style vaporwave").contains("bach, fluent"));
         assert!(mistake("--style arcade").contains("only works with --preview"));
+        assert!(mistake("--preview --layout carousel").contains("classic, showcase"));
+        assert!(mistake("--layout banner").contains("only works with --preview"));
         assert!(mistake("/x").contains("/x"));
     }
 
@@ -568,6 +585,7 @@ mod tests {
             "--theme",
             "--preview",
             "--style",
+            "--layout",
             "--check-update",
             "--download-update",
             "--apply-update",

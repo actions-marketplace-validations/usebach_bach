@@ -16,9 +16,9 @@ use crate::launch::{self, Args, Mode};
 use crate::package::{Logo, Package};
 use crate::pages::{footer, frame, page_icon, row_count, subtitle_text, PageLayout};
 use crate::texts::Texts;
-use bach_pack::style::layout::{Arrangement, Footer, Rows, SIDE_HEIGHT};
+use bach_pack::style::layout::{Arrangement, Footer, Panel, Rows, Surface, SIDE_HEIGHT};
 
-use crate::theme::{ActiveTheme, Looks, Mode as Shade, Pictures};
+use crate::theme::{ActiveTheme, Emblem, Looks, Mode as Shade, Pictures};
 use crate::ui::FormButton;
 use crate::view::{SetupView, Stage};
 
@@ -98,8 +98,12 @@ pub fn main() {
             let look = WindowLook {
                 style,
                 fonts: package.fonts.clone(),
-                pictures: Pictures { background: package.picture.clone(), panel: package.panel.clone() },
-                layout: package.manifest.look.layout.clone().unwrap_or_default().resolve(),
+                pictures: Pictures { background: package.picture.clone(), panel: package.panel.clone(), emblem: emblem(&package) },
+                // A previewed layout replaces the payload's whole.
+                layout: match args.layout.as_deref().and_then(bach_pack::style::layout::preset) {
+                    Some((_, layout)) => layout.resolve(),
+                    None => package.manifest.look.layout.clone().unwrap_or_default().resolve(),
+                },
             };
             let logo_svg = match &package.logo {
                 Some(Logo::Svg(bytes)) => Some(bytes.clone()),
@@ -180,10 +184,6 @@ fn open<V: Render + 'static>(
             crate::log::line(&missing);
         }
         let layout = look.layout;
-        let looks = Looks::new(&look.style, &faces, look.pictures, layout);
-        cx.set_global(looks.get(Shade::Light));
-        crate::ui::init(cx);
-
         let (width, height) = window_size(&layout, rows, tall);
         let screen = cx.primary_display().map(|display| display.bounds().size);
         let (width, height) = match screen {
@@ -194,6 +194,19 @@ fn open<V: Render + 'static>(
             }
             _ => (width, height),
         };
+        let mut pictures = look.pictures;
+        if let Some(picture) = &pictures.panel {
+            // Cut to the panel's shape, so its rounded corners show.
+            let inset = 2. * layout.panel_inset;
+            let (frame_width, frame_height) = match layout.panel {
+                Panel::Top => (width - inset, layout.panel_size - inset),
+                _ => (layout.panel_size - inset, height - inset),
+            };
+            pictures.panel = Some(crate::picture::fit(picture, frame_width, frame_height));
+        }
+        let looks = Looks::new(&look.style, &faces, pictures, layout);
+        cx.set_global(looks.get(Shade::Light));
+        crate::ui::init(cx);
         let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -225,6 +238,17 @@ fn open<V: Render + 'static>(
     });
 }
 
+/// The app's logo as a panel draws it large.
+fn emblem(package: &Package) -> Emblem {
+    let look = &package.manifest.look;
+    match &package.logo {
+        _ if look.hide_logo => Emblem::None,
+        Some(Logo::Svg(_)) => Emblem::Svg,
+        Some(Logo::Png(image)) => Emblem::Png(image.clone(), look.logo_aspect.unwrap_or(1.0)),
+        None => Emblem::Bach,
+    }
+}
+
 /// The window's size: `[layout]`'s when it gives one, else tall enough for
 /// `rows` rows of choices (or a license, `tall`), as the window always grew.
 fn window_size(layout: &Arrangement, rows: usize, tall: bool) -> (f32, f32) {
@@ -233,12 +257,33 @@ fn window_size(layout: &Arrangement, rows: usize, tall: bool) -> (f32, f32) {
     }
     let row = layout.row_height();
     let [top, _, bottom, _] = layout.padding;
-    if layout.side() {
-        // The choices and the footer stand alone beside the header.
+    let classic = layout.panel == Panel::None
+        && layout.surface == Surface::Plain
+        && !layout.two_columns()
+        && layout.width == f32::from(bach_pack::style::layout::DEFAULT_WIDTH);
+    if !classic {
+        // Add up what the column holds: the heading (unless the panel has
+        // it), the rows (two to a line in two columns), the footer.
         let tile_gap = if layout.rows == Rows::Separate { 8. } else { 0. };
+        let lines = if layout.two_columns() { rows.div_ceil(2) } else { rows };
         let footer = 16. + layout.button_height + if layout.footer == Footer::Above { 26. } else { 0. };
-        let content = top + bottom + layout.gap + rows.max(if tall { 4 } else { 0 }) as f32 * (row + tile_gap) + 2. + footer;
-        return (layout.width, content.max(f32::from(SIDE_HEIGHT)));
+        let header = if layout.header_on_panel() { 0. } else { 74. + (layout.heading_size * 32. / 22.).round() + 26. };
+        let card = if layout.surface == Surface::Card { 56. } else { 0. };
+        // A narrow column wraps the install folder onto a second line.
+        let room = match layout.panel {
+            Panel::Left | Panel::Right => layout.width - layout.panel_size,
+            _ => layout.width,
+        };
+        let room = layout.content_width.map_or(room, |width| width.min(room)) / if layout.two_columns() { 2. } else { 1. };
+        let wrap = if room < 560. { (layout.text_size * 18. / 13.).round() } else { 0. };
+        let rows_height = lines.max(if tall { 4 } else { 0 }) as f32 * (row + tile_gap);
+        let content = top + bottom + header + layout.gap + rows_height + wrap + footer + card + 12.;
+        let height = match layout.panel {
+            Panel::Top => content + layout.panel_size,
+            Panel::Left | Panel::Right => content.max(f32::from(SIDE_HEIGHT)),
+            Panel::None => content.max(420.),
+        };
+        return (layout.width, height);
     }
     let extra = rows.saturating_sub(2) as f32 * row;
     // Padding and type larger than the default make room for themselves.

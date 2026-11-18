@@ -3,7 +3,8 @@
 use bach_pack::i18n::Key;
 use bach_pack::manifest::{choices_auto_update, Manifest};
 use gpui::{
-    div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled,
+    div, px, relative, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
+    Styled,
 };
 
 use super::{footer, subtitle_text, PageLayout};
@@ -70,7 +71,12 @@ impl SetupView {
             .size_full()
             .overflow_y_scroll();
         // Separate rows are cards of their own; joined ones share this one.
-        let list = if theme.layout.rows == Rows::Separate {
+        let list = if theme.layout.two_columns() {
+            // Two tiles to a line; an odd last one keeps a tile's width.
+            let tiles =
+                rows.into_iter().map(|row| div().flex_grow().flex_basis(relative(0.45)).max_w(relative(0.493)).min_w_0().child(row));
+            list.flex().flex_row().flex_wrap().content_start().gap(px(8.)).children(tiles)
+        } else if theme.layout.rows == Rows::Separate {
             list.flex().flex_col().gap(px(8.)).children(rows)
         } else {
             list.rounded(theme.radius).bg(theme.card).border_1().border_color(theme.border).children(rows)

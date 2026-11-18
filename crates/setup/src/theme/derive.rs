@@ -9,7 +9,7 @@ use bach_pack::style::layout::Arrangement;
 use bach_pack::style::{Color, Palette, Resolved, PRESETS};
 use gpui::{black, px, rgb, white, FontWeight, Hsla, Image, Rgba, SharedString};
 
-use super::{Mode, Theme};
+use super::{Emblem, Mode, Theme};
 use crate::ui::color::mix;
 
 /// The window's style in both modes, worked out once at startup.
@@ -69,6 +69,8 @@ fn hsla(color: Color) -> Hsla {
 pub struct Pictures {
     pub background: Option<Arc<Image>>,
     pub panel: Option<Arc<Image>>,
+    /// The logo, for a panel with no picture.
+    pub emblem: Emblem,
 }
 
 fn theme(mode: Mode, style: &Resolved, faces: &Faces, pictures: &Pictures, layout: Arrangement) -> Theme {
@@ -90,10 +92,12 @@ fn theme(mode: Mode, style: &Resolved, faces: &Faces, pictures: &Pictures, layou
     let ink = if relative_luminance(accent) < 0.45 { white } else { rgb(0x0f0f0f).into() };
     let toward = if mode == Mode::Dark { white } else { black() };
     let muted = tuned(|p| p.muted_text, mix(base, text, 0.6));
-    let panel = tuned(|p| p.panel, if card.a > 0.9 { card } else { mix(surface, text, 0.04) });
-    // On a side panel the header reads on the panel, not the window: light
-    // on a picture (key art is rarely pale), else whatever reads on its colour.
-    let (header_text, header_muted) = match (layout.side() && layout.panel, palette.panel_text.map(hsla)) {
+    // A panel without a picture is a light tint of the accent, so it reads
+    // as its own surface in both modes.
+    let panel = tuned(|p| p.panel, mix(surface, accent, if mode == Mode::Dark { 0.1 } else { 0.08 }));
+    // On a panel the header reads on the panel, not the window: light on a
+    // picture (under a shade, see pages), else whatever reads on its colour.
+    let (header_text, header_muted) = match (layout.header_on_panel(), palette.panel_text.map(hsla)) {
         (true, Some(own)) => (own, own.opacity(0.75)),
         (true, None) if pictures.panel.is_some() => (rgb(0xfafafa).into(), white.opacity(0.78)),
         (true, None) if (relative_luminance(panel) < 0.4) != (relative_luminance(text) < 0.4) => (text, muted),
@@ -113,6 +117,7 @@ fn theme(mode: Mode, style: &Resolved, faces: &Faces, pictures: &Pictures, layou
         panel_picture: pictures.panel.clone().map(|picture| (picture, 1.0)),
         header_text,
         header_muted,
+        emblem: pictures.emblem.clone(),
         layout,
         card,
         well: tuned(|p| p.well, mix(base, text, 0.05)),

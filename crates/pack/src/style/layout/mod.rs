@@ -1,24 +1,40 @@
 //! `[layout]`: how the setup window is arranged, sized and animated, on top
-//! of its style. Every field is optional; [`Layout::resolve`] fills in the
-//! window Bach has always drawn, so a config without `[layout]` looks
-//! exactly as before.
+//! of its style. Every field is optional; without `[layout]` the window is
+//! the classic column it always was.
 //!
-//! The manifest carries the developer's choices as written (`Layout`);
-//! the runtime works from the resolved values (`Arrangement`).
+//! A layout can start from a preset (`preset = "showcase"`, see
+//! `presets.rs`) and change any field of it. The manifest carries the
+//! developer's choices as written (`Layout`); the runtime works from the
+//! resolved values (`Arrangement`).
 
 use serde::{Deserialize, Serialize};
 
-/// Where the logo, heading and subtitle sit.
+mod presets;
+
+pub use presets::{closest, preset, LayoutPreset, LAYOUT_PRESETS};
+
+/// A panel beside or above the choices.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Header {
-    /// Above the content, the classic column.
+pub enum Panel {
+    /// No panel: the classic column.
     #[default]
-    Top,
-    /// In a side panel on the left, the content on the right.
+    None,
     Left,
-    /// In a side panel on the right.
     Right,
+    /// A banner across the top.
+    Top,
+}
+
+/// Where the logo, heading and subtitle sit when there is a panel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HeaderPlace {
+    /// Above the choices; the panel shows the picture (or the logo, large).
+    #[default]
+    Content,
+    /// On the panel, over its colour or picture.
+    Panel,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +65,17 @@ pub enum Rows {
     Joined,
     /// Each row its own card, with a gap between.
     Separate,
+}
+
+/// What the choices and buttons sit on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Surface {
+    /// Straight on the window.
+    #[default]
+    Plain,
+    /// A card floating over the window's colour or picture.
+    Card,
 }
 
 /// Where the buttons sit in the footer.
@@ -101,20 +128,34 @@ pub enum Animation {
     None,
 }
 
-/// The developer's `[layout]`, as written. None is "the default".
+/// The developer's `[layout]`, as written (a preset's fields filled in
+/// under the developer's own). None is "the default".
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Layout {
+    /// The preset it started from, for `bach inspect`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub header: Option<Header>,
+    pub panel: Option<Panel>,
+    /// The panel's width (left or right) or height (top), in points.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub header_width: Option<u16>,
-    /// Whether a side header gets a panel of its own colour.
+    pub panel_size: Option<u16>,
+    /// Space around the panel; with a radius it floats as a card.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub panel: Option<bool>,
+    pub panel_inset: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel_radius: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<HeaderPlace>,
+    /// The widest the choices and buttons get, centred in their room.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_width: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface: Option<Surface>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub align: Option<Align>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -122,7 +163,7 @@ pub struct Layout {
     /// Top, right, bottom, left, in points.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub padding: Option<[u8; 4]>,
-    /// Between the heading and the content.
+    /// Between the heading and the choices.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gap: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -133,6 +174,9 @@ pub struct Layout {
     pub row_padding: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rows: Option<Rows>,
+    /// One or two columns of separate rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub columns: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icons: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -157,9 +201,13 @@ pub struct Arrangement {
     pub width: f32,
     /// None: as tall as the choices need, within the screen.
     pub height: Option<f32>,
-    pub header: Header,
-    pub header_width: f32,
-    pub panel: bool,
+    pub panel: Panel,
+    pub panel_size: f32,
+    pub panel_inset: f32,
+    pub panel_radius: f32,
+    pub header: HeaderPlace,
+    pub content_width: Option<f32>,
+    pub surface: Surface,
     pub align: Align,
     pub logo: LogoPlace,
     /// Top, right, bottom, left.
@@ -169,6 +217,7 @@ pub struct Arrangement {
     pub text_size: f32,
     pub row_padding: f32,
     pub rows: Rows,
+    pub columns: u8,
     pub icons: bool,
     pub dividers: bool,
     pub button_height: f32,
@@ -181,10 +230,11 @@ pub struct Arrangement {
 
 /// The window Bach draws without `[layout]`.
 pub const DEFAULT_WIDTH: u16 = 540;
-/// A window with the header at the side starts wider, and at least this
-/// tall when its choices need less.
-pub const SIDE_WIDTH: u16 = 780;
-pub const SIDE_HEIGHT: u16 = 470;
+/// A window with a side panel starts wider, and at least this tall.
+pub const SIDE_WIDTH: u16 = 880;
+pub const SIDE_HEIGHT: u16 = 520;
+/// A window with a banner starts a little wider than the classic one.
+pub const BANNER_WIDTH: u16 = 600;
 /// Top, right, bottom, left.
 pub const DEFAULT_PADDING: [u8; 4] = [44, 32, 24, 32];
 
@@ -192,12 +242,16 @@ pub const DEFAULT_PADDING: [u8; 4] = [44, 32, 24, 32];
 pub mod bounds {
     pub const WIDTH: (u16, u16) = (380, 1400);
     pub const HEIGHT: (u16, u16) = (340, 1000);
-    pub const HEADER_WIDTH: (u16, u16) = (160, 700);
+    pub const PANEL_SIZE: (u16, u16) = (120, 800);
+    pub const PANEL_INSET: (u8, u8) = (0, 48);
+    pub const PANEL_RADIUS: (u8, u8) = (0, 48);
+    pub const CONTENT_WIDTH: (u16, u16) = (260, 1200);
     pub const PADDING: (u8, u8) = (0, 96);
     pub const GAP: (u8, u8) = (0, 96);
     pub const HEADING_SIZE: (u8, u8) = (14, 48);
     pub const TEXT_SIZE: (u8, u8) = (11, 20);
     pub const ROW_PADDING: (u8, u8) = (6, 32);
+    pub const COLUMNS: (u8, u8) = (1, 2);
     pub const BUTTON_HEIGHT: (u8, u8) = (24, 56);
     pub const ANIMATION_SPEED: (f32, f32) = (0.25, 4.0);
 }
@@ -207,26 +261,52 @@ impl Layout {
         *self == Self::default()
     }
 
+    /// `own`'s fields where it sets them, this layout's elsewhere.
+    pub fn with(mut self, own: &Layout) -> Self {
+        macro_rules! take {
+            ($($field:ident),*) => { $( if own.$field.is_some() { self.$field = own.$field.clone(); } )* };
+        }
+        take!(preset, width, height, panel, panel_size, panel_inset, panel_radius, header, content_width, surface, align, logo, padding);
+        take!(gap, heading_size, text_size, row_padding, rows, columns, icons, dividers, button_height, buttons, primary, footer);
+        take!(animation, animation_speed);
+        self
+    }
+
     pub fn resolve(&self) -> Arrangement {
-        let header = self.header.unwrap_or_default();
-        let side = header != Header::Top;
-        let width = f32::from(self.width.unwrap_or(if side { SIDE_WIDTH } else { DEFAULT_WIDTH }));
-        let height = self.height.map(f32::from);
-        let header_width = self.header_width.map(f32::from).unwrap_or((width * 0.4).round()).min(width - 220.0).max(120.0);
+        let panel = self.panel.unwrap_or_default();
+        let side = matches!(panel, Panel::Left | Panel::Right);
+        let header = if panel == Panel::None { HeaderPlace::Content } else { self.header.unwrap_or_default() };
+        let width = f32::from(self.width.unwrap_or(match panel {
+            Panel::None => DEFAULT_WIDTH,
+            Panel::Top => BANNER_WIDTH,
+            _ => SIDE_WIDTH,
+        }));
+        let panel_size = match (panel, self.panel_size) {
+            (Panel::None, _) => 0.0,
+            (Panel::Top, size) => f32::from(size.unwrap_or(190)),
+            (_, Some(size)) => f32::from(size).min(width - 300.0).max(120.0),
+            (_, None) => (width * if header == HeaderPlace::Panel { 0.4 } else { 0.46 }).round(),
+        };
+        let header_in_panel = panel != Panel::None && header == HeaderPlace::Panel;
         Arrangement {
             width,
-            height,
+            height: self.height.map(f32::from),
+            panel,
+            panel_size,
+            panel_inset: f32::from(self.panel_inset.unwrap_or(0)),
+            panel_radius: f32::from(self.panel_radius.unwrap_or(0)),
             header,
-            header_width,
-            panel: self.panel.unwrap_or(side),
-            align: self.align.unwrap_or(if side { Align::Left } else { Align::Center }),
+            content_width: self.content_width.map(f32::from),
+            surface: self.surface.unwrap_or_default(),
+            align: self.align.unwrap_or(if panel == Panel::None { Align::Center } else { Align::Left }),
             logo: self.logo.unwrap_or_default(),
             padding: self.padding.unwrap_or(DEFAULT_PADDING).map(f32::from),
-            gap: f32::from(self.gap.unwrap_or(if side { 0 } else { 28 })),
+            gap: f32::from(self.gap.unwrap_or(if side && header_in_panel { 0 } else { 28 })),
             heading_size: f32::from(self.heading_size.unwrap_or(22)),
             text_size: f32::from(self.text_size.unwrap_or(14)),
             row_padding: f32::from(self.row_padding.unwrap_or(16)),
             rows: self.rows.unwrap_or_default(),
+            columns: self.columns.unwrap_or(1).clamp(bounds::COLUMNS.0, bounds::COLUMNS.1),
             icons: self.icons.unwrap_or(true),
             dividers: self.dividers.unwrap_or(true),
             button_height: f32::from(self.button_height.unwrap_or(32)),
@@ -245,9 +325,19 @@ impl Arrangement {
         Layout::default().resolve()
     }
 
-    /// Whether the header sits in a side panel.
+    /// Whether a panel stands beside the choices.
     pub fn side(&self) -> bool {
-        self.header != Header::Top
+        matches!(self.panel, Panel::Left | Panel::Right)
+    }
+
+    /// Whether the logo, heading and subtitle sit on the panel.
+    pub fn header_on_panel(&self) -> bool {
+        self.panel != Panel::None && self.header == HeaderPlace::Panel
+    }
+
+    /// Whether separate rows are laid out in two columns.
+    pub fn two_columns(&self) -> bool {
+        self.columns == 2 && self.rows == Rows::Separate
     }
 
     /// The height of one row of choices, for sizing the window to them.
@@ -259,35 +349,4 @@ impl Arrangement {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn no_layout_is_the_window_bach_always_drew() {
-        let plain = Layout::default().resolve();
-        assert_eq!((plain.width, plain.height, plain.header), (540.0, None, Header::Top));
-        assert_eq!(plain.padding, [44.0, 32.0, 24.0, 32.0]);
-        assert_eq!(plain.align, Align::Center);
-        assert_eq!(plain.row_height(), 73.0, "the row height the window always grew by");
-        assert_eq!((plain.animation, plain.animation_speed), (Animation::Rise, 1.0));
-    }
-
-    #[test]
-    fn a_side_header_changes_its_defaults() {
-        let side = Layout { header: Some(Header::Left), ..Layout::default() }.resolve();
-        assert_eq!((side.width, side.height), (780.0, None));
-        assert_eq!(side.header_width, 312.0);
-        assert!(side.panel);
-        assert_eq!(side.align, Align::Left);
-        let narrow = Layout { header: Some(Header::Right), width: Some(400), header_width: Some(600), ..Layout::default() }.resolve();
-        assert_eq!(narrow.header_width, 180.0, "the content keeps room");
-    }
-
-    #[test]
-    fn the_manifest_keeps_only_what_was_set() {
-        let layout = Layout { buttons: Some(Buttons::Stretch), padding: Some([8, 8, 8, 8]), ..Layout::default() };
-        let json = serde_json::to_string(&layout).unwrap();
-        assert_eq!(json, r#"{"padding":[8,8,8,8],"buttons":"stretch"}"#);
-        assert_eq!(serde_json::from_str::<Layout>(&json).unwrap(), layout);
-    }
-}
+mod tests;

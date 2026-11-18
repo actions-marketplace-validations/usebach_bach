@@ -17,15 +17,15 @@ mod requirement;
 
 use bach_pack::i18n::Key;
 use gpui::{
-    div, img, linear_color_stop, linear_gradient, px, solid_background, AnyElement, Context, ElementId, FontWeight, InteractiveElement,
-    IntoElement, KeyDownEvent, ObjectFit, ParentElement, Render, SharedString, Styled, StyledImage, Window,
+    black, div, img, linear_color_stop, linear_gradient, px, solid_background, AnyElement, Context, ElementId, FontWeight,
+    InteractiveElement, IntoElement, KeyDownEvent, ObjectFit, ParentElement, Render, SharedString, Styled, StyledImage, Window,
 };
 
 use crate::assets::LOGO_PATH;
 use crate::package::Logo;
-use bach_pack::style::layout::{Align, Buttons, Footer, Header, LogoPlace, Primary};
+use bach_pack::style::layout::{Align, Buttons, Footer, LogoPlace, Panel, Primary, Surface};
 
-use crate::theme::{ActiveTheme, Theme};
+use crate::theme::{ActiveTheme, Emblem, Theme};
 use crate::ui::motion::page_enter;
 use crate::ui::prelude::*;
 use crate::view::{SetupView, Stage};
@@ -136,12 +136,15 @@ impl PageLayout {
         Self { centered: false, mark: None, title: title.into(), subtitle: None, content: None, grow: false, footer }
     }
 
-    /// The page in the window's arrangement: one column with the header on
-    /// top, or the header in a side panel and the rest beside it.
+    /// The page in the window's arrangement: the classic column, or the
+    /// choices beside (or under) a panel that shows a picture, the logo or
+    /// the heading.
     pub fn render(self, theme: &Theme) -> AnyElement {
         let layout = &theme.layout;
         let [top, right, bottom, left] = layout.padding;
+        let on_panel = layout.header_on_panel();
         let header = header(self.mark, self.title, self.subtitle, theme);
+        let (in_column, header) = if on_panel { (None, Some(header)) } else { (Some(header), None) };
         let content = self.content.map(|content| {
             let holder = div().flex().flex_col().min_h_0().child(content);
             if self.grow {
@@ -151,62 +154,111 @@ impl PageLayout {
             }
         });
         let fill = |on: bool| on.then(|| div().flex_1());
-        if !layout.side() {
-            return div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .pt(px(top))
-                .pr(px(right))
-                .pb(px(bottom))
-                .pl(px(left))
-                .children(fill(self.centered))
-                .child(header)
-                .children(content)
-                .children(fill(!self.grow))
-                .child(self.footer)
-                .into_any_element();
-        }
-        // The header column: its panel reaches the window's edges.
-        let panel = layout.panel.then(|| {
-            div().absolute().top_0().left_0().size_full().bg(theme.panel).children(
-                theme
-                    .panel_picture
-                    .clone()
-                    .map(|(picture, opacity)| img(picture).size_full().object_fit(ObjectFit::Cover).opacity(opacity)),
-            )
-        });
-        let side = div()
-            .relative()
-            .flex_none()
-            .w(px(layout.header_width))
-            .h_full()
-            .flex()
-            .flex_col()
-            .justify_center()
-            .children(panel)
-            .child(div().relative().pt(px(top)).pb(px(bottom)).px(px(left.max(right))).child(header));
-        let main = div()
+        // The heading (unless the panel carries it), the choices and the footer.
+        let column = div()
             .flex_1()
-            .min_w_0()
-            .h_full()
+            .min_h_0()
+            .w_full()
             .flex()
             .flex_col()
-            .pt(px(top))
-            .pr(px(right))
-            .pb(px(bottom))
-            .pl(px(left))
             .children(fill(self.centered))
+            .children(in_column)
             .children(content)
             .children(fill(!self.grow))
             .child(self.footer);
-        let row = div().size_full().flex();
-        match layout.header {
-            Header::Right => row.child(main).child(side),
-            _ => row.child(side).child(main),
+        let column = match layout.content_width {
+            Some(width) => div().flex_1().min_h_0().w_full().flex().justify_center().child(column.max_w(px(width))),
+            None => div().flex_1().min_h_0().w_full().flex().child(column),
+        };
+        let column = match layout.surface {
+            Surface::Plain => column,
+            // One card holding everything, over the window's colour or picture.
+            Surface::Card => {
+                let fill = if theme.card.a > 0.6 { theme.card } else { theme.surface.opacity(0.94) };
+                let card = div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .p(px(28.))
+                    .rounded(theme.radius + px(6.))
+                    .bg(fill)
+                    .border_1()
+                    .border_color(theme.border)
+                    .shadow_lg()
+                    .child(column);
+                div().flex_1().min_h_0().w_full().flex().justify_center().child(match layout.content_width {
+                    Some(width) => card.max_w(px(width + 56.)),
+                    None => card,
+                })
+            }
+        };
+        let main = div().flex_1().min_w_0().min_h_0().flex().flex_col().pt(px(top)).pr(px(right)).pb(px(bottom)).pl(px(left)).child(column);
+        match layout.panel {
+            Panel::None => main.size_full().into_any_element(),
+            Panel::Left | Panel::Right => {
+                let panel = panel(header, theme).w(px(layout.panel_size)).h_full();
+                let row = div().size_full().flex();
+                if layout.panel == Panel::Left { row.child(panel).child(main) } else { row.child(main).child(panel) }.into_any_element()
+            }
+            Panel::Top => div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(panel(header, theme).w_full().h(px(layout.panel_size)))
+                .child(main)
+                .into_any_element(),
         }
-        .into_any_element()
     }
+}
+
+/// The panel: inset by `panel_inset`, rounded by `panel_radius`, filled
+/// with its picture (or its colour and, when it carries nothing else, the
+/// app's logo set large), with the header on it when the layout says so,
+/// over a shade that keeps light text readable on any picture.
+fn panel(header: Option<gpui::Div>, theme: &Theme) -> gpui::Div {
+    let layout = &theme.layout;
+    let [top, right, bottom, left] = layout.padding;
+    let picture = theme.panel_picture.clone();
+    let radius = px(layout.panel_radius);
+    let mut card = div().relative().size_full().overflow_hidden().rounded(radius).bg(theme.panel);
+    if let Some((picture, opacity)) = picture.clone() {
+        // A clip is square, so the picture rounds its own corners.
+        card =
+            card.child(img(picture).absolute().top_0().left_0().size_full().rounded(radius).object_fit(ObjectFit::Cover).opacity(opacity));
+    }
+    card = match header {
+        Some(header) => {
+            let shade = picture.is_some().then(|| {
+                div().absolute().top_0().left_0().size_full().rounded(radius).bg(linear_gradient(
+                    180.,
+                    linear_color_stop(black().opacity(0.0), 0.35),
+                    linear_color_stop(black().opacity(0.62), 1.),
+                ))
+            });
+            // On a picture the heading sits low, on the shade; on a colour, in the middle.
+            let place = div().relative().size_full().flex().flex_col().pt(px(top)).pb(px(bottom)).px(px(left.max(right)));
+            let place = if picture.is_some() { place.justify_end() } else { place.justify_center() };
+            card.children(shade).child(place.child(header))
+        }
+        None if picture.is_none() => card.child(div().size_full().flex().items_center().justify_center().children(emblem(theme))),
+        None => card,
+    };
+    div().flex_none().p(px(layout.panel_inset)).child(card)
+}
+
+/// The app's logo, large, for a panel with nothing else on it.
+fn emblem(theme: &Theme) -> Option<AnyElement> {
+    let size = 120.;
+    Some(match &theme.emblem {
+        Emblem::None => return None,
+        Emblem::Bach => page_icon_sized("bach", theme.primary, size),
+        Emblem::Svg => gpui::svg().path(LOGO_PATH).size(px(size)).text_color(theme.primary).into_any_element(),
+        Emblem::Png(image, aspect) => {
+            img(image.clone()).w(px((size * aspect).min(320.))).h(px(size)).object_fit(ObjectFit::Contain).into_any_element()
+        }
+    })
 }
 
 /// The mark, heading and subtitle, aligned as the layout says, with the
@@ -255,7 +307,11 @@ fn heading(title: SharedString, theme: &Theme) -> gpui::Div {
 
 /// An icon drawn in the mark's slot.
 pub fn page_icon(name: &'static str, color: gpui::Hsla) -> AnyElement {
-    Icon::new(name).size(MARK_SLOT - 4.).color(color).into_any_element()
+    page_icon_sized(name, color, MARK_SLOT - 4.)
+}
+
+fn page_icon_sized(name: &'static str, color: gpui::Hsla, size: f32) -> AnyElement {
+    Icon::new(name).size(size).color(color).into_any_element()
 }
 
 /// The line under the heading; it takes the header's alignment.

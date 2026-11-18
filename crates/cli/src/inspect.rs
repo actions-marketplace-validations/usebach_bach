@@ -215,17 +215,24 @@ fn look(manifest: &Manifest) -> String {
         parts.push("background picture".into());
     }
     if let Some(layout) = &look.layout {
+        use bach_pack::style::layout::Panel;
         let arranged = layout.resolve();
-        let header = match arranged.header {
-            bach_pack::style::layout::Header::Top => "header on top",
-            bach_pack::style::layout::Header::Left => "header at the left",
-            bach_pack::style::layout::Header::Right => "header at the right",
-        };
-        let size = match arranged.height {
+        let mut what = vec![match arranged.height {
             Some(height) => format!("{}×{height}", arranged.width),
             None => format!("{} wide", arranged.width),
+        }];
+        let side = match arranged.panel {
+            Panel::None => None,
+            Panel::Left => Some("panel at the left"),
+            Panel::Right => Some("panel at the right"),
+            Panel::Top => Some("banner on top"),
         };
-        parts.push(format!("own layout ({size}, {header})"));
+        what.extend(side.map(String::from));
+        if arranged.header_on_panel() {
+            what.push("heading on it".into());
+        }
+        let name = layout.preset.as_deref().map(|preset| format!("{preset} layout")).unwrap_or_else(|| "own layout".into());
+        parts.push(format!("{name} ({})", what.join(", ")));
     }
     if shipped(bach_pack::manifest::LookFileKind::PanelPng) + shipped(bach_pack::manifest::LookFileKind::PanelJpeg) > 0 {
         parts.push("panel picture".into());
