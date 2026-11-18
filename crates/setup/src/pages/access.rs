@@ -93,7 +93,7 @@ impl SetupView {
         );
 
         PageLayout {
-            mark: Some(page_icon("lock-filled", theme.header_text)),
+            mark: Some(page_icon("lock-filled", theme.header_text, &theme)),
             subtitle: Some(subtitle_text(texts.get(Key::access_subtitle), &theme)),
             content: Some(div().flex().flex_col().child(field).child(problem).into_any_element()),
             ..PageLayout::new(texts.get(Key::access_title), footer(Some(self.meta()), buttons, &theme))

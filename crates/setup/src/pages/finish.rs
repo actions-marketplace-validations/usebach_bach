@@ -57,7 +57,7 @@ impl SetupView {
                 .on_click(cx.listener(|this, _, _, cx| this.close(cx)));
             if primary { button } else { button.outline() }.into_any_element()
         };
-        let done_icon = page_icon("circle-check-filled", theme.mark);
+        let done_icon = page_icon("circle-check-filled", theme.mark, &theme);
         // The website after installing, the feedback page after removing.
         let link = self.done_link().map(|_| {
             let label = if self.is_removing() { texts.get(Key::feedback) } else { texts.get(Key::website) };
@@ -120,7 +120,7 @@ impl SetupView {
         };
         PageLayout {
             centered: true,
-            mark: Some(page_icon("alert-triangle-filled", theme.destructive)),
+            mark: Some(page_icon("alert-triangle-filled", theme.destructive, &theme)),
             subtitle: Some(subtitle_text(message, &theme)),
             ..PageLayout::new(
                 title,

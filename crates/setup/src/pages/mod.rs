@@ -82,14 +82,15 @@ impl SetupView {
             return None;
         }
         let look = &self.package.manifest.look;
-        let height = look.logo_height.map_or(MARK_SLOT, f32::from);
+        let slot = mark_slot(theme);
+        let height = look.logo_height.map_or(slot, f32::from);
         // A wide logo keeps its shape, up to the width of the column.
         let width = (height * look.logo_aspect.unwrap_or(1.0)).clamp(height * 0.25, 420.);
         Some(match &self.package.logo {
             Some(Logo::Svg(_)) => gpui::svg().path(LOGO_PATH).size(px(height)).text_color(theme.mark).into_any_element(),
             Some(Logo::Png(image)) => img(image.clone()).w(px(width)).h(px(height)).object_fit(ObjectFit::Contain).into_any_element(),
-            None if working => BachMark::new("setup-mark").size(68.).slot(MARK_SLOT).into_any_element(),
-            None => page_icon("bach", theme.mark),
+            None if working => BachMark::new("setup-mark").size(slot * 68. / MARK_SLOT).slot(slot).into_any_element(),
+            None => page_icon("bach", theme.mark, theme),
         })
     }
 }
@@ -230,9 +231,9 @@ fn panel(header: Option<gpui::Div>, theme: &Theme) -> gpui::Div {
     }
     card = match header {
         Some(header) => {
-            // A banner is short, so its heading covers more of the picture:
-            // the shade starts higher and ends darker there.
-            let (from, to) = if layout.panel == Panel::Top { (0.12, 0.74) } else { (0.35, 0.62) };
+            // On a banner the heading covers more of the picture, so the
+            // shade starts a little higher there.
+            let (from, to) = if layout.panel == Panel::Top { (0.3, 0.68) } else { (0.35, 0.62) };
             let shade = picture.is_some().then(|| {
                 div().absolute().top_0().left_0().size_full().rounded(radius).bg(linear_gradient(
                     180.,
@@ -271,28 +272,39 @@ fn emblem(theme: &Theme) -> Option<AnyElement> {
 /// mark above the heading or beside it.
 fn header(mark: Option<AnyElement>, title: SharedString, subtitle: Option<AnyElement>, theme: &Theme) -> gpui::Div {
     let layout = &theme.layout;
-    let slot =
-        |mark: AnyElement| div().flex_none().min_w(px(MARK_SLOT)).min_h(px(MARK_SLOT)).flex().items_center().justify_center().child(mark);
+    let size = mark_slot(theme);
+    let slot = |mark: AnyElement| div().flex_none().min_w(px(size)).min_h(px(size)).flex().items_center().justify_center().child(mark);
     let title = heading(title, theme);
+    let (cross, text) = match layout.align {
+        Align::Left => (gpui::AlignItems::FlexStart, gpui::TextAlign::Left),
+        Align::Center => (gpui::AlignItems::Center, gpui::TextAlign::Center),
+        Align::Right => (gpui::AlignItems::FlexEnd, gpui::TextAlign::Right),
+    };
     let top = match (mark, layout.logo) {
+        // One line: the mark as tall as the heading's line, both centred on
+        // it, however the block itself is aligned.
         (Some(mark), LogoPlace::Beside) => {
-            let line = div().flex().items_center().gap(px(14.)).child(slot(mark)).child(title);
+            let line = div().flex().items_center().gap(px((size * 0.3).round().max(10.))).child(slot(mark)).child(title);
             if layout.align == Align::Right {
                 line.flex_row_reverse()
             } else {
                 line
             }
         }
-        (Some(mark), LogoPlace::Above) => div().flex().flex_col().child(slot(mark)).child(title.mt(px(18.))),
-        (None, _) => div().flex().flex_col().child(title),
+        (Some(mark), LogoPlace::Above) => {
+            let mut column = div().flex().flex_col().child(slot(mark)).child(title.mt(px(18.)));
+            column.style().align_items = Some(cross);
+            column
+        }
+        (None, _) => {
+            let mut column = div().flex().flex_col().child(title);
+            column.style().align_items = Some(cross);
+            column
+        }
     };
-    let block = div().flex().flex_none().flex_col().w_full().text_color(theme.header_text);
-    match layout.align {
-        Align::Left => block.items_start().text_left().child(top.items_start()),
-        Align::Center => block.items_center().text_center().child(top.items_center()),
-        Align::Right => block.items_end().text_right().child(top.items_end()),
-    }
-    .children(subtitle.map(|subtitle| div().text_color(theme.header_muted).child(subtitle)))
+    let mut block = div().flex().flex_none().flex_col().w_full().text_color(theme.header_text).child(top);
+    block.style().align_items = Some(cross);
+    block.text_align(text).children(subtitle.map(|subtitle| div().text_color(theme.header_muted).child(subtitle)))
 }
 
 /// The page heading in the style's face and the layout's size; a long one
@@ -307,13 +319,28 @@ fn heading(title: SharedString, theme: &Theme) -> gpui::Div {
         .font_family(theme.heading_font.clone())
         .font_weight(theme.heading_weight)
         .text_size(px(size))
-        .line_height(px((size * 32. / 22.).round()))
+        .line_height(px(heading_line(size)))
         .child(title)
 }
 
 /// An icon drawn in the mark's slot.
-pub fn page_icon(name: &'static str, color: gpui::Hsla) -> AnyElement {
-    page_icon_sized(name, color, MARK_SLOT - 4.)
+pub fn page_icon(name: &'static str, color: gpui::Hsla, theme: &Theme) -> AnyElement {
+    let slot = mark_slot(theme);
+    page_icon_sized(name, color, slot - (slot / 14.).round())
+}
+
+/// The box the mark and page icons sit in: 56 points above the heading;
+/// beside it, as tall as the heading's line, so the two read as one line.
+fn mark_slot(theme: &Theme) -> f32 {
+    match theme.layout.logo {
+        LogoPlace::Above => MARK_SLOT,
+        LogoPlace::Beside => heading_line(theme.layout.heading_size).clamp(28., MARK_SLOT),
+    }
+}
+
+/// A heading's line height at `size` points.
+fn heading_line(size: f32) -> f32 {
+    (size * 32. / 22.).round()
 }
 
 fn page_icon_sized(name: &'static str, color: gpui::Hsla, size: f32) -> AnyElement {

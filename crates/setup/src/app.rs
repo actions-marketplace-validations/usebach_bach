@@ -336,7 +336,7 @@ impl Render for Problem {
         let theme = cx.theme().clone();
         let body = PageLayout {
             centered: true,
-            mark: Some(page_icon("alert-triangle-filled", theme.destructive)),
+            mark: Some(page_icon("alert-triangle-filled", theme.destructive, &theme)),
             subtitle: Some(subtitle_text(self.message.clone(), &theme)),
             ..PageLayout::new(
                 self.title.clone(),
