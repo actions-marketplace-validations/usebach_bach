@@ -138,6 +138,16 @@ radius = 12                               # card corners, 0 to 24
 [style.dark]
 card = "#ffffff0b"                        # any colour per mode; [style] sets both modes
 
+[layout]                                  # size, arrangement, spacing, motion (all optional)
+width = 820                               # height too; portrait or landscape
+header = "left"                           # "top" | "left" | "right": a side panel
+panel_image = "art/key-art.png"
+align = "left"                            # header text: left | center | right
+rows = "separate"                         # or "joined"; icons, dividers, row_padding
+buttons = "stretch"                       # right | left | center | stretch; primary = "first"
+footer = "above"                          # beside | above | hidden
+animation = "slide"                       # rise | fade | slide | drop | none; animation_speed
+
 [[components]]                            # optional parts, one box each
 id = "samples"
 title = { en = "Sample projects", de = "Beispielprojekte" }

@@ -495,6 +495,16 @@
               "type": "string",
               "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
               "description": "The Bach mark and one-colour (SVG) logos."
+            },
+            "panel": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "A side header's panel ([layout] header). Default: the card, or a soft wash of the text colour."
+            },
+            "panel_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The heading and subtitle on that panel. Default: whatever reads on it."
             }
           }
         },
@@ -560,8 +570,189 @@
               "type": "string",
               "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
               "description": "The Bach mark and one-colour (SVG) logos."
+            },
+            "panel": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "A side header's panel ([layout] header). Default: the card, or a soft wash of the text colour."
+            },
+            "panel_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The heading and subtitle on that panel. Default: whatever reads on it."
             }
           }
+        },
+        "panel": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "A side header's panel ([layout] header). Default: the card, or a soft wash of the text colour."
+        },
+        "panel_text": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "The heading and subtitle on that panel. Default: whatever reads on it."
+        }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional. How the window is sized, arranged and animated. Without it the window is Bach's classic column.",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 380,
+          "maximum": 1400,
+          "description": "The window's width in points. Default 540 (780 with the header at the side)."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 340,
+          "maximum": 1000,
+          "description": "The window's height in points. Default: as tall as the choices need."
+        },
+        "header": {
+          "enum": [
+            "top",
+            "left",
+            "right"
+          ],
+          "description": "Where the logo, heading and subtitle sit: on top, or in a side panel."
+        },
+        "header_width": {
+          "type": "integer",
+          "minimum": 160,
+          "maximum": 700,
+          "description": "The side panel's width in points. Default 40% of the window."
+        },
+        "panel": {
+          "type": "boolean",
+          "description": "Whether a side header gets a panel of its own colour. Default true."
+        },
+        "panel_image": {
+          "type": "string",
+          "description": "A PNG or JPEG that fills the side panel."
+        },
+        "align": {
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ],
+          "description": "How the header aligns. Default center (left at the side)."
+        },
+        "logo": {
+          "enum": [
+            "above",
+            "beside"
+          ],
+          "description": "The logo above the heading, or beside it."
+        },
+        "padding": {
+          "description": "Points: one number for every side, [top and bottom, sides], or [top, right, bottom, left]. Default [44, 32, 24, 32].",
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 96
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 96
+              },
+              "minItems": 2,
+              "maxItems": 4
+            }
+          ]
+        },
+        "gap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 96,
+          "description": "Points between the header and the choices. Default 28 (0 at the side)."
+        },
+        "heading_size": {
+          "type": "integer",
+          "minimum": 14,
+          "maximum": 48,
+          "description": "Heading size in points. Default 22."
+        },
+        "text_size": {
+          "type": "integer",
+          "minimum": 11,
+          "maximum": 20,
+          "description": "Text size in points; descriptions and the footer follow it. Default 14."
+        },
+        "row_padding": {
+          "type": "integer",
+          "minimum": 6,
+          "maximum": 32,
+          "description": "Points inside each row of choices. Default 16."
+        },
+        "rows": {
+          "enum": [
+            "joined",
+            "separate"
+          ],
+          "description": "One card with dividers, or each row a card of its own."
+        },
+        "icons": {
+          "type": "boolean",
+          "description": "Icons in the rows. Default true."
+        },
+        "dividers": {
+          "type": "boolean",
+          "description": "Hairlines between joined rows. Default true."
+        },
+        "button_height": {
+          "type": "integer",
+          "minimum": 24,
+          "maximum": 56,
+          "description": "Button height in points. Default 32."
+        },
+        "buttons": {
+          "enum": [
+            "right",
+            "left",
+            "center",
+            "stretch"
+          ],
+          "description": "Where the buttons sit; stretch shares the width."
+        },
+        "primary": {
+          "enum": [
+            "last",
+            "first"
+          ],
+          "description": "The main button after the others, or before them."
+        },
+        "footer": {
+          "enum": [
+            "beside",
+            "above",
+            "hidden"
+          ],
+          "description": "The footer line (publisher and version): beside the buttons, above them, or not shown."
+        },
+        "animation": {
+          "enum": [
+            "rise",
+            "fade",
+            "slide",
+            "drop",
+            "none"
+          ],
+          "description": "How each page comes in. Default rise."
+        },
+        "animation_speed": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4,
+          "description": "How fast: 2 is twice as fast. Default 1."
         }
       }
     },

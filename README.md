@@ -118,7 +118,7 @@ your app.
 | --- | --- |
 | **Choices** | Desktop and Start menu shortcuts, start with Windows, add to `PATH`, each offered ticked, unticked, always or never; optional components |
 | **Integration** | `myapp://` link schemes and file types, never taking over another app's |
-| **Look and words** | 15 built-in styles (native Windows, soft gradients, terminal, game looks, ...) and your own fonts, colours, corners and background picture; your logo and icon; light, dark or system theme; any text, per language; a license page |
+| **Look and words** | 15 built-in styles (native Windows, soft gradients, terminal, game looks, ...) and your own fonts, colours, corners and background picture; your own layout: window size, portrait or landscape, a side panel with key art, alignment, spacing, button placement and page animation; your logo and icon; light, dark or system theme; any text, per language; a license page |
 | **Safety** | Free-space check, archive checksum, one setup per app at a time, "close and continue" when the app is open, data deleted only on request |
 | **Automation** | `Setup.exe /S` with `--dir`, `--with`, `--without`, `--log`; quiet uninstall from Settings › Apps |
 | **Online and private** | An online installer that always downloads the newest version; access keys that encrypt the files and keep updates private: see [config](docs/config.md#installer) |
