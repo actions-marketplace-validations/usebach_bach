@@ -15,6 +15,8 @@ use crate::{output, runtime};
 pub struct PreviewOptions<'a> {
     pub uninstall: bool,
     pub theme: Option<&'a str>,
+    /// A built-in style to show instead of the config's.
+    pub style: Option<&'a str>,
     pub lang: Option<&'a str>,
     pub runtime: Option<&'a Path>,
 }
@@ -28,12 +30,21 @@ pub(crate) fn load(config_path: &Path) -> Result<(Project, Option<Sealing>)> {
     Ok((project, sealing))
 }
 
-/// Refuses what can't be previewed: a theme or language that doesn't exist,
-/// and any computer that isn't running Windows.
+/// Refuses what can't be previewed: a theme, style or language that doesn't
+/// exist, and any computer that isn't running Windows.
 pub(crate) fn check(options: &PreviewOptions, command: &str) -> Result<()> {
     if let Some(theme) = options.theme {
         if bach_pack::manifest::Theme::parse(theme).is_none() {
             bail!("--theme is \"{theme}\"; use system, light or dark");
+        }
+    }
+    if let Some(style) = options.style {
+        if bach_pack::style::preset(style).is_none() {
+            let names: Vec<&str> = bach_pack::style::PRESETS.iter().map(|preset| preset.name).collect();
+            match bach_pack::style::closest(style) {
+                Some(near) => bail!("--style is \"{style}\"; did you mean \"{near}\"?"),
+                None => bail!("--style is \"{style}\"; use one of {}", names.join(", ")),
+            }
         }
     }
     if let Some(lang) = options.lang {
@@ -80,6 +91,9 @@ pub(crate) fn open(setup: &Path, options: &PreviewOptions) -> Result<Child> {
     }
     if let Some(lang) = options.lang {
         command.args(["--lang", lang]);
+    }
+    if let Some(style) = options.style {
+        command.args(["--style", style]);
     }
     command.spawn().with_context(|| format!("couldn't start {}", setup.display()))
 }

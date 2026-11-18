@@ -92,6 +92,9 @@ struct PreviewArgs {
     /// Override the theme: system, light or dark.
     #[arg(long)]
     theme: Option<String>,
+    /// Try another built-in style without changing bach.toml (`bach styles` lists them).
+    #[arg(long)]
+    style: Option<String>,
     /// Show it in this language (en, de, fr, …) instead of Windows' own.
     #[arg(long)]
     lang: Option<String>,
@@ -105,6 +108,7 @@ impl PreviewArgs {
         preview::PreviewOptions {
             uninstall: self.uninstall,
             theme: self.theme.as_deref(),
+            style: self.style.as_deref(),
             lang: self.lang.as_deref(),
             runtime: self.runtime.as_deref(),
         }
