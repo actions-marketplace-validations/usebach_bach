@@ -98,6 +98,49 @@ fn a_build_writes_a_setup_file_that_inspect_reads() {
 }
 
 #[test]
+fn a_style_with_its_own_picture_ships_in_the_setup_file() {
+    need_runtime!();
+    let dir = project(
+        "styled",
+        &config(
+            "[installer]
+style = \"arcade\"
+
+[style]
+background_image = \"backdrop.jpg\"
+accent = \"#2563eb\"
+",
+        ),
+    );
+    std::fs::write(dir.join("backdrop.jpg"), [0xff, 0xd8, 0xff, 0xe0, b'J', b'F', b'I', b'F']).unwrap();
+    let built = run(&dir, &["build", "--fast"]);
+    assert!(built.status.success(), "{}", text(&built.stderr));
+    let inspected = run(&dir, &["inspect", "dist/Hello-Setup-1.0.0.exe"]);
+    let out = text(&inspected.stdout);
+    assert!(out.contains("arcade style, dark, own colours, background picture"), "{out}");
+
+    // A [layout] with a side panel's picture says so too.
+    std::fs::write(dir.join("side.png"), b"\x89PNG\r\n\x1a\nrest").unwrap();
+    let layout = "[layout]\npreset = \"spotlight\"\nwidth = 820\nheight = 480\npanel_image = \"side.png\"\n";
+    std::fs::write(dir.join("bach.toml"), config(&format!("[installer]\nstyle = \"arcade\"\n\n{layout}"))).unwrap();
+    let checked = text(&run(&dir, &["check"]).stdout);
+    assert!(checked.contains("spotlight layout (820×480, panel at the left, heading on it), panel picture"), "{checked}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn bach_styles_lists_every_built_in_style() {
+    let listed = bach().args(["styles", "--json"]).output().unwrap();
+    assert!(listed.status.success(), "{}", text(&listed.stderr));
+    let object = json_of(&listed);
+    let names: Vec<&str> = object["styles"].as_array().unwrap().iter().map(|style| style["name"].as_str().unwrap()).collect();
+    let expected: Vec<&str> = bach_pack::style::PRESETS.iter().map(|preset| preset.name).collect();
+    assert_eq!(names, expected);
+    let plain = text(&bach().arg("styles").output().unwrap().stdout);
+    assert!(plain.contains("arcade") && plain.contains("bach preview --style"), "{plain}");
+}
+
+#[test]
 fn the_online_installer_is_the_same_window_without_the_files() {
     need_runtime!();
     let dir = project("online", &config(&format!("[installer]\nonline = true\n\n{UPDATES}")));

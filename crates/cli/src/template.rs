@@ -30,6 +30,7 @@ source = "@SOURCE@"
 
 [installer]
 # output = "dist/{name}-Setup-{version}.exe"
+# style = "bach"             # the default for every app; `bach styles` lists the others
 # theme = "system"            # system, light or dark
 # accent = "#2563eb"          # buttons, the progress bar and ticked boxes
 # logo = "logo.svg"           # .svg (one colour) or .png, or "none"
@@ -65,6 +66,15 @@ source = "@SOURCE@"
 # [[file_types]]
 # extension = ".@SCHEME@"
 # description = "@NAME@ document"
+
+# Your own fonts, colours, corners and background on top of the style:
+# [style]
+# font = "fonts/MyFont.ttf"   # or a font Windows has, like "Segoe UI"
+# background = ["#1d0b36", "#0a0416"]   # one colour, or a gradient from top to bottom
+# radius = 12                 # corners of the card, 0 to 24
+# background_image = "art/backdrop.png"
+# [style.dark]
+# card = "#ffffff0b"          # #rrggbbaa lets the background show through
 
 # Any text in the window, in one language or per language:
 # [text]
@@ -270,6 +280,19 @@ mod tests {
         assert_eq!(project.update_github.as_deref(), Some("me/clip"));
         assert!(project.manifest.updates.is_some());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn every_project_starts_in_bachs_own_style() {
+        // Whatever the project, the window starts as Bach's own; another
+        // style is the developer's choice, so the line stays a comment.
+        for stack in ["Tauri", "Electron", "Wails", "Flutter", ".NET", "Qt", "PyInstaller", "Godot", "Unity", "Rust"] {
+            let found = Detected { stack, ..Detected::default() };
+            let text = fill(Some(&found), "Clip", Path::new("."));
+            assert!(text.contains("\n# style = \"bach\""), "{stack}: {text}");
+            assert!(!text.contains("\nstyle = "), "{stack} sets a style: {text}");
+        }
+        assert!(fill(None, "Clip", Path::new(".")).contains("\n# style = \"bach\""));
     }
 
     #[test]

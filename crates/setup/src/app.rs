@@ -16,14 +16,15 @@ use crate::launch::{self, Args, Mode};
 use crate::package::{Logo, Package};
 use crate::pages::{footer, frame, page_icon, row_count, subtitle_text, PageLayout};
 use crate::texts::Texts;
-use crate::theme::{ActiveTheme, Theme};
+use bach_pack::style::layout::{Arrangement, Footer, LogoPlace, Panel, Rows, Surface, SIDE_HEIGHT};
+
+use crate::theme::{ActiveTheme, Emblem, Looks, Mode as Shade, Pictures};
 use crate::ui::FormButton;
 use crate::view::{SetupView, Stage};
 
-/// The window's width and its height with up to two rows of choices.
-const WINDOW_SIZE: (f32, f32) = (540., 490.);
-/// Each row of choices past the second adds this much height.
-const ROW_HEIGHT: f32 = 73.;
+/// The window's height with up to two rows of choices, in the default
+/// layout; each row past the second adds a row's height.
+const BASE_HEIGHT: f32 = 490.;
 /// The window never grows past this share of the screen; the card scrolls.
 const MAX_SCREEN_SHARE: f32 = 0.85;
 
@@ -90,8 +91,20 @@ pub fn main() {
         Ok(package) => {
             let mode = launch::mode(&args, &package);
             let texts = Arc::new(Texts::new(&package.manifest, args.lang.as_deref()));
-            let theme = args.theme.unwrap_or(package.manifest.look.theme);
-            let accent = package.accent();
+            let style = bach_pack::style::resolve(&package.manifest.look, args.style.as_deref());
+            // A previewed style shows in the theme it looks best in, unless --theme says.
+            let preferred = args.style.as_deref().and_then(bach_pack::style::preset).and_then(|preset| preset.theme);
+            let theme = args.theme.or(preferred).unwrap_or(package.manifest.look.theme);
+            let look = WindowLook {
+                style,
+                fonts: package.fonts.clone(),
+                pictures: Pictures { background: package.picture.clone(), panel: package.panel.clone(), emblem: emblem(&package) },
+                // A previewed layout replaces the payload's whole.
+                layout: match args.layout.as_deref().and_then(bach_pack::style::layout::preset) {
+                    Some((_, layout)) => layout.resolve(),
+                    None => package.manifest.look.layout.clone().unwrap_or_default().resolve(),
+                },
+            };
             let logo_svg = match &package.logo {
                 Some(Logo::Svg(bytes)) => Some(bytes.clone()),
                 _ => None,
@@ -107,7 +120,7 @@ pub fn main() {
                 let kept = !args.preview && package.manifest.access.is_some();
                 kept.then(|| crate::system::secret::load(&package.manifest.app.id)).flatten()
             });
-            open(Assets { logo_svg }, title, theme, accent, (rows, tall), move |window, cx| {
+            open(Assets { logo_svg }, title, theme, look, (rows, tall), move |window, cx| {
                 let view = SetupView::new(package, texts, mode, args.preview, given_key, cx);
                 window.focus(&view.focus_handle);
                 view
@@ -124,11 +137,30 @@ pub fn main() {
                 Some(error) => i18n::fill(language.strings.problem_damaged, &[("error", &error)]),
             };
             let title = language.strings.problem_title.to_string();
-            open(Assets { logo_svg: None }, title.clone(), theme, None, (0, false), move |_, _| Problem {
+            open(Assets { logo_svg: None }, title.clone(), theme, WindowLook::bach(), (0, false), move |_, _| Problem {
                 title: title.into(),
                 message: message.into(),
                 close: language.strings.close.into(),
             });
+        }
+    }
+}
+
+/// The window's style, and the fonts and picture it ships.
+struct WindowLook {
+    style: bach_pack::style::Resolved,
+    fonts: Vec<Vec<u8>>,
+    pictures: Pictures,
+    layout: Arrangement,
+}
+
+impl WindowLook {
+    fn bach() -> Self {
+        Self {
+            style: bach_pack::style::resolve(&Default::default(), None),
+            fonts: Vec::new(),
+            pictures: Pictures::default(),
+            layout: Arrangement::default_window(),
         }
     }
 }
@@ -139,25 +171,43 @@ fn open<V: Render + 'static>(
     assets: Assets,
     title: String,
     theme: ThemeChoice,
-    accent: Option<u32>,
+    look: WindowLook,
     (rows, tall): (usize, bool),
     build: impl FnOnce(&mut Window, &mut Context<V>) -> V + 'static,
 ) {
     Application::new().with_assets(assets).run(move |cx: &mut App| {
-        cx.set_global(Theme::light().with_accent(accent));
         if let Err(reason) = assets::load_fonts(cx) {
             eprintln!("bach-setup: Inter didn't load ({reason}); using Segoe UI");
         }
-        crate::ui::init(cx);
-
-        let extra = rows.saturating_sub(2) as f32 * ROW_HEIGHT;
-        let wanted = WINDOW_SIZE.1 + extra.max(if tall { 2. * ROW_HEIGHT } else { 0. });
-        let screen = cx.primary_display().map(|display| f32::from(display.bounds().size.height));
-        let height = match screen {
-            Some(screen) if screen > 0. => wanted.min(screen * MAX_SCREEN_SHARE).max(WINDOW_SIZE.1.min(screen)),
-            _ => wanted,
+        let (faces, missing) = assets::style_faces(cx, &look.style, &look.fonts);
+        if let Some(missing) = missing {
+            crate::log::line(&missing);
+        }
+        let layout = look.layout;
+        let (width, height) = window_size(&layout, rows, tall);
+        let screen = cx.primary_display().map(|display| display.bounds().size);
+        let (width, height) = match screen {
+            Some(screen) if f32::from(screen.height) > 0. => {
+                let (screen_width, screen_height) = (f32::from(screen.width), f32::from(screen.height));
+                let floor = if layout.height.is_some() { 0. } else { BASE_HEIGHT.min(screen_height) };
+                (width.min(screen_width * MAX_SCREEN_SHARE), height.min(screen_height * MAX_SCREEN_SHARE).max(floor))
+            }
+            _ => (width, height),
         };
-        let bounds = Bounds::centered(None, size(px(WINDOW_SIZE.0), px(height)), cx);
+        let mut pictures = look.pictures;
+        if let Some(picture) = &pictures.panel {
+            // Cut to the panel's shape, so its rounded corners show.
+            let inset = 2. * layout.panel_inset;
+            let (frame_width, frame_height) = match layout.panel {
+                Panel::Top => (width - inset, layout.panel_size - inset),
+                _ => (layout.panel_size - inset, height - inset),
+            };
+            pictures.panel = Some(crate::picture::fit(picture, frame_width, frame_height));
+        }
+        let looks = Looks::new(&look.style, &faces, pictures, layout);
+        cx.set_global(looks.get(Shade::Light));
+        crate::ui::init(cx);
+        let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions { title: Some(title.into()), ..Default::default() }),
@@ -166,7 +216,7 @@ fn open<V: Render + 'static>(
             ..Default::default()
         };
         let opened = cx.open_window(options, move |window, cx| {
-            follow_appearance(theme, accent, window, cx);
+            follow_appearance(theme, looks, window, cx);
             let view = cx.new(|cx| build(window, cx));
             guard_close(&view, window, cx);
             view
@@ -188,6 +238,67 @@ fn open<V: Render + 'static>(
     });
 }
 
+/// The app's logo as a panel draws it large.
+fn emblem(package: &Package) -> Emblem {
+    let look = &package.manifest.look;
+    match &package.logo {
+        _ if look.hide_logo => Emblem::None,
+        Some(Logo::Svg(_)) => Emblem::Svg,
+        Some(Logo::Png(image)) => Emblem::Png(image.clone(), look.logo_aspect.unwrap_or(1.0)),
+        None => Emblem::Bach,
+    }
+}
+
+/// The window's size: `[layout]`'s when it gives one, else tall enough for
+/// `rows` rows of choices (or a license, `tall`), as the window always grew.
+fn window_size(layout: &Arrangement, rows: usize, tall: bool) -> (f32, f32) {
+    if let Some(height) = layout.height {
+        return (layout.width, height);
+    }
+    let row = layout.row_height();
+    let [top, _, bottom, _] = layout.padding;
+    let classic = layout.panel == Panel::None
+        && layout.surface == Surface::Plain
+        && !layout.two_columns()
+        && layout.logo == LogoPlace::Above
+        && layout.width == f32::from(bach_pack::style::layout::DEFAULT_WIDTH);
+    if !classic {
+        // Add up what the column holds: the heading (unless the panel has
+        // it), the rows (two to a line in two columns), the footer.
+        let tile_gap = if layout.rows == Rows::Separate { 8. } else { 0. };
+        // In two columns the folder has a line of its own.
+        let lines = if layout.two_columns() { 1 + rows.saturating_sub(1).div_ceil(2) } else { rows };
+        let footer = 16. + layout.button_height + if layout.footer == Footer::Above { 26. } else { 0. };
+        // The heading, under the logo or beside it, and the line under it.
+        let heading = (layout.heading_size * 32. / 22.).round();
+        let header = match (layout.header_on_panel(), layout.logo) {
+            (true, _) => 0.,
+            (false, LogoPlace::Above) => 74. + heading + 26.,
+            (false, LogoPlace::Beside) => heading.max(56.) + 26.,
+        };
+        let card = if layout.surface == Surface::Card { 64. } else { 0. };
+        // A narrow column wraps the install folder onto a second line.
+        let room = match layout.panel {
+            Panel::Left | Panel::Right => layout.width - layout.panel_size,
+            _ => layout.width,
+        };
+        let room = layout.content_width.map_or(room, |width| width.min(room)) / if layout.two_columns() { 2. } else { 1. };
+        let wrap = if room < 560. { (layout.text_size * 18. / 13.).round() } else { 0. };
+        let rows_height = lines.max(if tall { 4 } else { 0 }) as f32 * (row + tile_gap);
+        let content = top + bottom + header + layout.gap + rows_height + wrap + footer + card + 12.;
+        let height = match layout.panel {
+            Panel::Top => content + layout.panel_size,
+            Panel::Left | Panel::Right => content.max(f32::from(SIDE_HEIGHT)),
+            Panel::None => content.max(420.),
+        };
+        return (layout.width, height);
+    }
+    let extra = rows.saturating_sub(2) as f32 * row;
+    // Padding and type larger than the default make room for themselves.
+    let grown = (top + bottom - 68.) + (layout.heading_size - 22.) * 1.5 + (layout.gap - 28.) + (row - 73.) * 2.;
+    (layout.width, BASE_HEIGHT + grown.max(-120.) + extra.max(if tall { 2. * row } else { 0. }))
+}
+
 /// Keeps the window open while files are moving: closing it then would
 /// stop setup halfway, which the all-or-nothing install exists to avoid.
 fn guard_close<V: 'static>(view: &gpui::Entity<V>, window: &mut Window, cx: &mut App) {
@@ -199,14 +310,14 @@ fn guard_close<V: 'static>(view: &gpui::Entity<V>, window: &mut Window, cx: &mut
 }
 
 /// Paints with the chosen theme, or the system's, following it live.
-fn follow_appearance(choice: ThemeChoice, accent: Option<u32>, window: &mut Window, cx: &mut App) {
+fn follow_appearance(choice: ThemeChoice, looks: Looks, window: &mut Window, cx: &mut App) {
     let apply = move |window: &Window, cx: &mut App| {
-        let theme = match choice {
-            ThemeChoice::Light => Theme::light(),
-            ThemeChoice::Dark => Theme::dark(),
-            ThemeChoice::System => Theme::for_appearance(window.appearance()),
+        let mode = match choice {
+            ThemeChoice::Light => Shade::Light,
+            ThemeChoice::Dark => Shade::Dark,
+            ThemeChoice::System => Shade::for_appearance(window.appearance()),
         };
-        cx.set_global(theme.with_accent(accent));
+        cx.set_global(looks.get(mode));
         cx.refresh_windows();
     };
     apply(window, cx);
@@ -225,7 +336,7 @@ impl Render for Problem {
         let theme = cx.theme().clone();
         let body = PageLayout {
             centered: true,
-            mark: Some(page_icon("alert-triangle-filled", theme.destructive)),
+            mark: Some(page_icon("alert-triangle-filled", theme.destructive, &theme)),
             subtitle: Some(subtitle_text(self.message.clone(), &theme)),
             ..PageLayout::new(
                 self.title.clone(),
@@ -236,7 +347,7 @@ impl Render for Problem {
                 ),
             )
         }
-        .render();
+        .render(&theme);
         frame(div().flex_1().min_h_0().flex().flex_col().child(body), &theme)
     }
 }

@@ -12,7 +12,8 @@ pub trait TypeScale: Styled + Sized {
         self.text_size(px(size)).line_height(px(line_height)).font_weight(weight)
     }
 
-    /// Page headings: 22 / 32 medium, display cut.
+    /// Page headings: 22 / 32 medium, display cut (a style may set
+    /// another face and weight over this).
     fn text_heading(self) -> Self {
         self.font_family(FONT_DISPLAY).type_style(22.0, 32.0, FontWeight::MEDIUM)
     }

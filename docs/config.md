@@ -10,6 +10,8 @@ default, so a five-line config already builds a complete installer.
 - [`[app]`](#app): name, version, publisher, the program
 - [`[files]`](#files): what gets installed
 - [`[installer]`](#installer): look, languages, license and options
+- [`[style]`](#style): the window's style, and your own fonts, colours and background
+- [`[layout]`](#layout): ten layout presets, and the window's size, panel, spacing and animation
 - [`[[components]]`](#components): optional parts the user can leave out
 - [`[[protocols]]`](#protocols): links like `myapp://` that open your app
 - [`[[file_types]]`](#file_types): files your app opens
@@ -103,7 +105,8 @@ The source folder may not contain symbolic links or a file named
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `output` | `dist/{name}-Setup-{version}.exe` | Where the setup file goes. `{name}`, `{version}` and `{id}` are filled in. |
-| `theme` | `system` | `system` follows Windows' light or dark setting, live. `light` or `dark` fixes it. |
+| `theme` | `system` | `system` follows Windows' light or dark setting, live. `light` or `dark` fixes it. A style that looks best dark (see [`[style]`](#style)) starts dark unless you set this. |
+| `style` | `bach` | The window's built-in style, like `"aurora"` or `"arcade"`: its colours, fonts and corners. See [`[style]`](#style) for all 14 and how to change them. |
 | `accent` | none (black / white) | A colour like `#2563eb` for buttons, the progress bar and ticked boxes. The button text picks black or white for contrast. |
 | `logo` | your icon, else the Bach mark | An `.svg` or `.png` shown at the top of the window, or `"none"` for no logo at all. An SVG is drawn in one colour that follows the theme; use a PNG for a full-colour logo. A wide PNG (a wordmark) keeps its shape. Give a PNG twice the size it's shown at for sharp results. |
 | `logo_height` | `56` | The logo's height in points, 32 to 96. |
@@ -252,6 +255,216 @@ Built-in languages: `en` English, `de` Deutsch, `nl` Nederlands, `fr`
 Français, `es` Español, `it` Italiano, `pt` Português (Brazilian), `pl` Polski, `ru`
 Русский, `tr` Türkçe, `ja` 日本語, `ko` 한국어, `zh` 简体中文, `zh-tw` 繁體中文 (Traditional Chinese, for Taiwan, Hong Kong and Macau; `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant` tags pick it, and `zh-CN`, `zh-SG` and `zh-Hans` pick `zh`), `sv` Svenska, `cs` Čeština, `vi` Tiếng Việt, `id`
 Bahasa Indonesia, `hi` हिन्दी.
+
+## [style]
+
+The window comes in 14 built-in styles. Pick one with `installer.style`, then
+change whatever you like in `[style]`: the font, every colour, the corners,
+a gradient or a picture behind the window.
+
+```toml
+[installer]
+style = "arcade"
+```
+
+`bach styles` lists them, and `bach preview --style NAME` shows one on your
+own app without changing `bach.toml`.
+
+| Style | What it looks like | Suits |
+| --- | --- | --- |
+| `bach` | Bach's own look: white or graphite, black buttons, Inter. The default. | any app |
+| `aurora` | A soft violet-to-blue wash, frosted cards and pill buttons. | Tauri, Electron, Wails and Flutter apps |
+| `terminal` | A monospaced face (Cascadia Mono), near-black with a green glow on every edge, and a green prompt. Dark by default. | command-line tools |
+| `arcade` | Neon pink on a deep violet glow, with a heavy heading and a dark-on-pink button. Dark by default. | indie and web-tech games |
+| `forge` | Brushed steel and molten orange, with tight corners. Dark by default. | 3D games made with Unity or Unreal |
+| `lagoon` | Calm sea blue on a pale wash, rounded and friendly. | games and tools made with Godot |
+| `pixel` | Square corners, a monospaced face, a night-blue screen and a warm gold frame. Dark by default. | pixel-art and retro games |
+| `midnight` | Deep navy fading to black, blue-tinted glass cards and an electric blue button. Dark by default. | developer tools |
+| `paper` | Warm paper, a serif heading (Georgia) and a terracotta accent. | writing, reading and note apps |
+| `ember` | Charcoal with a warm amber glow. Dark by default. | audio, video and creative tools |
+| `forest` | Moss and sage on a soft green wash, cream cards and pill buttons. | productivity, health and outdoor apps |
+| `blossom` | Soft pink, generous corners and pill buttons. | friendly consumer apps |
+| `mono` | Black and white only: hairlines, small corners and a heavy heading. | strict, plain utilities |
+| `frost` | Cool blue-grey, calm and quiet. | system utilities, backup and sync tools |
+
+Every style has a light and a dark version and follows `installer.theme`;
+the ones marked "dark by default" start dark when `theme` isn't set. Each
+uses fonts every Windows 10 and 11 PC has (Cascadia Mono or Consolas,
+Bahnschrift, Georgia) and falls back to Inter, which every setup
+file carries, when one is missing.
+
+The default is always `bach`, whatever kind of app you ship: `bach init`
+doesn't pick a style for you. The "Suits" column is only a hint; any
+style works for any app, and you switch by setting `installer.style`.
+
+### Your own look
+
+Everything in `[style]` is optional and goes on top of the chosen style.
+Colours set in `[style]` apply in light and dark mode; `[style.light]` and
+`[style.dark]` set them for one mode and win.
+
+```toml
+[installer]
+style = "aurora"
+
+[style]
+font = "fonts/Outfit.ttf"       # or a font Windows has, like "Segoe UI"
+heading_weight = 700
+radius = 20
+button_radius = 16              # pill buttons
+accent = "#22d3ee"
+background_image = "art/backdrop.png"
+background_image_opacity = 0.4
+
+[style.dark]
+background = ["#1d0b36", "#0a0416"]   # a gradient from top to bottom
+card = "#ffffff0b"                    # the window shows through
+
+[style.light]
+background = "#ffffff"
+text = "#1b1b1b"
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `font` | the style's | The text's font: a family Windows has, like `"Segoe UI"`, or a `.ttf`/`.otf` file in your project, which ships in the setup file. A list of files (`["fonts/Nunito-Regular.ttf", "fonts/Nunito-Bold.ttf"]`) ships several cuts of one family. A family the PC doesn't have falls back to the style's font, then Inter. Web fonts (`.woff`, `.woff2`) and collections (`.ttc`) aren't supported. Up to 4 MB per file. |
+| `heading_font` | `font`, else the style's | The headings' font, in the same forms as `font`. |
+| `heading_weight` | the style's, or the heaviest font file's | 100 to 900: 400 regular, 600 semibold, 700 bold. |
+| `radius` | the style's | Corners of the card, the license box and the key field, 0 (square) to 24 points. |
+| `button_radius` | the style's | Corners of buttons, icon wells and checkboxes, 0 to 16 points. 16 makes pill buttons. |
+| `background_image` | none | A PNG or JPEG drawn over the background colour, covering the window (up to 8 MB). Pick a calm picture: the text sits on it. |
+| `background_image_opacity` | `0.35` | How strongly the picture shows, 0 to 1. |
+| `background` | the style's | The window's colour, or two colours for a gradient from top to bottom. Opaque only. |
+| `card` | the style's | The card of choices, the license box and the key field. `#rrggbbaa` lets the background show through. |
+| `text` | the style's | Headings and labels. |
+| `muted_text` | the style's | Descriptions, the subtitle and the footer. |
+| `accent` | the style's | Buttons, the progress bar and ticked boxes. Same as `installer.accent`; set one of them, not both. |
+| `accent_text` | black or white | Text on the accent; by default whichever reads. |
+| `border` | the style's | The card's edges and its dividers. |
+| `error` | the style's | The remove button and failure icons. |
+| `mark` | the text colour or the accent | The Bach mark and one-colour (SVG) logos. Styles that colour the mark keep it in the accent, also when you change the accent. |
+| `panel` | a light tint of the accent | The panel of [`[layout]`](#layout) where it shows no picture. |
+| `panel_text` | whatever reads on the panel | The heading and subtitle on the panel; light on a `panel_image`. |
+
+Colours are `#rrggbb`, or `#rrggbbaa` to let what's behind show through.
+The quieter colours (icon wells, hover washes, the progress track, checkbox
+edges) are mixed from these, so the window stays consistent whatever you set.
+Fonts and the picture count toward the 16 MB the logo, fonts and picture may
+take together. `bach check` shows the look in one line:
+
+```console
+$ bach check
+  ...
+  Look         arcade style, dark, font Outfit, own colours, own corners, 1 font file, background picture
+```
+
+## [layout]
+
+How the window is sized, arranged and animated, on top of its style.
+Everything is optional; without `[layout]` the window is the classic
+column it always was. The quickest start is a preset, and every setting
+below changes it:
+
+```toml
+[layout]
+preset = "showcase"               # the choices on the left, a rounded picture on the right
+panel_image = "art/hero.jpg"
+heading_size = 34                 # anything else you want different
+```
+
+`bach layouts` lists the presets, and `bach preview --layout NAME` shows
+one on your app without changing `bach.toml` (`bach watch` reopens the
+window on every save). Texts are changed in [`[text]`](#text), and which
+options the window offers in [`[installer]`](#options).
+
+### Presets
+
+| Preset | What it looks like | Best with |
+| --- | --- | --- |
+| `classic` | One calm centred column. The default. | |
+| `showcase` | The choices on the left, a large picture on the right, inset with rounded corners. | `panel_image` |
+| `spotlight` | Key art down the left with the heading on it, the choices as tiles beside it. | `panel_image` |
+| `hero` | A wide rounded picture on top with the heading on it, the choices as tiles below. | `panel_image` |
+| `banner` | A picture across the top, edge to edge, with the heading on it; the choices below. | `panel_image` |
+| `floating` | Everything on one card floating over the window's picture or colour. | `[style] background_image` |
+| `editorial` | A picture edge to edge on the right, a large heading and plain rows on the left. | `panel_image` |
+| `portrait` | A tall, narrow window: a large rounded picture with the heading on it, the choices below. | `panel_image` |
+| `tiles` | A wide window with the install folder across the top and the options as tiles below. | |
+| `minimal` | No card and no icons: the rows sit on the window, divided by hairlines. | |
+
+A preset that is best with a picture still works without one: a panel
+without a picture shows the app's logo large on a tint of the accent.
+
+### Window and panel
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `preset` | none | A built-in layout to start from (above). |
+| `width` | `540`; `880` with a side panel; `600` with a banner | The window's width in points, 380 to 1400. |
+| `height` | as tall as the choices need | The window's height in points, 340 to 1000. Taller than the width makes a portrait window; when the choices don't fit, the card scrolls. The window never grows past 85% of the screen. |
+| `panel` | `"none"` | A panel at the `"left"` or `"right"` of the choices, or a banner across the `"top"`. |
+| `panel_size` | 46% of the window (40% with the heading on it); `190` for a banner | The panel's width, or a banner's height, in points (120 to 800). The choices keep at least 300 points. |
+| `panel_image` | none | A PNG or JPEG that fills the panel, cut to its shape around the middle (up to 8 MB). |
+| `panel_inset` | `0` | Space around the panel in points, 0 to 48. With a radius the panel floats as a card. |
+| `panel_radius` | `0` | The panel's corners in points, 0 to 48. |
+| `header` | `"content"` | With a panel: the logo, heading and subtitle above the choices (`"content"`), or on the `"panel"`. On a picture they sit low over a shade and turn light, unless `[style] panel_text` says otherwise. |
+| `content_width` | the room there is | The widest the choices and buttons get, in points (260 to 1200), centred in their room. |
+| `surface` | `"plain"` | `"card"` puts the heading, choices and buttons on one card floating over the window's colour or picture. |
+
+The panel's colour without a picture is `[style] panel` (by default a
+light tint of the accent), its text `[style] panel_text`.
+
+### Text and spacing
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `align` | `"center"` (`"left"` with a panel) | How the logo, heading, subtitle and the footer line above the buttons align: `"left"`, `"center"` or `"right"`. |
+| `logo` | `"above"` | The logo `"above"` the heading, or `"beside"` it on one line. |
+| `padding` | `[44, 32, 24, 32]` | Space inside the window in points, 0 to 96: one number for every side, `[top and bottom, sides]`, or `[top, right, bottom, left]`. |
+| `gap` | `28` (`0` with the heading on a side panel) | Points between the heading and the choices. |
+| `heading_size` | `22` | The heading's size in points, 14 to 48. A long heading still steps down so it wraps calmly. |
+| `text_size` | `14` | The text's size in points, 11 to 20. Descriptions are a point smaller, the footer line two. |
+
+### Choices and buttons
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `rows` | `"joined"` | `"joined"`: one card with the rows divided by hairlines. `"separate"`: each row a card of its own. `"plain"`: no card, the rows straight on the window with hairlines between them. |
+| `columns` | `1` | `2` lays separate rows out as tiles in two columns. |
+| `row_padding` | `16` | Points inside each row, 6 to 32. |
+| `icons` | `true` | Whether rows show their icon. |
+| `dividers` | `true` | Whether joined and plain rows have hairlines between them. |
+| `button_height` | `32` | Points, 24 to 56. |
+| `buttons` | `"right"` | `"right"`, `"left"`, `"center"`, or `"stretch"` to share the whole width. |
+| `primary` | `"last"` | The main button (Install, Remove, Open) `"last"` or `"first"`. Tab follows the order they are drawn in. |
+| `footer` | `"beside"` | The footer line (publisher and version, or `[text] footer`): `"beside"` the buttons, `"above"` them, or `"hidden"`. With centred or stretched buttons it goes above them. |
+
+### Motion
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `animation` | `"rise"` | How each page comes in: `"rise"` (fades in, rising a few points), `"fade"`, `"slide"` (in from the right), `"drop"` (from above) or `"none"`. |
+| `animation_speed` | `1` | 0.25 to 4: 2 plays twice as fast, 0.5 half as fast. |
+
+### Your own layout
+
+Every setting works without a preset too. A banner with the heading on
+it, tiles in two columns and stretched buttons:
+
+```toml
+[layout]
+panel = "top"
+panel_size = 220
+panel_image = "art/banner.jpg"
+header = "panel"
+align = "left"
+width = 760
+rows = "separate"
+columns = 2
+buttons = "stretch"
+footer = "above"
+animation = "drop"
+```
 
 ## [[components]]
 
@@ -936,6 +1149,10 @@ the exit code. `--help` always works, whatever else is on the line.
 | `--dir PATH` | Install here instead of the default folder (a first install, when `change_folder` allows it). |
 | `--with a,b` / `--without a,b` | Tick or untick options: `desktop-shortcut`, `start-menu`, `autostart`, `path`, `auto-update`, and component ids. Only options the install page would offer. |
 | `--lang CODE` | The language for messages, instead of Windows' own. |
+| `--theme light\|dark\|system` | The window's theme for this run, instead of `installer.theme`. |
+| `--preview` | Shows the window and pretends every step: nothing is installed or removed. `bach preview` runs a setup file this way. |
+| `--style NAME` | With `--preview`: shows another built-in [style](#style). A setup file otherwise always wears the style it was built with, so without `--preview` it is a mistake (exit code 2). |
+| `--layout NAME` | With `--preview`: shows another built-in [layout](#layout) in place of the setup file's `[layout]`. Without `--preview` it is a mistake too. |
 | `--allow-downgrade` | Install over a newer version (refused otherwise, with exit code 1). |
 | `--skip-requirements` | A silent install goes on although a [`[[requirements]]`](#requirements) entry isn't detected (it stops with exit code 1 otherwise). Setup says which ones, in the terminal and in the log, and that the app may not start without them. Use it when the detection is wrong for a computer, for example a .NET runtime on an unusual drive. |
 | `--repair` | With `--silent`, run the setup file of the version that is installed with this flag, and setup checks every file against the SHA-256 in its manifest and writes back the ones that are missing or changed, then redoes shortcuts and registration. Nothing else in the folder and no user data is touched. A different version, or nothing installed, stops with exit code 1 and says so. The log lists what was written. |

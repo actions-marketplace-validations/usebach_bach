@@ -8,8 +8,10 @@
 mod extras;
 mod gather;
 mod icon;
+mod layout;
 mod options;
 mod secrets;
+mod style;
 mod system;
 mod text;
 mod unsigned;
@@ -73,6 +75,8 @@ struct File {
     updates: Option<extras::UpdatesSection>,
     access: Option<extras::AccessSection>,
     signing: Option<SigningSection>,
+    style: Option<style::StyleSection>,
+    layout: Option<layout::LayoutSection>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,6 +129,7 @@ struct InstallerSection {
     online_output: Option<String>,
     folder: Option<String>,
     theme: Option<String>,
+    style: Option<String>,
     accent: Option<String>,
     logo: Option<String>,
     compression: Option<String>,
@@ -166,6 +171,8 @@ pub struct Project {
     pub icon: Option<PathBuf>,
     /// The logo's bytes, read now so the build can't race an edit.
     pub logo: Option<Vec<u8>>,
+    /// The fonts and picture `[style]` ships, in the order `look.files` lists them.
+    pub look_files: Vec<Vec<u8>>,
     pub output: PathBuf,
     /// Whether `bach build` also writes the online installer (see
     /// `installer.online`).
@@ -193,6 +200,18 @@ pub struct Project {
     pub update_github: Option<String>,
     /// `[signing]`: how `bach build` signs the setup files, if it should.
     pub signing: Option<Signing>,
+}
+
+impl Project {
+    /// What goes in the setup file's look section: the logo, then the
+    /// fonts and picture of `[style]`.
+    pub fn look_section(&self) -> Vec<u8> {
+        let mut section = self.logo.clone().unwrap_or_default();
+        for file in &self.look_files {
+            section.extend_from_slice(file);
+        }
+        section
+    }
 }
 
 /// Settings that win over `bach.toml`, for builds in CI.
@@ -270,8 +289,20 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         }
     }
 
+    let mut styled = style::style(file.installer.style.as_deref(), file.style.as_ref(), file.installer.accent.as_deref(), root)?;
+    let arranged = match &file.layout {
+        None => None,
+        Some(section) => {
+            let (arranged, picture) = layout::layout(section, root)?;
+            if let Some((kind, bytes)) = picture {
+                styled.files.push(manifest::LookFile { kind, len: bytes.len() as u64 });
+                styled.bytes.push(bytes);
+            }
+            Some(arranged).filter(|arranged| !arranged.is_empty())
+        }
+    };
     let theme = match &file.installer.theme {
-        None => manifest::Theme::System,
+        None => styled.theme.unwrap_or_default(),
         Some(value) => manifest::Theme::parse(value)
             .with_context(|| format!("installer.theme is \"{value}\"; use \"system\", \"light\" or \"dark\""))?,
     };
@@ -307,6 +338,14 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         }
     };
     let (logo_kind, logo, hide_logo) = logo(file.installer.logo.as_deref(), icon.as_deref(), root, &mut warnings)?;
+    let look_size = styled.bytes.iter().chain(&logo).map(|bytes| bytes.len() as u64).sum::<u64>();
+    if look_size > crate::container::MAX_LOOK {
+        bail!(
+            "the logo and the fonts and pictures in [style] and [layout] come to {} MB; keep them under {} MB together",
+            look_size.div_ceil(1 << 20),
+            crate::container::MAX_LOOK >> 20
+        );
+    }
     let logo_aspect = match (logo_kind, &logo) {
         (Some(LogoKind::Png), Some(png)) => extras::png_aspect(png).filter(|aspect| (aspect - 1.0).abs() > 0.02),
         _ => None,
@@ -439,7 +478,18 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         app,
         install,
         uninstall: manifest::Uninstall { data: file.uninstall.data.clone(), data_description: None, feedback_url },
-        look: manifest::Look { theme, accent, logo: logo_kind, hide_logo, logo_height: file.installer.logo_height, logo_aspect },
+        look: manifest::Look {
+            theme,
+            accent,
+            logo: logo_kind,
+            hide_logo,
+            logo_height: file.installer.logo_height,
+            logo_aspect,
+            style: styled.name,
+            custom: styled.custom,
+            layout: arranged,
+            files: styled.files,
+        },
         files,
         components,
         protocols: options::protocols(&file.protocols)?,
@@ -485,6 +535,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         sources,
         icon,
         logo,
+        look_files: styled.bytes,
         output,
         online,
         online_output,

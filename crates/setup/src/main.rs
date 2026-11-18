@@ -27,6 +27,8 @@ mod package;
 #[cfg(windows)]
 mod pages;
 #[cfg(windows)]
+mod picture;
+#[cfg(windows)]
 mod silent;
 #[cfg(windows)]
 mod start;

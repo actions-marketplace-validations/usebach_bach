@@ -114,6 +114,25 @@
             "dark"
           ]
         },
+        "style": {
+          "enum": [
+            "bach",
+            "aurora",
+            "terminal",
+            "arcade",
+            "forge",
+            "lagoon",
+            "pixel",
+            "midnight",
+            "paper",
+            "ember",
+            "forest",
+            "blossom",
+            "mono",
+            "frost"
+          ],
+          "description": "The window's built-in style; bach styles shows each. Default bach. [style] changes its fonts, colours, corners and background."
+        },
         "accent": {
           "type": "string",
           "pattern": "^#?[0-9a-fA-F]{6}$"
@@ -289,6 +308,501 @@
             "machine"
           ],
           "description": "user (default): installs for whoever runs setup, no administrator rights. machine: installs for every user into Program Files; Windows asks for administrator rights once."
+        }
+      }
+    },
+    "style": {
+      "type": "object",
+      "description": "Optional. Your own fonts, colours, corners and background on top of installer.style. Colours here apply to both modes; [style.light] and [style.dark] win.",
+      "additionalProperties": false,
+      "properties": {
+        "font": {
+          "description": "A font family Windows has (\"Segoe UI\"), a .ttf or .otf file, or a list of files of one family.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
+          ]
+        },
+        "heading_font": {
+          "description": "The headings' font; default the text's font, or the style's heading font.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
+          ]
+        },
+        "heading_weight": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 900,
+          "description": "400 regular, 600 semibold, 700 bold."
+        },
+        "radius": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 24,
+          "description": "Corners of the card, the license box and the key field, in points."
+        },
+        "button_radius": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16,
+          "description": "Corners of buttons, icon wells and checkboxes; 16 makes pill buttons."
+        },
+        "background_image": {
+          "type": "string",
+          "description": "A PNG or JPEG drawn over the background, covering the window."
+        },
+        "background_image_opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "How strongly the picture shows. Default 0.35."
+        },
+        "background": {
+          "description": "The window's colour, or two colours for a gradient from top to bottom.",
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}$"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^#?[0-9a-fA-F]{6}$"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          ]
+        },
+        "card": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "The card of choices, the license box and the key field. #rrggbbaa lets the background show through."
+        },
+        "text": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "Headings and labels."
+        },
+        "muted_text": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "Descriptions, the subtitle and the footer."
+        },
+        "accent": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "Buttons, the progress bar and ticked boxes."
+        },
+        "accent_text": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "Text on the accent. Default black or white, whichever reads."
+        },
+        "border": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "The card's edges and its dividers."
+        },
+        "error": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "The remove button and failure icons."
+        },
+        "mark": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "The Bach mark and one-colour (SVG) logos."
+        },
+        "light": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Colours for light mode only.",
+          "properties": {
+            "background": {
+              "description": "The window's colour, or two colours for a gradient from top to bottom.",
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^#?[0-9a-fA-F]{6}$"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^#?[0-9a-fA-F]{6}$"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              ]
+            },
+            "card": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The card of choices, the license box and the key field. #rrggbbaa lets the background show through."
+            },
+            "text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Headings and labels."
+            },
+            "muted_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Descriptions, the subtitle and the footer."
+            },
+            "accent": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Buttons, the progress bar and ticked boxes."
+            },
+            "accent_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Text on the accent. Default black or white, whichever reads."
+            },
+            "border": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The card's edges and its dividers."
+            },
+            "error": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The remove button and failure icons."
+            },
+            "mark": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The Bach mark and one-colour (SVG) logos."
+            },
+            "panel": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The panel of [layout] where it shows no picture. Default: a light tint of the accent."
+            },
+            "panel_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The heading and subtitle on the panel. Default: whatever reads on it (light on a picture)."
+            }
+          }
+        },
+        "dark": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Colours for dark mode only.",
+          "properties": {
+            "background": {
+              "description": "The window's colour, or two colours for a gradient from top to bottom.",
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^#?[0-9a-fA-F]{6}$"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^#?[0-9a-fA-F]{6}$"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              ]
+            },
+            "card": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The card of choices, the license box and the key field. #rrggbbaa lets the background show through."
+            },
+            "text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Headings and labels."
+            },
+            "muted_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Descriptions, the subtitle and the footer."
+            },
+            "accent": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Buttons, the progress bar and ticked boxes."
+            },
+            "accent_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "Text on the accent. Default black or white, whichever reads."
+            },
+            "border": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The card's edges and its dividers."
+            },
+            "error": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The remove button and failure icons."
+            },
+            "mark": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The Bach mark and one-colour (SVG) logos."
+            },
+            "panel": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The panel of [layout] where it shows no picture. Default: a light tint of the accent."
+            },
+            "panel_text": {
+              "type": "string",
+              "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+              "description": "The heading and subtitle on the panel. Default: whatever reads on it (light on a picture)."
+            }
+          }
+        },
+        "panel": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "The panel of [layout] where it shows no picture. Default: a light tint of the accent."
+        },
+        "panel_text": {
+          "type": "string",
+          "pattern": "^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "The heading and subtitle on the panel. Default: whatever reads on it (light on a picture)."
+        }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional. How the window is sized, arranged and animated. Without it the window is Bach's classic column. Start from a preset and change any setting.",
+      "properties": {
+        "preset": {
+          "enum": [
+            "classic",
+            "showcase",
+            "spotlight",
+            "hero",
+            "banner",
+            "floating",
+            "editorial",
+            "portrait",
+            "tiles",
+            "minimal"
+          ],
+          "description": "A built-in layout to start from; bach layouts shows each. Every other setting here changes it."
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 380,
+          "maximum": 1400,
+          "description": "The window's width in points. Default 540 (880 with a side panel, 600 with a banner)."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 340,
+          "maximum": 1000,
+          "description": "The window's height in points. Default: as tall as the choices need."
+        },
+        "panel": {
+          "enum": [
+            "none",
+            "left",
+            "right",
+            "top"
+          ],
+          "description": "A panel beside the choices, or a banner across the top."
+        },
+        "panel_size": {
+          "type": "integer",
+          "minimum": 120,
+          "maximum": 800,
+          "description": "The panel's width (left, right) or height (top) in points."
+        },
+        "panel_inset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 48,
+          "description": "Space around the panel; with a radius it floats as a card."
+        },
+        "panel_radius": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 48,
+          "description": "The panel's corners in points."
+        },
+        "panel_image": {
+          "type": "string",
+          "description": "A PNG or JPEG that fills the panel."
+        },
+        "header": {
+          "enum": [
+            "content",
+            "panel"
+          ],
+          "description": "Where the logo, heading and subtitle sit when there is a panel: with the choices, or on the panel."
+        },
+        "content_width": {
+          "type": "integer",
+          "minimum": 260,
+          "maximum": 1200,
+          "description": "The widest the choices and buttons get, centred in their room."
+        },
+        "surface": {
+          "enum": [
+            "plain",
+            "card"
+          ],
+          "description": "The choices on the window, or on a card floating over it."
+        },
+        "align": {
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ],
+          "description": "How the heading aligns. Default center (left with a panel)."
+        },
+        "logo": {
+          "enum": [
+            "above",
+            "beside"
+          ],
+          "description": "The logo above the heading, or beside it."
+        },
+        "padding": {
+          "description": "Points: one number for every side, [top and bottom, sides], or [top, right, bottom, left]. Default [44, 32, 24, 32].",
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 96
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 96
+              },
+              "minItems": 2,
+              "maxItems": 4
+            }
+          ]
+        },
+        "gap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 96,
+          "description": "Points between the heading and the choices. Default 28."
+        },
+        "heading_size": {
+          "type": "integer",
+          "minimum": 14,
+          "maximum": 48,
+          "description": "Heading size in points. Default 22."
+        },
+        "text_size": {
+          "type": "integer",
+          "minimum": 11,
+          "maximum": 20,
+          "description": "Text size in points; descriptions and the footer follow it. Default 14."
+        },
+        "row_padding": {
+          "type": "integer",
+          "minimum": 6,
+          "maximum": 32,
+          "description": "Points inside each row of choices. Default 16."
+        },
+        "rows": {
+          "enum": [
+            "joined",
+            "separate",
+            "plain"
+          ],
+          "description": "One card with dividers, each row a card of its own, or plain rows straight on the window."
+        },
+        "columns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2,
+          "description": "Separate rows in one or two columns."
+        },
+        "icons": {
+          "type": "boolean",
+          "description": "Icons in the rows. Default true."
+        },
+        "dividers": {
+          "type": "boolean",
+          "description": "Hairlines between joined rows. Default true."
+        },
+        "button_height": {
+          "type": "integer",
+          "minimum": 24,
+          "maximum": 56,
+          "description": "Button height in points. Default 32."
+        },
+        "buttons": {
+          "enum": [
+            "right",
+            "left",
+            "center",
+            "stretch"
+          ],
+          "description": "Where the buttons sit; stretch shares the width."
+        },
+        "primary": {
+          "enum": [
+            "last",
+            "first"
+          ],
+          "description": "The main button after the others, or before them."
+        },
+        "footer": {
+          "enum": [
+            "beside",
+            "above",
+            "hidden"
+          ],
+          "description": "The footer line (publisher and version): beside the buttons, above them, or not shown."
+        },
+        "animation": {
+          "enum": [
+            "rise",
+            "fade",
+            "slide",
+            "drop",
+            "none"
+          ],
+          "description": "How each page comes in. Default rise."
+        },
+        "animation_speed": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4,
+          "description": "How fast: 2 is twice as fast. Default 1."
         }
       }
     },

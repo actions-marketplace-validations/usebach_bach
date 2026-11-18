@@ -391,13 +391,13 @@ fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&S
     progress.finish();
     let Hashing { inner, hasher } = hashing;
     let mut file = inner.into_inner().map_err(|err| err.into_error())?;
-    let logo = project.logo.as_deref().unwrap_or_default();
+    let look = project.look_section();
     // The runtime checks this before unpacking anything.
     let mut manifest = project.manifest.clone();
     manifest.archive_sha256 = Some(bach_pack::protect::hex(&hasher.finalize()));
     // The file checksums were taken while packing; the manifest goes in after the archive.
     record_hashes(&mut manifest, &project.sources, &hashes)?;
-    let layout = container::finish(&mut file, archive_offset, logo, &manifest)?;
+    let layout = container::finish(&mut file, archive_offset, &look, &manifest)?;
     file.sync_all()?;
     Ok(Written { packed: layout.archive.len, hashes })
 }
@@ -410,8 +410,7 @@ fn write_online_into(project: &Project, runtime: &[u8], path: &Path, _sealing: O
     let mut manifest = project.manifest.clone();
     manifest.online = true;
     manifest.archive_sha256 = None;
-    let logo = project.logo.as_deref().unwrap_or_default();
-    container::finish(&mut file, offset, logo, &manifest)?;
+    container::finish(&mut file, offset, &project.look_section(), &manifest)?;
     file.sync_all()?;
     Ok(Written { packed: 0, hashes: Vec::new() })
 }

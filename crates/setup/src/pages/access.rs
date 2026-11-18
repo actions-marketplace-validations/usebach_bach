@@ -6,7 +6,7 @@ use gpui::{div, px, AnyElement, Context, InteractiveElement, IntoElement, Parent
 
 use super::{footer, page_icon, subtitle_text, PageLayout};
 use crate::keyboard::Target;
-use crate::theme::{ActiveTheme, RADIUS};
+use crate::theme::ActiveTheme;
 use crate::ui::prelude::*;
 use crate::view::SetupView;
 
@@ -24,7 +24,7 @@ impl SetupView {
         let border = if self.key_error.is_some() { theme.destructive } else { theme.input };
         let field = div()
             .id("setup-key-field")
-            .mt(px(24.))
+            .mt(px((theme.layout.gap - 4.).max(0.)))
             .h(px(44.))
             .w_full()
             .flex()
@@ -33,7 +33,8 @@ impl SetupView {
             .gap(px(8.))
             .pl(px(14.))
             .pr(px(6.))
-            .rounded(RADIUS)
+            .rounded(theme.radius)
+            .bg(theme.card)
             .border_1()
             .border_color(border)
             .child(
@@ -44,7 +45,7 @@ impl SetupView {
                     .whitespace_nowrap()
                     .flex()
                     .items_center()
-                    .text_size(px(14.))
+                    .text_size(theme.text().0)
                     .text_color(if empty { theme.muted_foreground } else { theme.foreground })
                     .child(shown)
                     // The caret sits after what was typed, not the hint.
@@ -62,7 +63,7 @@ impl SetupView {
         let problem = div()
             .mt(px(8.))
             .min_h(px(20.))
-            .text_size(px(13.))
+            .text_size(theme.small_text().0)
             .line_height(px(20.))
             .text_color(theme.destructive)
             .children(self.key_error.clone());
@@ -92,12 +93,12 @@ impl SetupView {
         );
 
         PageLayout {
-            mark: Some(page_icon("lock-filled", theme.foreground)),
+            mark: Some(page_icon("lock-filled", theme.header_text, &theme)),
             subtitle: Some(subtitle_text(texts.get(Key::access_subtitle), &theme)),
             content: Some(div().flex().flex_col().child(field).child(problem).into_any_element()),
             ..PageLayout::new(texts.get(Key::access_title), footer(Some(self.meta()), buttons, &theme))
         }
-        .render()
+        .render(&theme)
     }
 }
 
