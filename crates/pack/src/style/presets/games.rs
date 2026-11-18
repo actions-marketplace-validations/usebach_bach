@@ -1,6 +1,6 @@
 //! Styles for games.
 
-use super::{a, c, BAHNSCHRIFT, MONOSPACE, SANS};
+use super::{a, c, BAHNSCHRIFT, DISPLAY, MONOSPACE, SANS};
 use crate::manifest::Theme;
 use crate::style::{Palette, Preset};
 
@@ -84,7 +84,7 @@ pub const LAGOON: Preset = Preset {
     suits: "games and tools made with Godot",
     theme: None,
     fonts: SANS,
-    heading_fonts: SANS,
+    heading_fonts: DISPLAY,
     heading_weight: 600,
     accent_mark: true,
     radius: 14,

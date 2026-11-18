@@ -273,7 +273,7 @@ pub const BLOSSOM: Preset = Preset {
     suits: "friendly consumer apps",
     theme: None,
     fonts: SANS,
-    heading_fonts: SANS,
+    heading_fonts: DISPLAY,
     heading_weight: 600,
     accent_mark: true,
     radius: 18,

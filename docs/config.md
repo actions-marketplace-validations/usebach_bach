@@ -385,7 +385,7 @@ options the window offers in [`[installer]`](#options).
 | `banner` | A picture across the top, edge to edge, with the heading on it; the choices below. | `panel_image` |
 | `floating` | Everything on one card floating over the window's picture or colour. | `[style] background_image` |
 | `editorial` | A picture edge to edge on the right, a large heading and plain rows on the left. | `panel_image` |
-| `compact` | A narrow window: a rounded picture on top, then dense rows and full-width buttons. | `panel_image` |
+| `portrait` | A tall, narrow window: a large rounded picture with the heading on it, the choices below. | `panel_image` |
 | `tiles` | A wide window with the install folder across the top and the options as tiles below. | |
 | `minimal` | No card and no icons: the rows sit on the window, divided by hairlines. | |
 

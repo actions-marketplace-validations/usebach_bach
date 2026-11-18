@@ -62,9 +62,9 @@ pub static LAYOUT_PRESETS: [LayoutPreset; 10] = [
         picture: Some("panel_image"),
     },
     LayoutPreset {
-        name: "compact",
-        description: "A narrow window: a rounded picture on top, then dense rows and full-width buttons.",
-        suits: "small tools and consumer apps",
+        name: "portrait",
+        description: "A tall, narrow window: a large rounded picture with the heading on it, the choices below.",
+        suits: "consumer apps and games with a tall picture",
         picture: Some("panel_image"),
     },
     LayoutPreset {
@@ -174,23 +174,23 @@ pub fn preset(name: &str) -> Option<(&'static LayoutPreset, Layout)> {
             animation: Some(Animation::Fade),
             ..base
         },
-        // Like hero, the picture's inset is the window's padding.
-        "compact" => Layout {
-            width: Some(440),
+        // Like hero, the picture's inset is the window's padding, so the
+        // picture and the card of choices share their edges.
+        "portrait" => Layout {
+            width: Some(460),
             panel: Some(Panel::Top),
-            panel_size: Some(170),
-            panel_inset: Some(20),
-            panel_radius: Some(18),
-            header: Some(HeaderPlace::Content),
+            panel_size: Some(320),
+            panel_inset: Some(16),
+            panel_radius: Some(22),
+            header: Some(HeaderPlace::Panel),
             align: Some(Align::Left),
             logo: Some(LogoPlace::Beside),
-            padding: Some([4, 20, 20, 20]),
-            gap: Some(18),
-            heading_size: Some(22),
-            text_size: Some(13),
-            row_padding: Some(11),
+            padding: Some([4, 16, 16, 16]),
+            gap: Some(0),
+            heading_size: Some(28),
+            row_padding: Some(14),
             buttons: Some(Buttons::Stretch),
-            button_height: Some(36),
+            button_height: Some(40),
             footer: Some(Footer::Hidden),
             animation: Some(Animation::Rise),
             ..base
