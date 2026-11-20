@@ -556,7 +556,6 @@ pub fn plan(project: &Project) -> Result<Plan> {
         (!manifest.system.migrate.is_empty(), "[[migrate]]"),
         (manifest.updates.is_some(), "[updates] (an MSI is updated by installing a newer MSI)"),
         (!manifest.uninstall.data.is_empty(), "[uninstall] data folders"),
-        (manifest.locale.license.is_some(), "the license page (an MSI has no window of its own here)"),
         (
             manifest.components.iter().any(|component| component.download.is_some()),
             "downloaded components (their files are in the package)",
@@ -620,7 +619,7 @@ fn insert(package: &mut Package<File>, table: &str, rows: Vec<Vec<Value>>) -> Re
 }
 
 /// Writes the package to `out` (through a `.partial` file).
-pub fn write(project: &Project, out: &Path) -> Result<Plan> {
+pub fn write(project: &Project, out: &Path, runtime: &Path) -> Result<Plan> {
     let plan = plan(project)?;
     if let Some(dir) = out.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).with_context(|| format!("couldn't create {}", dir.display()))?;
@@ -631,8 +630,15 @@ pub fn write(project: &Project, out: &Path) -> Result<Plan> {
     let mut cabinet = partial.clone().into_os_string();
     cabinet.push(".cab");
     let cabinet = PathBuf::from(cabinet);
-    let result = write_package(project, &plan, &partial, &cabinet);
+    // The window the package shows when somebody opens it: this app's setup program without the files.
+    let mut front = partial.clone().into_os_string();
+    front.push(".front.exe");
+    let front = PathBuf::from(front);
+    let result = crate::builder::write_msi_front(project, runtime, &front)
+        .context("couldn't make the window the package shows")
+        .and_then(|_| write_package(project, &plan, &partial, &cabinet, &front));
     let _ = std::fs::remove_file(&cabinet);
+    let _ = std::fs::remove_file(&front);
     match result {
         Ok(()) => {
             if out.exists() {
@@ -676,7 +682,7 @@ fn write_cabinet(plan: &Plan, path: &Path) -> Result<u64> {
     Ok(size)
 }
 
-fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) -> Result<()> {
+fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path, front: &Path) -> Result<()> {
     let manifest = &project.manifest;
     let app = &manifest.app;
     let file = File::options().read(true).write(true).create(true).truncate(true).open(path)?;
@@ -763,7 +769,7 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
             Column::build("Source").nullable().category(Category::Property).string(72),
         ],
     )?;
-    for table in ["InstallExecuteSequence", "AdminExecuteSequence"] {
+    for table in ["InstallExecuteSequence", "AdminExecuteSequence", "InstallUISequence"] {
         create(
             &mut package,
             table,
@@ -857,6 +863,7 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
             Column::build("ExtendedType").nullable().int32(),
         ],
     )?;
+    create(&mut package, "Binary", vec![id("Name", 72), Column::build("Data").binary()])?;
     // The app's icon (app.icon), for Settings > Apps and the shortcuts, as the setup file gives them.
     let icon = project.icon.as_ref().and_then(|path| std::fs::read(path).ok().map(|bytes| (path, bytes)));
     if icon.is_some() {
@@ -1097,6 +1104,28 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
             })
             .collect(),
     )?;
+    // The window: opening the package with Windows' own interface (or removing it under Settings > Apps)
+    // runs the package's copy of Bach's setup program, which shows the same pages as a setup file and
+    // calls Windows Installer with the answers. Quiet installs (`/qn`) never run the interface sequence.
+    insert(&mut package, "Binary", vec![vec![text("BachFront"), Value::Binary]])?;
+    {
+        let mut stream = package.write_stream("Binary.BachFront").context("couldn't store the window")?;
+        let mut source = BufReader::new(File::open(front).context("couldn't read the window")?);
+        std::io::copy(&mut source, &mut stream).context("couldn't store the window")?;
+        stream.flush()?;
+    }
+    let window = |uninstall: bool| {
+        // 2: an executable from the Binary table (waited for); 64: its exit code doesn't fail the install.
+        let arguments = "--msi-package \"[OriginalDatabase]\" --msi-product \"[ProductCode]\" --msi-upgrade \"[UpgradeCode]\"";
+        vec![
+            text(if uninstall { "BachWindowRemove" } else { "BachWindow" }),
+            Value::Int(2 | 64),
+            text("BachFront"),
+            text(if uninstall { format!("{arguments} --uninstall") } else { arguments.to_string() }),
+            Value::Null,
+        ]
+    };
+    insert(&mut package, "CustomAction", vec![window(false), window(true)])?;
     if plan.start_menu_folder.is_some() {
         insert(&mut package, "RemoveFolder", vec![vec![text("rf_start"), text("cStart"), text("StartMenuDir"), Value::Int(2)]])?;
     }
@@ -1143,6 +1172,23 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
             ]),
         ]
         .concat(),
+    )?;
+    // The interface sequence: with a window (UILevel 5, what opening the package gives), the window
+    // does the work and the sequence ends before the engine's own install; at any other level the
+    // engine installs as usual.
+    insert(
+        &mut package,
+        "InstallUISequence",
+        vec![
+            vec![text("FindRelatedProducts"), Value::Null, Value::Int(200)],
+            vec![text("LaunchConditions"), Value::Null, Value::Int(410)],
+            vec![text("CostInitialize"), Value::Null, Value::Int(800)],
+            vec![text("FileCost"), Value::Null, Value::Int(900)],
+            vec![text("CostFinalize"), Value::Null, Value::Int(1000)],
+            vec![text("BachWindow"), text("UILevel >= 5 AND NOT (REMOVE=\"ALL\")"), Value::Int(1100)],
+            vec![text("BachWindowRemove"), text("UILevel >= 5 AND REMOVE=\"ALL\""), Value::Int(1110)],
+            vec![text("ExecuteAction"), text("UILevel < 5"), Value::Int(1200)],
+        ],
     )?;
     insert(
         &mut package,

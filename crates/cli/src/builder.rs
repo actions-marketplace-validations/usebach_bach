@@ -333,7 +333,7 @@ pub fn build(options: BuildOptions) -> Result<Built> {
     }
     if let Some(whole) = &for_msi {
         let msi_output = output.with_extension("msi");
-        let plan = crate::msi::write(whole, &msi_output)?;
+        let plan = crate::msi::write(whole, &msi_output, &runtime)?;
         let size = fs::metadata(&msi_output).map(|meta| meta.len()).unwrap_or(0);
         say!("Wrote {} ({}), the Windows Installer package", msi_output.display(), output::size(size));
         for what in &plan.skipped {
@@ -693,6 +693,32 @@ fn write_pack(project: &Project, sources: &[archive::Source], path: &Path) -> Re
 /// and no files. It downloads the newest setup file when it runs.
 fn write_online_setup(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>) -> Result<Written> {
     write_file(project, runtime_path, output, sealing, write_online_into)
+}
+
+/// The small copy of the setup program a `.msi` carries: the same window, with the manifest but
+/// no files, which asks the questions and hands the install to Windows Installer.
+pub(crate) fn write_msi_front(project: &Project, runtime_path: &Path, output: &Path) -> Result<Written> {
+    write_file(project, runtime_path, output, None, write_front_into)
+}
+
+fn write_front_into(project: &Project, runtime: &[u8], path: &Path, _sealing: Option<&Sealing>) -> Result<Written> {
+    fs::write(path, runtime).with_context(|| format!("couldn't write {}", path.display()))?;
+    brand(project, path)?;
+    let mut file = File::options().read(true).write(true).open(path)?;
+    let offset = file.seek(SeekFrom::End(0))?;
+    let mut manifest = project.manifest.clone();
+    // What the package doesn't carry is left out, so the window never offers it.
+    manifest.online = false;
+    manifest.archive_sha256 = None;
+    manifest.patch_from = None;
+    manifest.updates = None;
+    manifest.uninstall.data.clear();
+    for component in &mut manifest.components {
+        component.download = None;
+    }
+    container::finish(&mut file, offset, &project.look_section(), &manifest)?;
+    file.sync_all()?;
+    Ok(Written { packed: 0, hashes: Vec::new() })
 }
 
 fn write_file(

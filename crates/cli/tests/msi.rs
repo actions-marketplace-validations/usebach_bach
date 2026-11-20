@@ -89,6 +89,19 @@ fn an_msi_holds_the_files_the_shortcuts_and_the_upgrade_rules() {
     assert!(at("FindRelatedProducts") < at("LaunchConditions"), "a newer version has to be found before the condition that refuses it");
     assert!(at("RemoveExistingProducts") < at("InstallInitialize") && at("InstallFiles") < at("CreateShortcuts"));
 
+    // Opened with Windows' interface, the package shows Bach's window instead of the engine's own box.
+    assert!(rows(&mut package, "Binary").iter().any(|row| row[0] == "BachFront"), "the window's program is in the package");
+    let interface = rows(&mut package, "InstallUISequence");
+    let ui_at = |name: &str| interface.iter().find(|row| row[0] == name).map(|row| (row[1].clone(), row[2].parse::<i32>().unwrap()));
+    assert!(ui_at("BachWindow").is_some_and(|(condition, _)| condition.contains("UILevel >= 5")));
+    assert!(ui_at("BachWindowRemove").is_some_and(|(condition, _)| condition.contains("REMOVE=\"ALL\"")));
+    assert!(ui_at("ExecuteAction").is_some_and(|(condition, _)| condition == "UILevel < 5"), "only quieter levels run the engine's own install");
+    assert!(ui_at("BachWindow").unwrap().1 > ui_at("CostFinalize").unwrap().1);
+    let actions = rows(&mut package, "CustomAction");
+    let window = actions.iter().find(|row| row[0] == "BachWindow").expect("the window's action");
+    assert!(window[3].contains("--msi-package") && window[3].contains("[OriginalDatabase]") && !window[3].contains("--uninstall"));
+    assert!(actions.iter().any(|row| row[0] == "BachWindowRemove" && row[3].ends_with("--uninstall")));
+
     // The package is the same every time it is built from the same files, except for its creation time; the codes are stable.
     let again = run(&dir, &["build", "--fast", "--msi", "--out", "second/Setup.exe"]);
     assert!(again.status.success());
@@ -305,6 +318,86 @@ files = [\"extras/**\"]
     assert_eq!(msiexec(&["/x", &path(&new), "/l*v", &log("remove.log")]), 0, "{}", read_log(&dir.join("remove.log")));
     assert!(!installed("hello.exe").exists() && !installed("").exists(), "the files and the folder are gone");
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// msiexec with Windows' full interface (what opening the package gives), with the package's window
+/// told to work without showing itself, and a time limit so a stuck window can't hold the test.
+#[cfg(windows)]
+fn msiexec_with_window(args: &[&str]) -> i32 {
+    let mut child = std::process::Command::new("msiexec").args(args).arg("/qf").env("BACH_MSI_FRONT_SILENT", "1").spawn().unwrap();
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return status.code().unwrap_or(-1);
+        }
+        if started.elapsed() > std::time::Duration::from_secs(240) {
+            let _ = child.kill();
+            return -2;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+#[cfg(windows)]
+fn log_text(path: &Path) -> String {
+    let bytes = std::fs::read(path).unwrap_or_default();
+    let wide = bytes.len() > 2 && bytes[0] == 0xFF && bytes[1] == 0xFE;
+    if wide {
+        String::from_utf16_lossy(&bytes.chunks(2).skip(1).filter(|pair| pair.len() == 2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect::<Vec<_>>())
+    } else {
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+}
+
+#[test]
+#[ignore = "installs, repairs and removes a throwaway app with Windows Installer on this computer"]
+#[cfg(windows)]
+fn opening_the_package_shows_bachs_window_which_installs_and_removes_through_windows_installer() {
+    need_runtime!();
+    let id = "BachMsiWindow";
+    let extras = "[installer]
+start_with_windows = false
+";
+    let dir = msi_project("msi-window", id, extras);
+    assert!(run(&dir, &["build", "--fast", "--msi", "--out", "w/Setup.exe"]).status.success());
+    let package = dir.join("w").join("Setup.msi").components().collect::<PathBuf>();
+    let package = package.display().to_string();
+    let _cleanup = Cleanup(PathBuf::from(&package));
+    let installed = |name: &str| std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap().join("Programs").join(id).join(name);
+    let log = |name: &str| dir.join(name).display().to_string();
+    let engine_log = std::env::temp_dir().join(format!("{id}-msi.log"));
+    let setup_log = std::env::temp_dir().join(format!("{id}-setup.log"));
+    let _ = std::fs::remove_file(&engine_log);
+    let _ = std::fs::remove_file(&setup_log);
+
+    // The package opened with its interface: the window's copy of setup runs, and Windows Installer
+    // (called by it) does the install; the outer run ends without installing a second time.
+    let code = msiexec_with_window(&["/i", &package, "/l*v", &log("outer.log")]);
+    let outer = log_text(&dir.join("outer.log"));
+    assert_eq!(code, 0, "{outer}");
+    assert!(installed("hello.exe").is_file() && installed("data/readme.txt").is_file(), "the files are in");
+    assert!(outer.contains("BachWindow"), "the window's action ran: {outer}");
+    assert!(!outer.contains("Doing action: InstallFiles"), "the outer run doesn't install by itself");
+    let setup = log_text(&setup_log);
+    assert!(setup.contains("Windows Installer installs") && setup.contains("Windows Installer finished: Done"), "{setup}");
+    assert!(log_text(&engine_log).contains("InstallFiles"), "the engine did the work, and logged it");
+
+    // Opened again, it is the same version: the window repairs instead.
+    std::fs::write(installed("data/readme.txt"), "damaged").unwrap();
+    let repaired = msiexec_with_window(&["/i", &package, "/l*v", &log("again.log")]);
+    assert_eq!(repaired, 0, "{}", log_text(&dir.join("again.log")));
+
+    // Removing it under Settings > Apps is the same interface, with the removal window.
+    let removed = msiexec_with_window(&["/x", &package, "/l*v", &log("remove.log")]);
+    assert_eq!(removed, 0, "{}", log_text(&dir.join("remove.log")));
+    assert!(!installed("hello.exe").exists() && !installed("").exists(), "the files and the folder are gone");
+    // And a quiet install never runs the interface sequence.
+    assert_eq!(msiexec(&["/i", &package, "/l*v", &log("quiet.log")]), 0);
+    assert!(installed("hello.exe").is_file());
+    assert!(!log_text(&dir.join("quiet.log")).contains("BachWindow"));
+    assert_eq!(msiexec(&["/x", &package]), 0);
+    assert!(!installed("hello.exe").exists());
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[cfg(windows)]
