@@ -81,6 +81,7 @@ const SECTIONS: &[&str] = &[
     "signing",
     "style",
     "layout",
+    "arch",
 ];
 
 /// A profile's name ends up in file names and on the command line.

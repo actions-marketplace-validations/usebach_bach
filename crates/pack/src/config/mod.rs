@@ -28,6 +28,7 @@ use crate::manifest::{self, FileEntry, LogoKind, Manifest};
 use crate::paths;
 
 pub use profile::{list as list_profiles, valid_name as valid_profile_name, Kind as ProfileKind, Profile};
+pub use system::pe_machine;
 
 /// The default output, relative to `bach.toml`.
 pub const DEFAULT_OUTPUT: &str = "dist/{name}-Setup-{version}.exe";
@@ -83,6 +84,24 @@ struct File {
     /// Other builds of the app (see `profile.rs`); checked there.
     #[serde(default)]
     profiles: BTreeMap<String, toml::Value>,
+    /// The app's files for another processor architecture (`[arch.arm64]`).
+    #[serde(default)]
+    arch: BTreeMap<String, ArchSection>,
+}
+
+/// `[arch.arm64]`: the ARM64 build of the app, packed into its own setup
+/// file next to the x64 one. One update feed (and one online installer) serves
+/// both: a computer takes the file for its architecture.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArchSection {
+    /// The folder with the ARM64 files, instead of `files.source`.
+    source: String,
+    /// `files.exclude` for this folder; the main `files.exclude` when left out.
+    exclude: Option<Vec<String>>,
+    /// The ARM64 `bach-setup.exe` to build the ARM64 setup file on. Left out,
+    /// `--runtime-arm64` or `BACH_RUNTIME_ARM64` names it.
+    runtime: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -208,8 +227,20 @@ pub struct Project {
     pub signing: Option<Signing>,
     /// The profile this project was read with (`[profiles.NAME]`), if any.
     pub profile: Option<String>,
+    /// The architecture this project is the setup file for (`arm64`); None is the main (x64) one.
+    pub arch: Option<String>,
+    /// The architectures `[arch.NAME]` adds besides the main one, with the ARM64 runtime the config names.
+    pub arches: Vec<ArchBuild>,
     /// What the build writes: a setup file, or (a `zip` profile) a ZIP of the files.
     pub kind: ProfileKind,
+}
+
+/// An architecture `[arch.NAME]` adds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArchBuild {
+    pub name: String,
+    /// `[arch.NAME] runtime`, relative to the config's folder.
+    pub runtime: Option<PathBuf>,
 }
 
 impl Project {
@@ -233,6 +264,9 @@ pub struct Overrides {
     /// Builds a profile of the config instead of the main file (see
     /// `[profiles.NAME]`).
     pub profile: Option<String>,
+    /// Builds the setup file for this architecture (`arm64`) from `[arch.arm64]`
+    /// instead of the main one.
+    pub arch: Option<String>,
 }
 
 /// Reads, checks and gathers a `bach.toml`.
@@ -270,6 +304,24 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     };
     profile::check(&file.profiles)?;
     let kind = profile.as_ref().map_or(ProfileKind::Setup, |(_, kind, _)| *kind);
+    for name in file.arch.keys() {
+        if !manifest::extras::OTHER_ARCHES.contains(&name.as_str()) {
+            bail!(
+                "[arch.{name}] isn't an architecture Bach adds; the main build is x64, and {} can be added",
+                manifest::extras::OTHER_ARCHES.join(", ")
+            );
+        }
+    }
+    let arch = overrides.arch.clone();
+    if let Some(name) = &arch {
+        let Some(section) = file.arch.get(name) else {
+            bail!("there is no [arch.{name}] in bach.toml, so there is no {name} setup file to build");
+        };
+        file.files.source = section.source.clone();
+        if let Some(exclude) = &section.exclude {
+            file.files.exclude = exclude.clone();
+        }
+    }
     if let Some(version) = file.config_version.filter(|version| *version != CONFIG_VERSION) {
         bail!(
             "config_version is {version}, but this Bach reads version {CONFIG_VERSION}; {}",
@@ -437,7 +489,17 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     if online_output == output {
         bail!("installer.output and installer.online_output are the same file; give the online installer its own name");
     }
-    let online = file.installer.online.unwrap_or(false) && kind == ProfileKind::Setup;
+    // The ARM64 setup file is named like the x64 one, with the architecture before the extension:
+    // Hello-Setup-1.0.0.exe, Hello-Setup-1.0.0-arm64.exe.
+    if let Some(name) = &arch {
+        if let (Some(stem), Some(extension)) = (
+            output.file_stem().map(|stem| stem.to_string_lossy().into_owned()),
+            output.extension().map(|ext| ext.to_string_lossy().into_owned()),
+        ) {
+            output.set_file_name(format!("{stem}-{name}.{extension}"));
+        }
+    }
+    let online = file.installer.online.unwrap_or(false) && kind == ProfileKind::Setup && arch.is_none();
     if online && updates.is_none() {
         bail!(
             "installer.online is true, but there's no [updates]; the online installer downloads the newest version through the update feed"
@@ -446,7 +508,18 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
 
     let source_dir = root.join(&file.files.source);
     if !source_dir.is_dir() {
-        bail!("files.source is \"{}\", but {} isn't a folder", file.files.source, source_dir.display());
+        let setting = arch.as_ref().map_or_else(|| "files.source".to_string(), |name| format!("arch.{name}.source"));
+        bail!("{setting} is \"{}\", but {} isn't a folder", file.files.source, source_dir.display());
+    }
+    // Every declared architecture is checked, so `bach check` finds a wrong folder before a build does.
+    for (name, section) in &file.arch {
+        let folder = root.join(&section.source);
+        if !folder.is_dir() {
+            bail!("arch.{name}.source is \"{}\", but {} isn't a folder", section.source, folder.display());
+        }
+        if section.runtime.as_deref().is_some_and(|runtime| runtime.trim().is_empty()) {
+            bail!("arch.{name}.runtime is empty; name the ARM64 bach-setup.exe, or leave it out");
+        }
     }
     for pattern in &file.files.exclude {
         if pattern.trim().is_empty() {
@@ -583,6 +656,15 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         update_github,
         signing: signing(file.signing.as_ref())?,
         profile: profile.map(|(name, _, _)| name),
+        arch,
+        arches: file
+            .arch
+            .iter()
+            .map(|(name, section)| ArchBuild {
+                name: name.clone(),
+                runtime: section.runtime.as_deref().map(|runtime| root.join(runtime.trim())),
+            })
+            .collect(),
         kind,
     })
 }

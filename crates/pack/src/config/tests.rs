@@ -2,6 +2,7 @@ use super::*;
 use crate::i18n::{Key, ANY_LANGUAGE};
 use crate::manifest::Choice;
 
+mod arch;
 mod layout;
 mod profiles;
 mod style;
