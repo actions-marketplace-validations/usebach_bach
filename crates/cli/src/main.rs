@@ -354,6 +354,10 @@ enum Command {
         /// commit of this release, `float` follows the newest 0.x release.
         #[arg(long, value_enum, default_value = "commit")]
         pin: PinArg,
+        /// The app's winget package id (like Example.Hello): also open the
+        /// pull request that updates it in winget-pkgs after each release.
+        #[arg(long, value_name = "ID")]
+        winget: Option<String>,
     },
     /// List the built-in styles of the installer window, for installer.style.
     Styles,
@@ -420,9 +424,10 @@ fn main() -> ExitCode {
         Command::Version { target, config, dry_run } => {
             version::command(version::Options { config: &config, target: target.as_deref(), dry_run })
         }
-        Command::Workflow { dir, force, pin } => workflow::command(workflow::Options {
+        Command::Workflow { dir, force, pin, winget } => workflow::command(workflow::Options {
             dir: &dir,
             force,
+            winget: winget.as_deref(),
             pin: match pin {
                 PinArg::Commit => workflow::Pin::Commit,
                 PinArg::Float => workflow::Pin::Float,

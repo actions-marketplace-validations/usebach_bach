@@ -312,6 +312,8 @@ window speaks several).
 - To deploy with Microsoft Intune: `bach intune SETUP.exe` writes the install and
   uninstall commands and the detection rule (`intune.md`) and a detection script
   (`detect.ps1`); use `installer.scope = "machine"` for devices.
+- To have each release also open the winget update PR: `bach workflow --winget Publisher.App`
+  (needs a `WINGET_TOKEN` repository secret; the first winget submission is still by hand).
 - To check a setup file without installing it: `bach verify SETUP.exe` (add
   `--key-file FILE` for an encrypted one; `--json` gives `verified` and `signature`).
 - To see what changed between two releases: `bach diff OLD.exe NEW.exe` (files added,
