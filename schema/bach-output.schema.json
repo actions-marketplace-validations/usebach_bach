@@ -21,6 +21,8 @@
     "size": { "type": "integer", "description": "Bytes. check, inspect: what is installed; build: the setup file; feed: the setup file." },
     "setup": { "type": "string", "description": "build: the setup file." },
     "setup_arm64": { "type": "string", "description": "build: the ARM64 setup file, when bach.toml has [arch.arm64]." },
+    "msi": { "type": "string", "description": "build --msi: the Windows Installer package that was written." },
+    "msi_skipped": { "type": "array", "items": { "type": "string" }, "description": "build --msi: what bach.toml asks for that an MSI doesn't carry." },
     "online_setup": { "type": "string", "description": "build: the online installer, when there is one." },
     "patch": { "type": "string", "description": "build: the update patch, when --patch-from was given." },
     "feed": { "type": "string", "description": "build, feed: the update feed (latest.json), when one was written." },

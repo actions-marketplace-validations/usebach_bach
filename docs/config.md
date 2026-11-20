@@ -1523,6 +1523,68 @@ Things to know:
 `--json` prints `install_command`, `uninstall_command`, `run_as`,
 `detection_key` (machine-wide apps) and `detection_script`.
 
+## Windows Installer packages (MSI)
+
+Companies that deploy with Group Policy, Configuration Manager or Intune ask
+for an `.msi`. `bach build --msi` writes one from the same `bach.toml`, next to
+the setup file:
+
+```bash
+bach build --msi
+```
+
+```console
+Wrote dist/Hello-Setup-1.4.0.exe (11.2 MB)
+Wrote dist/Hello-Setup-1.4.0.msi (9.8 MB), the Windows Installer package
+  not in the MSI: [[run]] steps
+  not in the MSI: adding to PATH
+```
+
+The package is made by Bach (a real MSI database with its files in an embedded
+cabinet), not a wrapper that runs the setup file. Windows Installer installs,
+repairs, upgrades and removes it itself, so deployment tools can track it.
+
+| In the MSI | How |
+| --- | --- |
+| Files and folders | Every file is its own component, with an id made from the app id and the file's path, so it stays the same from one version to the next. |
+| Shortcuts | A Start menu shortcut and, if `installer.desktop_shortcut` is on, a desktop one, plus `[[shortcuts]]`. |
+| Registry values | `[[registry]]`, with `{app}` as the install folder. |
+| Optional components | One feature each. Ticked ones (`default = true`) install by default; the others with `ADDLOCAL=id`. |
+| Upgrades | A package of a higher version replaces older ones (a major upgrade; the upgrade code comes from `app.id`). An older package refuses to replace a newer one (error 1603, with "A newer version of Hello is already installed."). |
+| Scope | `installer.scope = "machine"`: per machine, in `Program Files`, for all users. The default `"user"`: per user, in `%LOCALAPPDATA%\Programs`, and installing needs no administrator rights. |
+
+What it doesn't carry, and says so when your config uses it (`not in the MSI:`):
+`[[run]]` steps, `[[requirements]]`, `[[migrate]]`, `[[env]]` variables,
+`[[context_menu]]` entries, `[[protocols]]`, `[[file_types]]`, start with Windows,
+adding to PATH, `[updates]` (an MSI is updated by installing a newer MSI),
+`[uninstall]` data folders, and the `download` of a component (its files are in
+the package). Use the setup file where you need those.
+
+```powershell
+msiexec /i Hello-Setup-1.4.0.msi /qn                    # install silently
+msiexec /i Hello-Setup-1.4.0.msi /qn ADDLOCAL=ALL       # with every optional component
+msiexec /x Hello-Setup-1.4.0.msi /qn                    # remove it
+```
+
+Limits and rules:
+
+- **The version** has to be three numbers (`1.4.2`): the first two up to 255, the
+  last up to 65535, and no suffix like `-beta`. Windows Installer compares
+  versions that way. Anything else is refused, naming `app.version`.
+- **Size.** The cabinet holds up to 2 GB and 32,000 files; a bigger app is refused with that
+  sentence. Names (the app's, the publisher's, the folders') are written in the
+  Windows-1252 code page that Windows Installer reads, so a character outside it shows as `?`.
+- **An app locked with [`[access]`](#access)** can't be an MSI: the files in the
+  package would be readable by anybody. The build refuses it.
+- The package is **x64**: the ARM64 setup file (`[arch.arm64]`) isn't turned into an MSI. `--msi` with a
+  [profile](#profiles) writes that profile's package next to its setup file (`Hello-enterprise-Setup-1.4.0.msi`),
+  which is how a company version gets its own; a `zip` profile has none.
+- It isn't signed by `--sign` (Windows Installer's own signing is a different
+  mechanism): sign it with `signtool sign` like any other file.
+- `--json` adds `msi` (the file) and `msi_skipped` (what it left out).
+- A real run: Bach's own tests install a package like this per user, upgrade it,
+  see an older package refused and remove it again with `msiexec`.
+
 ## Checking a setup file
 
 ```bash
