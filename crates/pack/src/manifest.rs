@@ -30,7 +30,7 @@ pub use choices::{
     OPTION_START_MENU,
 };
 pub use extras::{ArchEntry, Check, DeltaEntry, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
-pub use features::{Component, FileType, Protocol};
+pub use features::{Component, ComponentDownload, FileType, Protocol};
 pub use look_files::{LookBytes, LookFile, LookFileKind};
 pub use scope::Scope;
 pub use system::{ContextMenuEntry, ContextTarget, EnvVar, Migrate, RegistryData, RegistryValue, RegistryView, SystemChanges};
@@ -372,6 +372,7 @@ pub(crate) fn sample() -> Manifest {
             title: [(i18n::ANY_LANGUAGE.to_string(), "Samples".to_string())].into(),
             description: None,
             default: false,
+            download: None,
         }],
         protocols: vec![Protocol { scheme: "hello".into(), description: None }],
         file_types: vec![FileType { extension: ".hello".into(), description: Some("Hello note".into()) }],

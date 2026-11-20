@@ -62,8 +62,11 @@ fn an_arch_can_have_its_own_exclusions() {
     let has = |project: &Project, path: &str| project.manifest.files.iter().any(|file| file.path == path);
     let inherited = as_arch(WITH_ARM, &dir, "arm64").unwrap();
     assert!(!has(&inherited, "debug.pdb"), "files.exclude carries over unless the arch says otherwise");
-    let own = WITH_ARM.replace("runtime =", "exclude = [\"*.dll\"]
-    runtime =");
+    let own = WITH_ARM.replace(
+        "runtime =",
+        "exclude = [\"*.dll\"]
+    runtime =",
+    );
     let project = as_arch(&own, &dir, "arm64").unwrap();
     assert!(has(&project, "debug.pdb") && !has(&project, "arm-only.dll"), "the arch's own list replaces it");
     std::fs::remove_dir_all(&dir).unwrap();

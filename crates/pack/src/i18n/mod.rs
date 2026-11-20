@@ -88,7 +88,7 @@ texts! {
     support_save, support_saved, support_failed,
     requirement_title, requirement_subtitle, requirement_button, requirement_skip, step_downloading, error_download,
     website, feedback,
-    step_finding, step_fetching, error_fetch,
+    step_finding, step_fetching, error_fetch, component_download,
     access_title, access_subtitle, access_hint, access_button, access_paste, access_wrong, access_get,
     step_running, error_run, step_migrating, error_patch_base,
     overwrite_title, overwrite_subtitle, error_unsafe_folder,

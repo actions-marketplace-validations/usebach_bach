@@ -3,6 +3,7 @@ use crate::i18n::{Key, ANY_LANGUAGE};
 use crate::manifest::Choice;
 
 mod arch;
+mod downloads;
 mod layout;
 mod profiles;
 mod style;

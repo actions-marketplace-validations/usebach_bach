@@ -27,6 +27,7 @@ use crate::archive::{Compression, Source};
 use crate::manifest::{self, FileEntry, LogoKind, Manifest};
 use crate::paths;
 
+pub use options::component_pack_name;
 pub use profile::{list as list_profiles, valid_name as valid_profile_name, Kind as ProfileKind, Profile};
 pub use system::pe_machine;
 
@@ -559,7 +560,17 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     }
 
     let mut files: Vec<FileEntry> = sources.iter().map(|source| FileEntry::new(&source.packaged, source.size)).collect();
-    let components = options::components(&file.components, &mut files, &app, &languages)?;
+    let components = options::components(
+        &file.components,
+        &mut files,
+        &app,
+        &languages,
+        &options::Downloads {
+            update_link: update_download_url.as_deref(),
+            flavour: &profile_name.into_iter().chain(arch.as_deref()).collect::<Vec<&str>>(),
+            encrypted: access.as_ref().is_some_and(|access| access.encrypt),
+        },
+    )?;
     let system_changes = system::changes(
         &file.registry,
         &file.env,

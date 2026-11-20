@@ -906,6 +906,17 @@
           },
           "default": {
             "type": "boolean"
+          },
+          "download": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Optional. true downloads the component's files from the [updates] download link, or give an https link ({file}, {version}, {id} and {component} are filled in). The files are then not packed into the setup file: bach build writes them to a file of their own, Name-component-version.bachpack, to upload to that link, and the installer downloads it (checked against its SHA-256) only when the component is ticked."
           }
         }
       }
@@ -5251,6 +5262,44 @@
           ]
         },
         "error_fetch": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "component_download": {
           "description": "Text for every language, or a table of texts by language code.",
           "oneOf": [
             {

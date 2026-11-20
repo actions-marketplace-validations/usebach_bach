@@ -109,6 +109,7 @@ pub const EN: Strings = Strings {
     step_finding: "Finding the latest version",
     step_fetching: "Downloading {name}",
     error_fetch: "Couldn't download {name}. Check your internet connection, then try again. {error}",
+    component_download: "{size} download",
     access_title: "Enter your access key",
     access_subtitle: "{name} is protected. Enter the key you were given to continue.",
     access_hint: "Access key",
