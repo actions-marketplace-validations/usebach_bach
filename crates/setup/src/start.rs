@@ -66,11 +66,12 @@ fn install_from_package(manifest: &Manifest, link: &system::msi::Link) -> Start 
         if install.add_to_path.offered() {
             choices.add_to_path = on("path");
         }
-        choices.components = manifest.components.iter().filter(|component| on(&system::msi::feature_id(&component.id))).map(|c| c.id.clone()).collect();
+        choices.components =
+            manifest.components.iter().filter(|component| on(&system::msi::feature_id(&component.id))).map(|c| c.id.clone()).collect();
     }
-    let downgrade = existing
-        .as_ref()
-        .is_some_and(|installed| bach_pack::version::compare(&installed.version, &manifest.app.version) == Some(std::cmp::Ordering::Greater));
+    let downgrade = existing.as_ref().is_some_and(|installed| {
+        bach_pack::version::compare(&installed.version, &manifest.app.version) == Some(std::cmp::Ordering::Greater)
+    });
     Start { existing, previous: None, dir, choices, downgrade }
 }
 

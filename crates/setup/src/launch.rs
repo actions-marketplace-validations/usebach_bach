@@ -384,7 +384,9 @@ pub fn mode(args: &Args, package: &Package) -> Mode {
         if !args.uninstall {
             return Mode::Install;
         }
-        let dir = system::msi::installed(link, &package.manifest).map(|installed| installed.dir).unwrap_or_else(|| system::default_install_dir(&package.manifest));
+        let dir = system::msi::installed(link, &package.manifest)
+            .map(|installed| installed.dir)
+            .unwrap_or_else(|| system::default_install_dir(&package.manifest));
         return Mode::Remove { dir };
     }
     let removing = args.uninstall || !package.is_installer();
@@ -620,7 +622,8 @@ mod tests {
         // And the other way round: every option the parser knows is in the help.
         for flag in FLAGS {
             let name = format!("--{}", flag.names[0]);
-            let internal = ["json", "launch", "install-dir", "uninstall", "msi-package", "msi-product", "msi-upgrade"].contains(&flag.names[0]);
+            let internal =
+                ["json", "launch", "install-dir", "uninstall", "msi-package", "msi-product", "msi-upgrade"].contains(&flag.names[0]);
             assert!(HELP.contains(&name) || internal, "{name} is parsed but not in the help text");
         }
     }

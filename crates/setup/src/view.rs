@@ -501,7 +501,11 @@ enum Job {
     /// The same, done by Windows Installer: a `.msi` package's window (the flag says repair).
     InstallWithMsi(InstallPlan, bool),
     Remove(RemovePlan),
-    Pretend { removing: bool, online: bool, tasks: Vec<String> },
+    Pretend {
+        removing: bool,
+        online: bool,
+        tasks: Vec<String>,
+    },
 }
 
 /// A first install shows the license; an update only when it changed.

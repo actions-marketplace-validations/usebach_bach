@@ -45,7 +45,11 @@ pub fn main() {
     // The front of a .msi package: Windows Installer does the work (see system/msi.rs). Tests run it
     // without a window with BACH_MSI_FRONT_SILENT, because Windows Installer starts it with fixed arguments.
     if let (Some(package), Some(product), Some(upgrade)) = (&args.msi_package, &args.msi_product, &args.msi_upgrade) {
-        crate::system::msi::set_link(crate::system::msi::Link { package: package.clone(), product: product.clone(), upgrade: upgrade.clone() });
+        crate::system::msi::set_link(crate::system::msi::Link {
+            package: package.clone(),
+            product: product.clone(),
+            upgrade: upgrade.clone(),
+        });
         if std::env::var_os("BACH_MSI_FRONT_SILENT").is_some() {
             args.silent = true;
         }

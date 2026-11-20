@@ -88,7 +88,8 @@ pub fn installed(link: &Link, manifest: &Manifest) -> Option<Installed> {
 
 /// A version as Windows Installer reads it: up to three numbers, a `v` in front ignored, the rest 0.
 fn numbers(version: &str) -> Vec<u32> {
-    let mut parts: Vec<u32> = version.trim().trim_start_matches(['v', 'V']).split('.').map(|part| part.parse().unwrap_or(0)).take(3).collect();
+    let mut parts: Vec<u32> =
+        version.trim().trim_start_matches(['v', 'V']).split('.').map(|part| part.parse().unwrap_or(0)).take(3).collect();
     parts.resize(3, 0);
     parts
 }
@@ -312,9 +313,7 @@ mod imp {
             MsiSetExternalUIRecord(Some(handler), 0x1 | 0x2 | 0x400, &context as *const Context as *const c_void, &mut previous);
             let status = match job {
                 Job::Install(properties) => MsiInstallProductW(wide_path(&link.package).as_ptr(), wide(properties).as_ptr()),
-                Job::Repair => {
-                    MsiInstallProductW(wide_path(&link.package).as_ptr(), wide("REINSTALL=ALL REINSTALLMODE=vomus").as_ptr())
-                }
+                Job::Repair => MsiInstallProductW(wide_path(&link.package).as_ptr(), wide("REINSTALL=ALL REINSTALLMODE=vomus").as_ptr()),
                 // INSTALLSTATE_ABSENT is 2; INSTALLLEVEL_DEFAULT is 0.
                 Job::Remove(product) => MsiConfigureProductExW(wide(product).as_ptr(), 0, 2, wide("").as_ptr()),
             };

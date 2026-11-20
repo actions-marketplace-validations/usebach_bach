@@ -95,7 +95,10 @@ fn an_msi_holds_the_files_the_shortcuts_and_the_upgrade_rules() {
     let ui_at = |name: &str| interface.iter().find(|row| row[0] == name).map(|row| (row[1].clone(), row[2].parse::<i32>().unwrap()));
     assert!(ui_at("BachWindow").is_some_and(|(condition, _)| condition.contains("UILevel >= 5")));
     assert!(ui_at("BachWindowRemove").is_some_and(|(condition, _)| condition.contains("REMOVE=\"ALL\"")));
-    assert!(ui_at("ExecuteAction").is_some_and(|(condition, _)| condition == "UILevel < 5"), "only quieter levels run the engine's own install");
+    assert!(
+        ui_at("ExecuteAction").is_some_and(|(condition, _)| condition == "UILevel < 5"),
+        "only quieter levels run the engine's own install"
+    );
     assert!(ui_at("BachWindow").unwrap().1 > ui_at("CostFinalize").unwrap().1);
     let actions = rows(&mut package, "CustomAction");
     let window = actions.iter().find(|row| row[0] == "BachWindow").expect("the window's action");
@@ -343,7 +346,9 @@ fn log_text(path: &Path) -> String {
     let bytes = std::fs::read(path).unwrap_or_default();
     let wide = bytes.len() > 2 && bytes[0] == 0xFF && bytes[1] == 0xFE;
     if wide {
-        String::from_utf16_lossy(&bytes.chunks(2).skip(1).filter(|pair| pair.len() == 2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect::<Vec<_>>())
+        String::from_utf16_lossy(
+            &bytes.chunks(2).skip(1).filter(|pair| pair.len() == 2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect::<Vec<_>>(),
+        )
     } else {
         String::from_utf8_lossy(&bytes).into_owned()
     }
