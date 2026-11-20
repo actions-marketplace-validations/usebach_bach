@@ -23,6 +23,7 @@ default, so a five-line config already builds a complete installer.
 - [`[updates]`](#updates): updates the installed app fetches itself
 - [`[text]`](#text): any text in the window, in any language
 - [`[uninstall]`](#uninstall): the user's data
+- [`[profiles]`](#profiles): other builds of the app: a company version, a portable ZIP
 - [`[signing]`](#signing): sign the setup files while building (optional)
 - [A complete example](#a-complete-example)
 - [Silent installs](#silent-installs) and [updating from the app](#updating-from-the-app)
@@ -1018,6 +1019,85 @@ files there every translation.
 
 Write Windows paths in TOML with single quotes so backslashes stay as they
 are: `data = ['%APPDATA%\My App']`.
+
+## [profiles]
+
+A profile is another build of the same app from the same `bach.toml`: a normal
+setup file, a company version that installs for every user, a portable ZIP.
+Each profile holds only what differs from the file above it.
+
+```toml
+[profiles.enterprise]
+description = "For IT departments: machine-wide, no shortcuts, no self-updates."
+
+[profiles.enterprise.installer]
+scope = "machine"
+desktop_shortcut = false
+start_with_windows = false
+
+[profiles.portable]
+kind = "zip"
+description = "Unzip and run; nothing is installed."
+
+# Replaces [[components]]: the portable build carries the samples.
+[[profiles.portable.components]]
+id = "samples"
+title = "Samples"
+files = ["samples/**"]
+default = true
+```
+
+```bash
+bach profiles                       # lists them and the files they write
+bach build                          # the main setup file, as before
+bach build --profile enterprise     # only that profile (repeat --profile for several)
+bach build --all-profiles           # the main setup file and every profile
+bach check --profile portable       # read one profile without building it
+bach preview --profile enterprise   # open its installer window
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `kind` | `"setup"` (default) writes a setup file. `"zip"` writes a ZIP of the files instead: no runtime is needed, and nothing is signed or listed in the update feed. |
+| `description` | One line about what the profile is for. `bach profiles` shows it. |
+| `output` | Where the file goes, with `{name}`, `{version}` and `{id}` filled in. Without it a setup file is `dist/{name}-NAME-Setup-{version}.exe` and a ZIP `dist/{name}-NAME-{version}.zip`. A setup file's name must end in `.exe`, a ZIP's in `.zip`. |
+
+Anything else in a profile is a section of `bach.toml` (`app`, `files`,
+`installer`, `components`, `registry`, `style`, ...) and is laid over the
+main file:
+
+- A **table** is merged key by key: `[profiles.enterprise.installer]` with
+  `scope = "machine"` changes that one setting and leaves the rest of
+  `[installer]` as it is.
+- An **array** (`[[components]]`, `[[registry]]`, ...) is replaced as a whole,
+  so a profile that lists `[[components]]` drops the main file's.
+- A profile can't change `config_version` and can't contain profiles. A typo
+  is one sentence naming it: `profiles.enterprise.scoop isn't a setting a
+  profile knows`.
+
+A profile's name is lowercase letters, digits and `-`, up to 32 characters,
+because it ends up in file names.
+
+**A ZIP** holds the files of the components ticked by default, laid out as
+they are in the install folder (`hello.exe`, `sub/data.txt`). The entries have
+a fixed date, so the same files give the same ZIP wherever it is built. A ZIP
+can't be locked with [`[access]`](#access) (the build says so) and has no
+window to preview. A single file of 4 GiB or more is stored in ZIP64.
+
+**A setup profile** is a full setup file. Two things to know:
+
+- It shares `app.id` with the main build unless the profile sets another. Two
+  setup files with one id update and uninstall each other, which is right for
+  "the same app, installed for another scope" and wrong for "both on one
+  computer". Give a profile that must live next to the main build its own
+  `app.id` and `installer.folder`.
+- The update feed (`latest.json`) describes the main setup file only, so
+  profile builds never write it. A company that installs the enterprise file
+  by hand or with Intune updates by installing the next one.
+
+`--json` adds `builds`: one object per build with `profile` (null for the main
+one), `kind`, `file` and `size`. `bach profiles --json` prints `profiles`
+(`name`, `kind`, `description`, `output`, `problem`).
 
 ## [signing]
 
