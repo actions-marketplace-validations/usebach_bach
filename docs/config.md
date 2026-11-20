@@ -1547,18 +1547,24 @@ repairs, upgrades and removes it itself, so deployment tools can track it.
 | In the MSI | How |
 | --- | --- |
 | Files and folders | Every file is its own component, with an id made from the app id and the file's path, so it stays the same from one version to the next. |
-| Shortcuts | A Start menu shortcut and, if `installer.desktop_shortcut` is on, a desktop one, plus `[[shortcuts]]`. |
-| Registry values | `[[registry]]`, with `{app}` as the install folder. |
-| Optional components | One feature each, named like the component (a `-` in the id is written `_`). Ticked ones (`default = true`) install by default; the others with `ADDLOCAL=id`. |
+| Shortcuts | The Start menu shortcut (in the folder `installer.start_menu_folder` names, which removal takes away again), the desktop one and `[[shortcuts]]`, each in a component of its own, with the app's icon. |
+| Registry values, variables and integration | `[[registry]]`, `[[env]]` variables, `[[protocols]]`, `[[file_types]]` (as "Open with") and `[[context_menu]]` entries, written and removed exactly where the setup file writes them. `{app}` is the install folder, here with a trailing backslash. |
+| Optional components and options | One feature each, named like the setup file's own `--with` ids: a component by its id, and the options of the install page as `desktop_shortcut`, `start_menu`, `autostart` and `path` (a `-` is written `_`). Ticked ones install by default; the others with `ADDLOCAL=id`. An option that is `always` is part of the product, `never` isn't in the package. |
+| Start with Windows, PATH | The `Run` entry, and the install folder (or `installer.path_folder`) appended to the user's `PATH` and taken off again on removal, the rest of `PATH` kept. |
+| Run steps | `[[run]]` steps are custom actions that start the packaged program after the files are in place (`install`, `first_install`) or before they go (`uninstall`, never stopping the removal), for the component they name. |
+| Requirements | A `windows` requirement is a launch condition on the Windows build. |
+| Settings › Apps | Name, publisher, version, website, icon and the install location. |
 | Upgrades | A package of a higher version replaces older ones (a major upgrade; the upgrade code comes from `app.id`). An older package refuses to replace a newer one (error 1603, with "A newer version of Hello is already installed."). |
 | Scope | `installer.scope = "machine"`: per machine, in `Program Files`, for all users. The default `"user"`: per user, in `%LOCALAPPDATA%\Programs`, and installing needs no administrator rights. |
 
 What it doesn't carry, and says so when your config uses it (`not in the MSI:`):
-`[[run]]` steps, `[[requirements]]`, `[[migrate]]`, `[[env]]` variables,
-`[[context_menu]]` entries, `[[protocols]]`, `[[file_types]]`, start with Windows,
-adding to PATH, `[updates]` (an MSI is updated by installing a newer MSI),
-`[uninstall]` data folders, and the `download` of a component (its files are in
-the package). Use the setup file where you need those.
+`[[migrate]]`, `[updates]` (an MSI is updated by installing a newer MSI),
+`[uninstall]` data folders, the license page (an MSI has no window of its own here),
+the `download` of a component (its files are in the package), requirements
+other than a Windows build (WebView2, .NET, VC++, file and registry checks), a
+run step's other exit codes (Windows Installer accepts `0`) and an `elevated` run
+step in a per-user package (it never has administrator rights). Use the setup
+file where you need those. Windows texts are English.
 
 ```powershell
 msiexec /i Hello-Setup-1.4.0.msi /qn                    # install silently
@@ -1582,8 +1588,9 @@ Limits and rules:
 - It isn't signed by `--sign` (Windows Installer's own signing is a different
   mechanism): sign it with `signtool sign` like any other file.
 - `--json` adds `msi` (the file) and `msi_skipped` (what it left out).
-- A real run: Bach's own tests install a package like this per user, upgrade it,
-  see an older package refused and remove it again with `msiexec`.
+- A real run: Bach's own tests install a package like this per user with every item
+  above, check the registry, `PATH`, the variables, the shortcuts and the run steps, upgrade it,
+  see an older package refused and remove it again with `msiexec`, checking that all of it goes.
 
 ## Checking a setup file
 

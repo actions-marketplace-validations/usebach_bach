@@ -30,7 +30,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use bach_pack::config::Project;
-use bach_pack::manifest::{Choice, Manifest, RegistryData};
+use bach_pack::i18n::Key;
+use bach_pack::manifest::{Check, Choice, Manifest, RegistryData, RunWhen};
 use cab::{CabinetBuilder, CompressionType};
 use msi::{Category, Column, Insert, Package, PackageType, Value};
 use sha2::{Digest, Sha256};
@@ -55,6 +56,13 @@ pub struct Plan {
     pub features: Vec<PlannedFeature>,
     pub shortcuts: Vec<PlannedShortcut>,
     pub registry: Vec<PlannedRegistry>,
+    /// Components that hold no file: shortcuts, registry values, variables, run steps' neighbours.
+    pub extra_components: Vec<PlannedComponent>,
+    pub environment: Vec<PlannedEnv>,
+    pub actions: Vec<PlannedAction>,
+    pub launch: Vec<(String, String)>,
+    /// A Start menu folder of its own (`installer.start_menu_folder`), by its name.
+    pub start_menu_folder: Option<String>,
     /// What the config asks for that an MSI doesn't carry.
     pub skipped: Vec<String>,
 }
@@ -98,6 +106,52 @@ pub struct PlannedRegistry {
     pub key: String,
     pub name: Option<String>,
     pub value: String,
+    pub component: String,
+}
+
+/// A component with no file. Its key path is a registry value.
+#[derive(Debug)]
+pub struct PlannedComponent {
+    pub id: String,
+    pub feature: String,
+    /// The registry row that says the component is installed.
+    pub key_path: String,
+}
+
+#[derive(Debug)]
+pub struct PlannedEnv {
+    pub id: String,
+    /// With the flags Windows Installer reads in front: `=-` sets it and takes it away on removal.
+    pub name: String,
+    pub value: String,
+    pub component: String,
+}
+
+/// A custom action and when it runs.
+#[derive(Debug)]
+pub struct PlannedAction {
+    pub action: String,
+    pub kind: i32,
+    pub source: String,
+    pub target: Option<String>,
+    pub sequence: i32,
+    pub condition: Option<String>,
+}
+
+/// Text for a column Windows Installer formats: `[` and `]` are escaped, so the user's text can't
+/// name a property, and `{app}` becomes the install folder (which ends in a backslash here).
+fn formatted(text: &str) -> String {
+    text.split("{app}").map(|part| part.replace('[', "[\\[]").replace(']', "[\\]]")).collect::<Vec<_>>().join("[INSTALLFOLDER]")
+}
+
+/// A registry value that is a string: one that starts with `#` is a number to Windows Installer, so it is doubled.
+fn string_value(text: &str) -> String {
+    let value = formatted(text);
+    if value.starts_with('#') {
+        format!("#{value}")
+    } else {
+        value
+    }
 }
 
 /// A GUID made from names, so the same input gives the same id: a component keeps its id
@@ -153,6 +207,17 @@ fn short_name(index: usize, name: &str) -> String {
 /// can't hold a dash, which a component's id may.
 fn feature_id(component: &str) -> String {
     component.replace('-', "_")
+}
+
+/// One part of a registry key: the characters of a name that can't break the path.
+fn registry_part(name: &str) -> String {
+    let part: String = name.chars().map(|c| if matches!(c, '\\' | '/' | '[' | ']') || c.is_control() { ' ' } else { c }).collect();
+    let part = part.trim();
+    if part.is_empty() {
+        "App".into()
+    } else {
+        part.to_string()
+    }
 }
 
 fn is_user_scope(manifest: &Manifest) -> bool {
@@ -236,75 +301,262 @@ pub fn plan(project: &Project) -> Result<Plan> {
         });
     }
 
-    // Shortcuts live in the component of the program they start.
-    let mut shortcuts = Vec::new();
+    let publisher_key = format!("Software\\{}\\{}", registry_part(&app.publisher), registry_part(&app.name));
+    let mut registry: Vec<PlannedRegistry> = Vec::new();
+    let mut extra_components: Vec<PlannedComponent> = Vec::new();
+    let english = bach_pack::i18n::language("en").map(|language| language.strings);
+    let text_of = |key: Key| english.map(|strings| strings.get(key).to_string()).unwrap_or_default();
+
+    // The options of the install page are features, named like the setup file's own `--with` ids:
+    // `ADDLOCAL=desktop_shortcut` is `--with desktop-shortcut`.
+    let option = |choice: Choice, id: &str, title: Key, features: &mut Vec<PlannedFeature>| -> Option<String> {
+        match choice {
+            Choice::Never => None,
+            Choice::Always => Some("Main".to_string()),
+            Choice::On | Choice::Off => {
+                features.push(PlannedFeature {
+                    id: id.to_string(),
+                    parent: Some("Main".into()),
+                    title: text_of(title),
+                    level: if choice == Choice::On { 1 } else { 4 },
+                });
+                Some(id.to_string())
+            }
+        }
+    };
+    let desktop_feature = option(manifest.install.desktop_shortcut, "desktop_shortcut", Key::desktop_shortcut, &mut features);
+    let menu_feature = option(manifest.install.start_menu_shortcut, "start_menu", Key::start_menu, &mut features);
+    let autostart_feature = option(manifest.install.start_with_windows, "autostart", Key::start_with_windows, &mut features);
+    let path_feature = option(manifest.install.add_to_path, "path", Key::add_to_path, &mut features);
+
+    // A component that holds no file says it is installed with a registry value, as Windows Installer wants
+    // for anything it can't point at a file for.
+    let mut add_component = |id: &str, feature: &str, registry: &mut Vec<PlannedRegistry>, key_path: Option<String>| {
+        let key_path = key_path.unwrap_or_else(|| {
+            let row = format!("k_{id}");
+            registry.push(PlannedRegistry {
+                id: row.clone(),
+                key: publisher_key.clone(),
+                name: Some(id.to_string()),
+                value: "#1".into(),
+                component: id.to_string(),
+            });
+            row
+        });
+        extra_components.push(PlannedComponent { id: id.to_string(), feature: feature.to_string(), key_path });
+    };
+
+    // Shortcuts, each set in a component of its own so the option that offers it can leave it out.
     let program = manifest.files.iter().position(|file| file.path.eq_ignore_ascii_case(&app.executable));
-    if let Some(program) = program {
-        let (key, component) = (files[program].key.clone(), files[program].component.clone());
-        if manifest.install.start_menu_shortcut != Choice::Never {
+    let start_menu_folder = manifest.install.start_menu_folder.clone().filter(|name| !name.trim().is_empty());
+    let menu_folder_id = if start_menu_folder.is_some() { "StartMenuDir" } else { "ProgramMenuFolder" };
+    let mut shortcuts = Vec::new();
+    if let Some(feature) = &menu_feature {
+        add_component("cStart", feature, &mut registry, None);
+        if let Some(program) = program {
             shortcuts.push(PlannedShortcut {
                 id: "StartMenuShortcut".into(),
-                folder: "ProgramMenuFolder".into(),
+                folder: menu_folder_id.into(),
                 name: app.name.clone(),
-                file_key: key.clone(),
-                component: component.clone(),
+                file_key: files[program].key.clone(),
+                component: "cStart".into(),
                 arguments: None,
             });
         }
-        if matches!(manifest.install.desktop_shortcut, Choice::On | Choice::Always) {
-            shortcuts.push(PlannedShortcut {
-                id: "DesktopShortcut".into(),
-                folder: "DesktopFolder".into(),
-                name: app.name.clone(),
-                file_key: key,
-                component,
-                arguments: None,
-            });
+        for (index, extra) in manifest.shortcuts.iter().enumerate() {
+            if let Some(target) = manifest.files.iter().position(|file| file.path.eq_ignore_ascii_case(&extra.target)) {
+                shortcuts.push(PlannedShortcut {
+                    id: format!("ExtraShortcut{}", index + 1),
+                    folder: menu_folder_id.into(),
+                    name: extra.name.clone(),
+                    file_key: files[target].key.clone(),
+                    component: "cStart".into(),
+                    arguments: extra.arguments.clone(),
+                });
+            }
         }
     }
-    for (index, extra) in manifest.shortcuts.iter().enumerate() {
-        if let Some(target) = manifest.files.iter().position(|file| file.path.eq_ignore_ascii_case(&extra.target)) {
-            shortcuts.push(PlannedShortcut {
-                id: format!("ExtraShortcut{}", index + 1),
-                folder: "ProgramMenuFolder".into(),
-                name: extra.name.clone(),
-                file_key: files[target].key.clone(),
-                component: files[target].component.clone(),
-                arguments: extra.arguments.clone(),
-            });
-        }
+    if let (Some(feature), Some(program)) = (&desktop_feature, program) {
+        add_component("cDesktop", feature, &mut registry, None);
+        shortcuts.push(PlannedShortcut {
+            id: "DesktopShortcut".into(),
+            folder: "DesktopFolder".into(),
+            name: app.name.clone(),
+            file_key: files[program].key.clone(),
+            component: "cDesktop".into(),
+            arguments: None,
+        });
     }
 
-    let registry = manifest
-        .system
-        .registry
-        .iter()
-        .enumerate()
-        .map(|(index, value)| PlannedRegistry {
+    // [[registry]] values.
+    let first_user_row = registry.len();
+    for (index, value) in manifest.system.registry.iter().enumerate() {
+        registry.push(PlannedRegistry {
             id: format!("r{}", index + 1),
-            key: value.key.replace("{app}", "[INSTALLFOLDER]"),
-            name: Some(value.name.clone()).filter(|name| !name.is_empty()),
+            key: formatted(&value.key),
+            name: Some(formatted(&value.name)).filter(|name| !name.is_empty()),
             value: match &value.data {
-                RegistryData::String(text) => text.replace("{app}", "[INSTALLFOLDER]"),
-                RegistryData::Expand(text) => format!("#%{}", text.replace("{app}", "[INSTALLFOLDER]")),
+                RegistryData::String(text) => string_value(text),
+                RegistryData::Expand(text) => format!("#%{}", formatted(text)),
                 RegistryData::Dword(number) => format!("#{number}"),
             },
-        })
-        .collect();
+            component: "cRegistry".into(),
+        });
+    }
+    if let Some(first) = registry.get(first_user_row) {
+        let key_path = first.id.clone();
+        add_component("cRegistry", "Main", &mut registry, Some(key_path));
+    }
 
+    // Link schemes, file types and right-click entries are registry values too, under Classes.
+    let program_key = program.map(|index| files[index].key.clone());
+    if let Some(exe) = &program_key {
+        let command = |arguments: &str| format!("\"[#{exe}]\" {arguments}");
+        let first_integration = registry.len();
+        let row = |registry: &mut Vec<PlannedRegistry>, key: String, name: Option<&str>, value: String| {
+            let id = format!("i{}", registry.len() + 1);
+            registry.push(PlannedRegistry { id, key, name: name.map(str::to_string), value, component: "cIntegration".into() });
+        };
+        for protocol in &manifest.protocols {
+            let base = format!("Software\\Classes\\{}", protocol.scheme);
+            let description = protocol.description.clone().unwrap_or_else(|| format!("URL:{}", app.name));
+            row(&mut registry, base.clone(), None, formatted(&description));
+            row(&mut registry, base.clone(), Some("URL Protocol"), String::new());
+            row(&mut registry, format!("{base}\\DefaultIcon"), None, format!("[#{exe}],0"));
+            row(&mut registry, format!("{base}\\shell\\open\\command"), None, command("\"%1\""));
+        }
+        for file_type in &manifest.file_types {
+            let prog_id = file_type.prog_id(&app.id);
+            let base = format!("Software\\Classes\\{prog_id}");
+            let description = file_type.description.clone().unwrap_or_else(|| format!("{} file", app.name));
+            row(&mut registry, base.clone(), None, formatted(&description));
+            row(&mut registry, format!("{base}\\DefaultIcon"), None, format!("[#{exe}],0"));
+            row(&mut registry, format!("{base}\\shell\\open\\command"), None, command("\"%1\""));
+            row(&mut registry, format!("Software\\Classes\\{}\\OpenWithProgids", file_type.extension), Some(&prog_id), String::new());
+        }
+        for entry in &manifest.system.context_menu {
+            for target in &entry.on {
+                let base = format!("Software\\Classes\\{}\\shell\\{}", target.class(), entry.verb(&app.id));
+                let arguments = entry.arguments.as_deref().map(formatted).unwrap_or_else(|| target.default_argument().to_string());
+                row(&mut registry, base.clone(), None, formatted(&entry.name));
+                row(&mut registry, base.clone(), Some("Icon"), format!("[#{exe}],0"));
+                row(&mut registry, format!("{base}\\command"), None, command(&arguments));
+            }
+        }
+        if let Some(first) = registry.get(first_integration) {
+            let key_path = first.id.clone();
+            add_component("cIntegration", "Main", &mut registry, Some(key_path));
+        }
+        if let Some(feature) = &autostart_feature {
+            registry.push(PlannedRegistry {
+                id: "autostart".into(),
+                key: "Software\\Microsoft\\Windows\\CurrentVersion\\Run".into(),
+                name: Some(formatted(&app.id)),
+                value: format!("\"[#{exe}]\""),
+                component: "cAutostart".into(),
+            });
+            add_component("cAutostart", feature, &mut registry, Some("autostart".into()));
+        }
+    }
+
+    // Environment variables: `[[env]]`, and the install folder on PATH when that option is on.
+    let mut environment = Vec::new();
+    for (index, variable) in manifest.system.environment.iter().enumerate() {
+        environment.push(PlannedEnv {
+            id: format!("e{}", index + 1),
+            name: format!("=-{}", variable.name),
+            value: formatted(&variable.value),
+            component: "cEnv".into(),
+        });
+    }
+    if !environment.is_empty() {
+        add_component("cEnv", "Main", &mut registry, None);
+    }
+    if let Some(feature) = &path_feature {
+        let folder = match &manifest.install.path_folder {
+            Some(path) => folder_of(&format!("{path}/x"), &mut folders),
+            None => "INSTALLFOLDER".to_string(),
+        };
+        environment.push(PlannedEnv {
+            id: "path".into(),
+            name: "=-PATH".into(),
+            value: format!("[~];[{folder}]"),
+            component: "cPath".into(),
+        });
+        add_component("cPath", feature, &mut registry, None);
+    }
+
+    // Run steps are deferred custom actions that start a packaged program, before the shortcuts
+    // (after the install) or before the files go (on removal).
+    let mut actions = Vec::new();
     let mut skipped = Vec::new();
+    for (index, step) in manifest.run.iter().enumerate() {
+        let Some(file) = manifest.files.iter().position(|file| file.path.eq_ignore_ascii_case(&step.file)) else {
+            bail!("the run step \"{}\" names {}, which isn't among the files", step.name, step.file);
+        };
+        if step.elevated && !per_machine {
+            skipped.push(format!("the elevated run step \"{}\" (a per-user package never has administrator rights)", step.name));
+            continue;
+        }
+        let removing = step.when == RunWhen::Uninstall;
+        // 2: an executable, 16: from the File table, 1024: deferred, run in the install script.
+        let mut kind = 2 | 16 | 1024;
+        if step.ignore_errors || removing {
+            kind |= 64;
+        }
+        if step.elevated {
+            kind |= 2048;
+        }
+        let mut condition = match step.when {
+            RunWhen::Install => "NOT REMOVE".to_string(),
+            RunWhen::FirstInstall => "NOT Installed AND NOT PREVIOUSVERSIONSINSTALLED".to_string(),
+            RunWhen::Uninstall => "REMOVE=\"ALL\" AND NOT UPGRADINGPRODUCTCODE".to_string(),
+        };
+        if let Some(component) = &step.component {
+            let feature = feature_id(component);
+            condition.push_str(&if removing { format!(" AND ?{feature}=3") } else { format!(" AND &{feature}=3") });
+        }
+        if step.success_codes != [0] {
+            skipped.push(format!(
+                "the exit codes {:?} the run step \"{}\" accepts (Windows Installer accepts 0 only)",
+                step.success_codes, step.name
+            ));
+        }
+        actions.push(PlannedAction {
+            action: format!("Run{}", index + 1),
+            kind,
+            source: files[file].key.clone(),
+            target: step.arguments.as_deref().map(formatted),
+            sequence: if removing { 3400 + index as i32 } else { 4010 + index as i32 },
+            condition: Some(condition),
+        });
+    }
+    // Settings > Apps shows where the app is, as it does for the setup file.
+    actions.push(PlannedAction {
+        action: "SetARPINSTALLLOCATION".into(),
+        kind: 51,
+        source: "ARPINSTALLLOCATION".into(),
+        target: Some("[INSTALLFOLDER]".into()),
+        sequence: 1010,
+        condition: None,
+    });
+
+    // Requirements: the Windows build is checked by Windows Installer itself.
+    let mut launch = vec![("NOT NEWERPRODUCTFOUND".to_string(), "A newer version of [ProductName] is already installed.".to_string())];
+    for requirement in &manifest.requirements {
+        match &requirement.check {
+            Check::Windows { build } => {
+                launch.push((format!("WindowsBuild >= {build}"), format!("{} needs Windows build {build} or newer.", formatted(&app.name))))
+            }
+            _ => skipped.push(format!("the requirement \"{}\" (only a Windows build can be checked)", requirement.name)),
+        }
+    }
+
     for (present, what) in [
-        (!manifest.run.is_empty(), "[[run]] steps"),
-        (!manifest.requirements.is_empty(), "[[requirements]]"),
         (!manifest.system.migrate.is_empty(), "[[migrate]]"),
-        (!manifest.system.environment.is_empty(), "[[env]] variables"),
-        (!manifest.system.context_menu.is_empty(), "[[context_menu]] entries"),
-        (!manifest.protocols.is_empty(), "[[protocols]]"),
-        (!manifest.file_types.is_empty(), "[[file_types]]"),
-        (manifest.install.start_with_windows != Choice::Never, "start with Windows"),
-        (manifest.install.add_to_path != Choice::Never, "adding to PATH"),
         (manifest.updates.is_some(), "[updates] (an MSI is updated by installing a newer MSI)"),
         (!manifest.uninstall.data.is_empty(), "[uninstall] data folders"),
+        (manifest.locale.license.is_some(), "the license page (an MSI has no window of its own here)"),
         (
             manifest.components.iter().any(|component| component.download.is_some()),
             "downloaded components (their files are in the package)",
@@ -328,6 +580,11 @@ pub fn plan(project: &Project) -> Result<Plan> {
         features,
         shortcuts,
         registry,
+        extra_components,
+        environment,
+        actions,
+        launch,
+        start_menu_folder,
         skipped,
     })
 }
@@ -569,6 +826,37 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
         ],
     )?;
     create(&mut package, "CreateFolder", vec![id("Directory_", 72), id("Component_", 72)])?;
+    create(
+        &mut package,
+        "RemoveFolder",
+        vec![
+            id("FileKey", 72),
+            Column::build("Component_").category(Category::Identifier).string(72),
+            Column::build("DirProperty").category(Category::Identifier).string(72),
+            Column::build("InstallMode").int16(),
+        ],
+    )?;
+    create(
+        &mut package,
+        "Environment",
+        vec![
+            id("Environment", 72),
+            Column::build("Name").localizable().text_string(255),
+            Column::build("Value").nullable().localizable().formatted_string(255),
+            Column::build("Component_").category(Category::Identifier).string(72),
+        ],
+    )?;
+    create(
+        &mut package,
+        "CustomAction",
+        vec![
+            id("Action", 72),
+            Column::build("Type").int16(),
+            Column::build("Source").nullable().category(Category::CustomSource).string(72),
+            Column::build("Target").nullable().localizable().formatted_string(255),
+            Column::build("ExtendedType").nullable().int32(),
+        ],
+    )?;
     // The app's icon (app.icon), for Settings > Apps and the shortcuts, as the setup file gives them.
     let icon = project.icon.as_ref().and_then(|path| std::fs::read(path).ok().map(|bytes| (path, bytes)));
     if icon.is_some() {
@@ -609,6 +897,9 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
     directories.push(vec![text(base), text("TARGETDIR"), text(".")]);
     directories.push(vec![text("ProgramMenuFolder"), text("TARGETDIR"), text(".")]);
     directories.push(vec![text("DesktopFolder"), text("TARGETDIR"), text(".")]);
+    if let Some(name) = &plan.start_menu_folder {
+        directories.push(vec![text("StartMenuDir"), text("ProgramMenuFolder"), text(format!("STARTM~1|{name}"))]);
+    }
     let install_parent = if plan.per_machine {
         base.to_string()
     } else {
@@ -631,17 +922,17 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
         })
         .collect();
     let mut feature_components: Vec<Vec<Value>> = plan.files.iter().map(|file| vec![text(&file.feature), text(&file.component)]).collect();
-    if let Some(first) = plan.registry.first() {
+    for extra in &plan.extra_components {
         components.push(vec![
-            text("cRegistry"),
-            text(guid(&[&app.id, "component", "registry"])),
+            text(&extra.id),
+            text(guid(&[&app.id, "component", &extra.id])),
             text("INSTALLFOLDER"),
             // 256: a 64-bit component; 4: its key path is a registry value, not a file.
             Value::Int(attributes | 4),
             Value::Null,
-            text(&first.id),
+            text(&extra.key_path),
         ]);
-        feature_components.push(vec![text("Main"), text("cRegistry")]);
+        feature_components.push(vec![text(&extra.feature), text(&extra.id)]);
     }
     insert(&mut package, "Component", components)?;
     insert(&mut package, "FeatureComponents", feature_components)?;
@@ -753,7 +1044,14 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
         plan.registry
             .iter()
             .map(|value| {
-                vec![text(&value.id), Value::Int(-1), text(&value.key), optional(value.name.clone()), text(&value.value), text("cRegistry")]
+                vec![
+                    text(&value.id),
+                    Value::Int(-1),
+                    text(&value.key),
+                    optional(value.name.clone()),
+                    text(&value.value),
+                    text(&value.component),
+                ]
             })
             .collect(),
     )?;
@@ -783,43 +1081,68 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
             ],
         ],
     )?;
+    insert(&mut package, "LaunchCondition", plan.launch.iter().map(|(condition, message)| vec![text(condition), text(message)]).collect())?;
     insert(
         &mut package,
-        "LaunchCondition",
-        vec![vec![text("NOT NEWERPRODUCTFOUND"), text("A newer version of [ProductName] is already installed.")]],
+        "Environment",
+        plan.environment.iter().map(|var| vec![text(&var.id), text(&var.name), text(&var.value), text(&var.component)]).collect(),
     )?;
+    insert(
+        &mut package,
+        "CustomAction",
+        plan.actions
+            .iter()
+            .map(|action| {
+                vec![text(&action.action), Value::Int(action.kind), text(&action.source), optional(action.target.clone()), Value::Null]
+            })
+            .collect(),
+    )?;
+    if plan.start_menu_folder.is_some() {
+        insert(&mut package, "RemoveFolder", vec![vec![text("rf_start"), text("cStart"), text("StartMenuDir"), Value::Int(2)]])?;
+    }
     let sequence = |actions: &[(&str, i32)]| -> Vec<Vec<Value>> {
         actions.iter().map(|(action, number)| vec![text(*action), Value::Null, Value::Int(*number)]).collect()
     };
+    // The custom actions join the sequence with their conditions.
+    let mut run_rows: Vec<Vec<Value>> = plan
+        .actions
+        .iter()
+        .map(|action| vec![text(&action.action), optional(action.condition.clone()), Value::Int(action.sequence)])
+        .collect();
+    run_rows.extend(sequence(&[("RemoveEnvironmentStrings", 3300), ("WriteEnvironmentStrings", 5200)]));
     insert(
         &mut package,
         "InstallExecuteSequence",
-        sequence(&[
-            ("FindRelatedProducts", 200),
-            ("LaunchConditions", 410),
-            ("CostInitialize", 800),
-            ("FileCost", 900),
-            ("CostFinalize", 1000),
-            ("MigrateFeatureStates", 1200),
-            ("InstallValidate", 1400),
-            ("RemoveExistingProducts", 1450),
-            ("InstallInitialize", 1500),
-            ("ProcessComponents", 1600),
-            ("UnpublishFeatures", 1800),
-            ("RemoveRegistryValues", 2600),
-            ("RemoveShortcuts", 3200),
-            ("RemoveFiles", 3500),
-            ("RemoveFolders", 3600),
-            ("CreateFolders", 3700),
-            ("InstallFiles", 4000),
-            ("CreateShortcuts", 4500),
-            ("WriteRegistryValues", 5000),
-            ("RegisterUser", 6000),
-            ("RegisterProduct", 6100),
-            ("PublishFeatures", 6300),
-            ("PublishProduct", 6400),
-            ("InstallFinalize", 6600),
-        ]),
+        [
+            run_rows,
+            sequence(&[
+                ("FindRelatedProducts", 200),
+                ("LaunchConditions", 410),
+                ("CostInitialize", 800),
+                ("FileCost", 900),
+                ("CostFinalize", 1000),
+                ("MigrateFeatureStates", 1200),
+                ("InstallValidate", 1400),
+                ("RemoveExistingProducts", 1450),
+                ("InstallInitialize", 1500),
+                ("ProcessComponents", 1600),
+                ("UnpublishFeatures", 1800),
+                ("RemoveRegistryValues", 2600),
+                ("RemoveShortcuts", 3200),
+                ("RemoveFiles", 3500),
+                ("RemoveFolders", 3600),
+                ("CreateFolders", 3700),
+                ("InstallFiles", 4000),
+                ("CreateShortcuts", 4500),
+                ("WriteRegistryValues", 5000),
+                ("RegisterUser", 6000),
+                ("RegisterProduct", 6100),
+                ("PublishFeatures", 6300),
+                ("PublishProduct", 6400),
+                ("InstallFinalize", 6600),
+            ]),
+        ]
+        .concat(),
     )?;
     insert(
         &mut package,

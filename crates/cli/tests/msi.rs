@@ -76,8 +76,11 @@ fn an_msi_holds_the_files_the_shortcuts_and_the_upgrade_rules() {
         "{directories:?}"
     );
     assert_eq!(rows(&mut package, "Shortcut").len(), 2, "the Start menu shortcut and the desktop one, which is on by default");
-    assert_eq!(rows(&mut package, "Registry")[0][3], "InstallPath");
-    assert_eq!(rows(&mut package, "Registry")[0][4], "[INSTALLFOLDER]");
+    let registry = rows(&mut package, "Registry");
+    let install_path = registry.iter().find(|row| row[3] == "InstallPath").expect("the [[registry]] value");
+    assert_eq!(install_path[4], "[INSTALLFOLDER]");
+    // Every component that holds no file says it is installed with a registry value of its own.
+    assert!(registry.iter().any(|row| row[5] == "cStart") && registry.iter().any(|row| row[5] == "cDesktop"));
     let upgrades = rows(&mut package, "Upgrade");
     assert_eq!(upgrades.len(), 2);
     assert!(upgrades.iter().any(|row| row[6] == "PREVIOUSVERSIONSINSTALLED") && upgrades.iter().any(|row| row[6] == "NEWERPRODUCTFOUND"));
@@ -97,20 +100,126 @@ fn an_msi_holds_the_files_the_shortcuts_and_the_upgrade_rules() {
 }
 
 #[test]
-fn what_an_msi_cant_carry_is_said_and_a_machine_scope_is_per_machine() {
+fn what_the_setup_file_does_beyond_files_is_in_the_package_too() {
     need_runtime!();
-    let extra = "[installer]\nscope = \"machine\"\ndesktop_shortcut = true\n\n[[protocols]]\nscheme = \"hello\"\n\n[[env]]\nname = \"BACHMSIMACHINE_HOME\"\nvalue = \"{app}\"\n";
+    let extra = "[installer]
+scope = \"machine\"
+desktop_shortcut = \"never\"
+start_with_windows = true
+add_to_path = \"always\"
+start_menu_folder = \"Example Co\"
+
+        [[protocols]]
+scheme = \"hello\"
+
+[[file_types]]
+extension = \".hello\"
+
+        [[context_menu]]
+name = \"Open with Hello\"
+on = [\"files\"]
+
+        [[env]]
+name = \"BACHMSIMACHINE_HOME\"
+value = \"{app}\"
+
+        [[run]]
+name = \"Set up\"
+file = \"hello.exe\"
+arguments = \"--setup\"
+when = \"first_install\"
+
+        [[run]]
+name = \"Clean up\"
+file = \"hello.exe\"
+when = \"uninstall\"
+
+        [[requirements]]
+kind = \"windows\"
+build = 17763
+";
     let dir = msi_project("msi-machine", "BachMsiMachine", extra);
     let out = run(&dir, &["build", "--fast", "--msi"]);
     let said = text(&out.stdout);
-    assert!(out.status.success(), "{}\n{}", said, text(&out.stderr));
-    assert!(said.contains("not in the MSI: [[env]] variables") && said.contains("not in the MSI: [[protocols]]"), "{said}");
+    assert!(
+        out.status.success(),
+        "{}
+{}",
+        said,
+        text(&out.stderr)
+    );
+    assert!(!said.contains("not in the MSI"), "everything in this config has a place in the package: {said}");
     let mut package = msi::open(dir.join("dist/Hello-Setup-1.0.0.msi")).unwrap();
     let property = rows(&mut package, "Property");
     assert!(property.iter().any(|row| row[0] == "ALLUSERS" && row[1] == "1"));
     assert!(!property.iter().any(|row| row[0] == "MSIINSTALLPERUSER"));
     assert!(rows(&mut package, "Directory").iter().any(|row| row[0] == "ProgramFiles64Folder"));
-    assert_eq!(rows(&mut package, "Shortcut").len(), 2, "Start menu and desktop");
+    let shortcuts = rows(&mut package, "Shortcut");
+    assert_eq!(shortcuts.len(), 1, "Start menu only: the desktop shortcut is never offered");
+    assert_eq!(shortcuts[0][1], "StartMenuDir", "in the Start menu folder the config names");
+    assert!(rows(&mut package, "RemoveFolder").iter().any(|row| row[2] == "StartMenuDir"));
+
+    // Options of the install page are features named like the setup file's --with ids.
+    let features: Vec<String> = rows(&mut package, "Feature").into_iter().map(|row| row[0].clone()).collect();
+    assert!(features.contains(&"Main".to_string()));
+    let registry = rows(&mut package, "Registry");
+    let at = |key: &str, name: &str| registry.iter().any(|row| row[2] == key && row[3] == name);
+    assert!(
+        registry.iter().any(|row| row[2] == r"Software\Microsoft\Windows\CurrentVersion\Run" && row[3] == "BachMsiMachine"),
+        "start with Windows"
+    );
+    assert!(at(r"Software\Classes\hello", "URL Protocol"), "the link scheme");
+    assert!(registry.iter().any(|row| row[2].ends_with(r"\.hello\OpenWithProgids")), "the file type's Open with entry");
+    assert!(
+        registry.iter().any(|row| row[2].starts_with(r"Software\Classes\*\shell\Bach.BachMsiMachine.OpenwithHello")),
+        "the right-click entry"
+    );
+    let environment = rows(&mut package, "Environment");
+    assert!(environment.iter().any(|row| row[1] == "=-BACHMSIMACHINE_HOME" && row[2] == "[INSTALLFOLDER]"));
+    assert!(environment.iter().any(|row| row[1] == "=-PATH" && row[2] == "[~];[INSTALLFOLDER]"), "{environment:?}");
+    let actions = rows(&mut package, "CustomAction");
+    assert!(actions.iter().any(|row| row[0] == "Run1" && row[1] == "1042"), "a deferred run of a packaged program: {actions:?}");
+    assert!(actions.iter().any(|row| row[0] == "Run2" && row[1] == "1106"), "removal never stops for a failed step");
+    assert!(actions.iter().any(|row| row[0] == "SetARPINSTALLLOCATION" && row[1] == "51"));
+    let launch = rows(&mut package, "LaunchCondition");
+    assert!(launch.iter().any(|row| row[0] == "WindowsBuild >= 17763"), "{launch:?}");
+    let sequence = rows(&mut package, "InstallExecuteSequence");
+    let seq = |name: &str| sequence.iter().find(|row| row[0] == name).map(|row| (row[1].clone(), row[2].parse::<i32>().unwrap())).unwrap();
+    assert!(
+        seq("Run1").1 > seq("InstallFiles").1 && seq("Run2").1 < seq("RemoveFiles").1,
+        "install steps after the files, removal steps before them"
+    );
+    assert_eq!(seq("Run1").0, "NOT Installed AND NOT PREVIOUSVERSIONSINSTALLED");
+    assert_eq!(seq("Run2").0, "REMOVE=\"ALL\" AND NOT UPGRADINGPRODUCTCODE");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn what_an_msi_still_cant_carry_is_said() {
+    need_runtime!();
+    let extra = "[[migrate]]
+uninstall_key = \"OldApp_is1\"
+
+[uninstall]
+data = ['%APPDATA%\\BachMsiLeft']
+
+        [[requirements]]
+kind = \"webview2\"
+
+[[run]]
+name = \"Strict\"
+file = \"hello.exe\"
+when = \"install\"
+success_codes = [0, 3010]
+";
+    let dir = msi_project("msi-skipped", "BachMsiLeft", extra);
+    let out = run(&dir, &["build", "--fast", "--msi", "--json"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let object: serde_json::Value = serde_json::from_str(&text(&out.stdout)).unwrap();
+    let skipped: Vec<&str> = object["msi_skipped"].as_array().unwrap().iter().map(|item| item.as_str().unwrap()).collect();
+    for what in ["[[migrate]]", "[uninstall] data folders", "the requirement", "the exit codes"] {
+        assert!(skipped.iter().any(|item| item.contains(what)), "{what} should be said: {skipped:?}");
+    }
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -227,5 +336,95 @@ fn the_apps_icon_goes_into_the_package_for_settings_apps_and_the_shortcuts() {
     let mut stored = Vec::new();
     package.read_stream("Icon.AppIcon.ico").unwrap().read_to_end(&mut stored).unwrap();
     assert_eq!(stored, icon, "the icon comes out as it went in");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A registry value as `reg query` prints it, or None when it isn't there.
+#[cfg(windows)]
+fn reg_value(key: &str, name: &str) -> Option<String> {
+    let out = std::process::Command::new("reg")
+        .args(["query", key])
+        .args(if name.is_empty() { vec!["/ve"] } else { vec!["/v", name] })
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let line = text.lines().find(|line| line.trim_start().starts_with(if name.is_empty() { "(" } else { name }))?;
+    let mut parts = line.trim().splitn(3, "    ");
+    parts.next()?;
+    parts.next()?;
+    Some(parts.next().unwrap_or("").trim().to_string())
+}
+
+#[test]
+#[ignore = "installs and removes a throwaway app with Windows Installer on this computer"]
+#[cfg(windows)]
+fn windows_installer_does_everything_to_windows_the_setup_file_does() {
+    need_runtime!();
+    let id = "BachMsiEverything";
+    let extra = "[installer]\nadd_to_path = true\nstart_with_windows = true\nstart_menu_folder = \"Bach Msi Test Co\"\n\n\
+        [[protocols]]\nscheme = \"bachmsieverything\"\n\n\
+        [[file_types]]\nextension = \".bmsi\"\n\n\
+        [[context_menu]]\nname = \"Open with Everything\"\non = [\"files\"]\n\n\
+        [[env]]\nname = \"BACHMSIEVERYTHING_HOME\"\nvalue = \"{app}\"\n\n\
+        [[run]]\nname = \"Set up\"\nfile = \"tool.exe\"\narguments = '/c echo ran> \"{app}ran.txt\"'\nwhen = \"install\"\n\n\
+        [[run]]\nname = \"Clean up\"\nfile = \"tool.exe\"\narguments = '/c echo bye> \"%TEMP%\\bachmsi-everything-bye.txt\"'\nwhen = \"uninstall\"\n";
+    let dir = msi_project("msi-everything", id, extra);
+    std::fs::copy(std::env::var_os("SystemRoot").map(PathBuf::from).unwrap().join("System32").join("cmd.exe"), dir.join("app/tool.exe"))
+        .unwrap();
+    let out = run(&dir, &["build", "--fast", "--msi", "--out", "pkg/Setup.exe"]);
+    assert!(out.status.success(), "{}\n{}", text(&out.stdout), text(&out.stderr));
+    let package = dir.join("pkg").join("Setup.msi");
+    let path_of = |msi: &Path| msi.components().collect::<PathBuf>().display().to_string();
+    let _cleanup = Cleanup(package.clone());
+    let folder = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap().join("Programs").join(id);
+    let folder_text = folder.display().to_string();
+    let bye = std::env::temp_dir().join("bachmsi-everything-bye.txt");
+    let _ = std::fs::remove_file(&bye);
+    let log = dir.join("install.log").display().to_string();
+
+    assert_eq!(msiexec(&["/i", &path_of(&package), "/l*v", &log]), 0, "{}", read_log(&dir.join("install.log")));
+    assert!(folder.join("hello.exe").is_file());
+    // The run step ran after the files were there, in the install folder's name.
+    assert!(std::fs::read_to_string(folder.join("ran.txt")).unwrap().starts_with("ran"));
+    // Environment: the variable, and the folder on PATH (the rest of PATH kept).
+    let home = reg_value(r"HKCU\Environment", "BACHMSIEVERYTHING_HOME").expect("the variable");
+    assert!(home.trim_end_matches('\\').eq_ignore_ascii_case(&folder_text), "{home}");
+    let path = reg_value(r"HKCU\Environment", "Path").expect("PATH");
+    assert!(path.to_ascii_lowercase().contains(&folder_text.to_ascii_lowercase()), "{path}");
+    // Start with Windows, the link scheme, the file type and the right-click entry.
+    let run_value = reg_value(r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", id).expect("the Run entry");
+    assert!(run_value.to_ascii_lowercase().contains("hello.exe"), "{run_value}");
+    let command = reg_value(r"HKCU\Software\Classes\bachmsieverything\shell\open\command", "").expect("the link scheme");
+    assert!(command.contains("hello.exe") && command.contains("%1"), "{command}");
+    assert!(reg_value(r"HKCU\Software\Classes\.bmsi\OpenWithProgids", &format!("{id}.bmsi")).is_some());
+    assert!(reg_value(&format!(r"HKCU\Software\Classes\*\shell\Bach.{id}.OpenwithEverything\command"), "").is_some());
+    // Settings > Apps knows where the app is, and the Start menu has the app's own folder.
+    let start = std::env::var_os("APPDATA").map(PathBuf::from).unwrap().join(r"Microsoft\Windows\Start Menu\Programs\Bach Msi Test Co");
+    assert!(start.join("Hello.lnk").is_file(), "{}", start.display());
+
+    assert_eq!(
+        msiexec(&["/x", &path_of(&package), "/l*v", &dir.join("remove.log").display().to_string()]),
+        0,
+        "{}",
+        read_log(&dir.join("remove.log"))
+    );
+    // What the install put there is gone; what a run step wrote (ran.txt) is the app's own business, as with the setup file.
+    assert!(!folder.join("hello.exe").exists());
+    let left: Vec<_> = std::fs::read_dir(&folder)
+        .map(|entries| entries.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect())
+        .unwrap_or_default();
+    assert!(left.iter().all(|name| name == "ran.txt"), "{left:?}");
+    let _ = std::fs::remove_dir_all(&folder);
+    assert!(std::fs::read_to_string(&bye).unwrap().starts_with("bye"), "the removal step ran before the files went");
+    let _ = std::fs::remove_file(&bye);
+    assert!(reg_value(r"HKCU\Environment", "BACHMSIEVERYTHING_HOME").is_none(), "the variable is gone");
+    let path = reg_value(r"HKCU\Environment", "Path").unwrap_or_default();
+    assert!(!path.to_ascii_lowercase().contains(&folder_text.to_ascii_lowercase()), "PATH is as it was: {path}");
+    assert!(reg_value(r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", id).is_none());
+    assert!(reg_value(r"HKCU\Software\Classes\bachmsieverything\shell\open\command", "").is_none());
+    assert!(!start.exists(), "the Start menu folder is gone");
     std::fs::remove_dir_all(&dir).unwrap();
 }
