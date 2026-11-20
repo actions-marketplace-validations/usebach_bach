@@ -20,7 +20,7 @@ toml = "1.2"
 msi = "0.11"
 cab = "0.6"
 uuid = "1"
-zip = { version = "9", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 
 # Writing the setup file's icon and version details uses Windows' own
 # resource updater; elsewhere the builder skips that step and says so.
@@ -28,4 +28,4 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
-zip = { version = "9", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }

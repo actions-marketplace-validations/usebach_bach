@@ -56,6 +56,10 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 windows-registry = "0.100"
+# Not used here: the zip crate (bach-cli) asks for this feature of windows-sys, and a feature only one
+# of the two asks for would build bach-setup differently when both are built together, which
+# build-release.ps1 would then reject. Asking for it here keeps the two builds the same program.
+windows-sys = { version = "0.61", features = ["Win32_Security_Authorization"] }
 sha2 = "0.11"
 
 [target.'cfg(windows)'.build-dependencies]
