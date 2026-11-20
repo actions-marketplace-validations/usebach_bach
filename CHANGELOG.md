@@ -2,6 +2,51 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.9.0 (2026-11-20)
+
+### New
+
+- Show Bach's window when an MSI is opened: setup asks the questions and Windows Installer does the work ([6a31e4b](https://github.com/usebach/bach/commit/6a31e4b1dff1d555ac39c77b6406464ec3971e84))
+- Add the text for a Windows Installer error ([0e01977](https://github.com/usebach/bach/commit/0e019777c7867664e7303f8b6c70a03a2f16e0d3))
+- Add bach build --msi: a Windows Installer package of the app ([e5ead60](https://github.com/usebach/bach/commit/e5ead60c2fed1e009a6b30ed69d0757a8511a659))
+- Let a component's files be downloaded when it is ticked: manifest, config and text ([c967137](https://github.com/usebach/bach/commit/c967137c21aacd31c4af8eb92c9961feaee087f4))
+- Let the update feed list a signed setup file per architecture, and pick one by machine ([7161cf9](https://github.com/usebach/bach/commit/7161cf93f1c1edcfed9a9f670d9d469d998083aa))
+- Add bach test: install, start and remove a setup file in Windows Sandbox ([be2b6fb](https://github.com/usebach/bach/commit/be2b6fb9ae490fa65533976c1ee2357e6250016b))
+- Add bach build --profile, --all-profiles and bach profiles, with ZIP builds ([1e05b9d](https://github.com/usebach/bach/commit/1e05b9dd1760f6226bd671ff15b4105d7dd18780))
+- Add bach workflow --winget: open the winget update PR after each release ([c3e3080](https://github.com/usebach/bach/commit/c3e3080e1204b57ade804926165ef49b582e6dab))
+- Add bach diff: what changed between two setup files ([23d1938](https://github.com/usebach/bach/commit/23d1938efaffea0377a2e8070609e01890b292d1))
+- Offer Repair in the installer window when this version is installed ([1b13210](https://github.com/usebach/bach/commit/1b132103810f69186cae44ff5b046d93fb069a88))
+
+### Improvements
+
+- Keep bach-setup the same program alone and built with bach, so the release check passes ([c8ebf0a](https://github.com/usebach/bach/commit/c8ebf0ad91c5684b7a686719c49c3be171658970))
+- Format the MSI window code ([188feea](https://github.com/usebach/bach/commit/188feeab4e8d61fdae4a24e02b949297b6f49b2a))
+- Document the window of an MSI ([6872fcf](https://github.com/usebach/bach/commit/6872fcf3104da599f9818db6484ba4044fa881dc))
+- Put the window into the MSI: its program, the interface sequence and the actions that start it ([d295858](https://github.com/usebach/bach/commit/d2958581f57a7e2ae810712660acedd4559b0e28))
+- Make the MSI do what the setup file does: options as features, PATH, variables, autostart, link schemes, file types, right-click entries, run steps ([691d9ca](https://github.com/usebach/bach/commit/691d9ca56367659e9b54f215c3642bad8f4cf8a2))
+- Use zip 9 (the 2.x advisories fail cargo deny) and gate Windows-only test helpers ([513bcfb](https://github.com/usebach/bach/commit/513bcfbd9419ef4bf55e07bf251d31f8f4af59d7))
+- Put the app icon in the MSI and name its features like the components ([86725d3](https://github.com/usebach/bach/commit/86725d33c4a1c85f1ac0258a085d0a6a20e02902))
+- Give bach styles and layouts --json the colours and settings the designer draws ([b350de0](https://github.com/usebach/bach/commit/b350de00ecf3293743aee90889b54bcc0ee76b3f))
+- Document Windows Installer packages ([bb1e4f8](https://github.com/usebach/bach/commit/bb1e4f8043e70ebaab38f91475d6fef73b49a256))
+- Document binary deltas in update patches ([39cb2c3](https://github.com/usebach/bach/commit/39cb2c39ace5ae1642cedc31681bd228e5d98195))
+- Build update patches with binary deltas for changed files, and let verify step over them ([3f9df22](https://github.com/usebach/bach/commit/3f9df22f6f84830e20f9cf5c452bdc026e9ba2b0))
+- Expand a binary delta from the installed file when applying an update patch ([bb06193](https://github.com/usebach/bach/commit/bb06193a9ab8506984f27eac6a92e0110391a091))
+- Store a changed file as a binary delta from its earlier version in the archive ([91d8b44](https://github.com/usebach/bach/commit/91d8b44b1b1d61a604e65e36ee2db91aaa0b2dc9))
+- Document components that are downloaded when ticked ([803df6b](https://github.com/usebach/bach/commit/803df6baeed9653998efbe46fed84a58f55eb707))
+- Write each downloaded component to its own .bachpack, and teach verify and inspect about it ([da7f2f0](https://github.com/usebach/bach/commit/da7f2f066ce9bc61dc63a55dddcc409736a7ee37))
+- Download a component's archive before installing and read it like the setup file's own ([6e3d6ad](https://github.com/usebach/bach/commit/6e3d6ad632a12b27ee73fb4ff8733c319455f5be))
+- Document one download for x64 and ARM64 ([1ee10ac](https://github.com/usebach/bach/commit/1ee10ac446f54abfc13532556c6ec19b8aac2da8))
+- Build an ARM64 setup file next to the x64 one and list both in the feed ([3edeea8](https://github.com/usebach/bach/commit/3edeea817f78574aa944074ead00ffd4abe2350a))
+- Read [arch.arm64] in bach.toml: the ARM64 build of the app's files ([3e388e8](https://github.com/usebach/bach/commit/3e388e8cd3f8a5f9958cae881c5e1a7382670fc1))
+- Document bach test ([e0aad64](https://github.com/usebach/bach/commit/e0aad64eb3575d21198d89d5b639d4ba83cc2eef))
+- Document profiles: company versions and portable ZIPs ([b0a4fa5](https://github.com/usebach/bach/commit/b0a4fa580363910ea71a221cc16c50d2174b8c45))
+- Read [profiles] in bach.toml and lay a profile over the config ([e16a5e2](https://github.com/usebach/bach/commit/e16a5e2a5c765b113eb56ea1e23bddc24cdeab1a))
+- Teach the editor schema the repair_button text ([ec70b0b](https://github.com/usebach/bach/commit/ec70b0b9f8259b77f47d724644693392060ca436))
+- Escape every invisible character in bach diff and key entries by position ([13ccb10](https://github.com/usebach/bach/commit/13ccb105e8ba202f2f0c59a93496f122130da4ef))
+- Print only safe text in bach diff and compare every field of an entry ([248ab66](https://github.com/usebach/bach/commit/248ab669127674b1fcc9394014c837a5265ee240))
+
+All changes: [v0.8...v0.9.0](https://github.com/usebach/bach/compare/v0.8...v0.9.0)
+
 ## 0.8.0 (2026-11-18)
 
 ### New
