@@ -169,6 +169,13 @@ enum Command {
         /// Build the main setup file and every profile.
         #[arg(long, conflicts_with = "profile")]
         all_profiles: bool,
+        /// The ARM64 setup runtime (bach-setup.exe from the ARM64 release) for
+        /// [arch.arm64] in bach.toml, when the config doesn't name one.
+        #[arg(long, env = "BACH_RUNTIME_ARM64")]
+        runtime_arm64: Option<PathBuf>,
+        /// Build only the x64 setup file, even when bach.toml has [arch.arm64].
+        #[arg(long)]
+        x64_only: bool,
         /// Write the setup file here instead of installer.output.
         #[arg(long, short)]
         out: Option<PathBuf>,
@@ -270,6 +277,14 @@ enum Command {
         /// Write the feed here instead of latest.json next to the setup file.
         #[arg(long, short)]
         out: Option<PathBuf>,
+        /// The ARM64 setup file of the same version (built with the ARM64
+        /// runtime), to list for computers that run on ARM64.
+        #[arg(long)]
+        arm64: Option<PathBuf>,
+        /// The https link the ARM64 setup file is downloaded from (default:
+        /// the download link of [updates] in bach.toml, for its file name).
+        #[arg(long, requires = "arm64")]
+        arm64_url: Option<String>,
         /// An update patch made by `bach build --patch-from`, to offer to
         /// computers that have the version it updates from.
         #[arg(long)]
@@ -457,25 +472,41 @@ fn main() -> ExitCode {
             builder::check(&config, app_version.as_deref(), profile.as_deref(), strict)
         }
         Command::Profiles { config } => profiles::command(&config),
-        Command::Build { config, profile, all_profiles, out, runtime, fast, app_version, online, key_file, sign, patch_from, strict } => {
-            builder::build_all(
-                builder::BuildOptions {
-                    config: &config,
-                    profile: None,
-                    out: out.as_deref(),
-                    runtime: runtime.as_deref(),
-                    fast,
-                    version: app_version.as_deref(),
-                    online,
-                    key_file: key_file.as_deref(),
-                    sign,
-                    patch_from: patch_from.as_deref(),
-                    strict,
-                },
-                &profile,
-                all_profiles,
-            )
-        }
+        Command::Build {
+            config,
+            profile,
+            all_profiles,
+            runtime_arm64,
+            x64_only,
+            out,
+            runtime,
+            fast,
+            app_version,
+            online,
+            key_file,
+            sign,
+            patch_from,
+            strict,
+        } => builder::build_all(
+            builder::BuildOptions {
+                config: &config,
+                runtime_arm64: runtime_arm64.as_deref(),
+                x64_only,
+                arch: None,
+                profile: None,
+                out: out.as_deref(),
+                runtime: runtime.as_deref(),
+                fast,
+                version: app_version.as_deref(),
+                online,
+                key_file: key_file.as_deref(),
+                sign,
+                patch_from: patch_from.as_deref(),
+                strict,
+            },
+            &profile,
+            all_profiles,
+        ),
         Command::Key { count, out } => key::command(count, out.as_deref()),
         Command::FeedKey { out } => feed::key_command(out.as_deref()),
         Command::Sign { file, config } => sign::command(sign::Options { file: &file, config: &config }),
@@ -524,17 +555,21 @@ fn main() -> ExitCode {
             winget: winget.as_deref(),
         }),
         Command::Intune { file, out } => intune::command(intune::Options { setup: &file, out: out.as_deref() }),
-        Command::Feed { file, url, config, notes, notes_file, rollout, out, patch, patch_url } => feed::command(feed::Options {
-            setup: &file,
-            url: url.as_deref(),
-            config: config.as_deref(),
-            notes: notes.as_deref(),
-            notes_file: notes_file.as_deref(),
-            rollout,
-            out: out.as_deref(),
-            patch: patch.as_deref(),
-            patch_url: patch_url.as_deref(),
-        }),
+        Command::Feed { file, url, config, notes, notes_file, rollout, out, arm64, arm64_url, patch, patch_url } => {
+            feed::command(feed::Options {
+                arm64: arm64.as_deref(),
+                arm64_url: arm64_url.as_deref(),
+                setup: &file,
+                url: url.as_deref(),
+                config: config.as_deref(),
+                notes: notes.as_deref(),
+                notes_file: notes_file.as_deref(),
+                rollout,
+                out: out.as_deref(),
+                patch: patch.as_deref(),
+                patch_url: patch_url.as_deref(),
+            })
+        }
     };
     let code = match result {
         Ok(()) => {

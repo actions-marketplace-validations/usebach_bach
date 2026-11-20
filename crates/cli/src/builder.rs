@@ -19,7 +19,15 @@ use crate::runtime;
 /// Loads the config, with the version of a release tag instead of
 /// `app.version` when one is given, and laid over with a profile when one is named.
 pub(crate) fn load(config_path: &Path, version: Option<&str>, profile: Option<&str>) -> Result<Project> {
-    config::load_with(config_path, &Overrides { version: version.map(String::from), profile: profile.map(String::from) })
+    load_arch(config_path, version, profile, None)
+}
+
+/// [`load`] for the setup file of another architecture (`arm64`), from `[arch.arm64]`.
+pub(crate) fn load_arch(config_path: &Path, version: Option<&str>, profile: Option<&str>, arch: Option<&str>) -> Result<Project> {
+    config::load_with(
+        config_path,
+        &Overrides { version: version.map(String::from), profile: profile.map(String::from), arch: arch.map(String::from) },
+    )
 }
 
 /// With `--strict`, a warning is an error: the build is held back until the
@@ -65,6 +73,12 @@ pub fn check(config_path: &Path, version: Option<&str>, profile: Option<&str>, s
 /// What `bach build` was asked for.
 pub struct BuildOptions<'a> {
     pub config: &'a Path,
+    /// The ARM64 setup runtime for `[arch.arm64]` (`--runtime-arm64`), when bach.toml doesn't name one.
+    pub runtime_arm64: Option<&'a Path>,
+    /// Build only the main (x64) setup file, even when bach.toml has `[arch.arm64]`.
+    pub x64_only: bool,
+    /// Build the setup file of this architecture (set when the main build asks for it).
+    pub arch: Option<&'a str>,
     /// Build this profile of the config (`[profiles.NAME]`) instead of the main file.
     pub profile: Option<&'a str>,
     pub out: Option<&'a Path>,
@@ -190,16 +204,33 @@ pub fn build_all(options: BuildOptions, profiles: &[String], all: bool) -> Resul
 }
 
 pub fn build(options: BuildOptions) -> Result<Built> {
-    let BuildOptions { config: config_path, profile, out, runtime, fast, version, online, key_file, sign, patch_from, strict } = options;
+    let BuildOptions {
+        config: config_path,
+        runtime_arm64,
+        x64_only,
+        arch,
+        profile,
+        out,
+        runtime,
+        fast,
+        version,
+        online,
+        key_file,
+        sign,
+        patch_from,
+        strict,
+    } = options;
     let started = Instant::now();
-    let mut project = load(config_path, version, profile)?;
+    let mut project = load_arch(config_path, version, profile, arch)?;
     if project.kind == config::ProfileKind::Zip {
         return build_zip(&project, out, strict);
     }
     if fast {
         project.compression = Compression::Fast;
     }
-    if online {
+    // Only the main build writes the online installer, the patch and the feed.
+    let is_arch = project.arch.is_some();
+    if online && !is_arch {
         project.online = true;
     }
     if project.online && project.manifest.updates.is_none() {
@@ -210,10 +241,13 @@ pub fn build(options: BuildOptions) -> Result<Built> {
     let output = out.map(Path::to_path_buf).unwrap_or_else(|| project.output.clone());
     let runtime = runtime::find(runtime)?;
     let app = &project.manifest.app;
-    match &project.profile {
-        Some(name) => say!("Building {} {} as the {name} profile", app.name, app.version),
-        None => say!("Building {} {}", app.name, app.version),
-    }
+    let what = match (&project.profile, &project.arch) {
+        (Some(name), Some(arch)) => format!(" as the {name} profile, for {arch}"),
+        (Some(name), None) => format!(" as the {name} profile"),
+        (None, Some(arch)) => format!(" for {arch}"),
+        (None, None) => String::new(),
+    };
+    say!("Building {} {}{what}", app.name, app.version);
     summary(&project);
 
     output::warnings(&project.warnings);
@@ -233,8 +267,10 @@ pub fn build(options: BuildOptions) -> Result<Built> {
     let installed = project.manifest.total_size().max(1);
     say!();
     say!("Wrote {} ({})", output.display(), output::size(size));
-    if project.profile.is_none() {
-        output::result("setup", output.display().to_string());
+    match (&project.arch, &project.profile) {
+        (Some(arch), None) => output::result(&format!("setup_{arch}"), output.display().to_string()),
+        (None, None) => output::result("setup", output.display().to_string()),
+        _ => {}
     }
     output::result("version", project.manifest.app.version.clone());
     // Signing is optional: it needs [signing] and a --sign from whoever runs the build.
@@ -253,7 +289,7 @@ pub fn build(options: BuildOptions) -> Result<Built> {
             crate::sign::sign(signing, &online_output, publisher)?;
         }
     }
-    let patch = match patch_from {
+    let patch = match patch_from.filter(|_| !is_arch) {
         Some(old) => {
             let (patch, from) = write_patch(&project, old, &runtime, &output, key_file)?;
             if let Some(signing) = signing {
@@ -269,9 +305,26 @@ pub fn build(options: BuildOptions) -> Result<Built> {
     } else if sign && project.signing.is_none() {
         bail!("--sign was given, but bach.toml has no [signing] section that says how to sign");
     }
+    // The setup files for the other architectures, before the feed that lists them.
+    let mut arch_files: Vec<(String, PathBuf)> = Vec::new();
+    if !is_arch && !x64_only {
+        for other in &project.arches {
+            let arm_runtime = arch_runtime(runtime_arm64, other)?;
+            say!();
+            let built = build(BuildOptions {
+                arch: Some(&other.name),
+                runtime: Some(&arm_runtime),
+                out: None,
+                online: false,
+                patch_from: None,
+                ..options
+            })?;
+            arch_files.push((other.name.clone(), built.path));
+        }
+    }
     // The update feed describes the main setup file; a profile's file isn't what installed apps update to.
-    if project.manifest.updates.is_some() && project.profile.is_none() {
-        crate::feed::after_build(&project, &output, patch.as_ref().map(|(file, from)| (file.as_path(), from.as_str())))?;
+    if project.manifest.updates.is_some() && project.profile.is_none() && !is_arch {
+        crate::feed::after_build(&project, &output, patch.as_ref().map(|(file, from)| (file.as_path(), from.as_str())), &arch_files)?;
     }
     if output::json() {
         // Of the file as it is now: signed, if it was signed.
@@ -292,6 +345,33 @@ pub fn build(options: BuildOptions) -> Result<Built> {
         ),
     );
     Ok(Built { path: output, profile: project.profile.clone(), kind: project.kind, size: final_size })
+}
+
+/// The setup runtime of another architecture: `--runtime-arm64` (or
+/// `BACH_RUNTIME_ARM64`), else the one `[arch.arm64]` names. It must be a
+/// program for that architecture, because it ends up inside the setup file.
+fn arch_runtime(given: Option<&Path>, arch: &config::ArchBuild) -> Result<PathBuf> {
+    let Some(path) = given.map(Path::to_path_buf).or_else(|| arch.runtime.clone()) else {
+        bail!(
+            "bach.toml has [arch.{name}], so the build also writes the {name} setup file, and that needs the {name} setup runtime. \
+             Pass --runtime-arm64 FILE (or set BACH_RUNTIME_ARM64), or set runtime in [arch.{name}]. \
+             Every Bach release has one in bach-<version>-windows-arm64.zip; to build only the x64 file, add --x64-only",
+            name = arch.name
+        );
+    };
+    if !path.is_file() {
+        bail!("the {} setup runtime {} doesn't exist", arch.name, path.display());
+    }
+    // 0xAA64 is ARM64; 0xA641 is ARM64EC, which a runtime never is.
+    match config::pe_machine(&path) {
+        Some(0xAA64) => Ok(path),
+        Some(other) => bail!(
+            "{} isn't an ARM64 program (its machine type is 0x{other:04X}), so a setup file built on it would not run on Windows on ARM; \
+             use the bach-setup.exe from bach-<version>-windows-arm64.zip",
+            path.display()
+        ),
+        None => bail!("{} isn't a Windows program", path.display()),
+    }
 }
 
 /// A `kind = "zip"` profile: the files, zipped. No setup runtime is needed, and

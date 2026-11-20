@@ -388,7 +388,8 @@ mod tests {
         listed.signature = Some(sign_arch(&private, "Hello", "2.0.0", "arm64", &listed).unwrap());
         assert!(verify_arch(&public, "Hello", "2.0.0", "arm64", &listed).is_ok());
 
-        let tampered: [(&str, Box<dyn Fn(&mut ArchEntry)>); 3] = [
+        type Tamper = (&'static str, Box<dyn Fn(&mut ArchEntry)>);
+        let tampered: [Tamper; 3] = [
             ("the link", Box::new(|e| e.url = "https://evil.example/a.exe".into())),
             ("the hash", Box::new(|e| e.sha256 = "00".repeat(32))),
             ("the size", Box::new(|e| e.size = Some(1))),
