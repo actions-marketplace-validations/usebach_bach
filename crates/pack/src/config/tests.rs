@@ -3,6 +3,7 @@ use crate::i18n::{Key, ANY_LANGUAGE};
 use crate::manifest::Choice;
 
 mod layout;
+mod profiles;
 mod style;
 
 fn project_dir(name: &str) -> PathBuf {
@@ -340,12 +341,12 @@ fn github_downloads_are_named_the_way_github_serves_them() {
 #[test]
 fn a_release_tag_can_set_the_version() {
     let dir = project_dir("override");
-    let overrides = Overrides { version: Some("v2.5.0".into()) };
+    let overrides = Overrides { version: Some("v2.5.0".into()), ..Overrides::default() };
     let project = parse_with(MINIMAL, &dir, &overrides).unwrap();
     assert_eq!(project.manifest.app.version, "2.5.0");
     assert!(project.output.to_string_lossy().contains("2.5.0"), "the file name follows: {:?}", project.output);
     // A version that only looks like a tag keeps its letters.
-    let odd = Overrides { version: Some("vNext".into()) };
+    let odd = Overrides { version: Some("vNext".into()), ..Overrides::default() };
     assert_eq!(parse_with(MINIMAL, &dir, &odd).unwrap().manifest.app.version, "vNext");
     std::fs::remove_dir_all(&dir).unwrap();
 }

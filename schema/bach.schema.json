@@ -5919,6 +5919,115 @@
           "description": "Its arguments. For signtool they start with the word sign. The setup file is added last; write {file} to put it elsewhere. {env:NAME} is replaced by an environment variable."
         }
       }
+    },
+    "profiles": {
+      "type": "object",
+      "description": "Optional. Other builds of the same app from this file: [profiles.NAME] holds only what differs. bach build --profile NAME builds one, bach build --all-profiles all of them.",
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "setup",
+              "zip"
+            ],
+            "description": "What the profile builds: a setup file (default) or a ZIP of the files, to unpack and run without installing."
+          },
+          "description": {
+            "type": "string",
+            "description": "One line about what the profile is for; bach profiles shows it."
+          },
+          "output": {
+            "type": "string",
+            "description": "Where this profile's file goes. {name}, {version} and {id} are filled in. A setup file ends in .exe, a ZIP in .zip."
+          },
+          "app": {
+            "type": "object",
+            "description": "Replaces the settings of [app] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "files": {
+            "type": "object",
+            "description": "Replaces the settings of [files] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "installer": {
+            "type": "object",
+            "description": "Replaces the settings of [installer] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "uninstall": {
+            "type": "object",
+            "description": "Replaces the settings of [uninstall] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "components": {
+            "type": "array",
+            "description": "Replaces the settings of [components] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "protocols": {
+            "type": "array",
+            "description": "Replaces the settings of [protocols] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "file_types": {
+            "type": "array",
+            "description": "Replaces the settings of [file_types] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "text": {
+            "type": "object",
+            "description": "Replaces the settings of [text] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "requirements": {
+            "type": "array",
+            "description": "Replaces the settings of [requirements] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "shortcuts": {
+            "type": "array",
+            "description": "Replaces the settings of [shortcuts] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "run": {
+            "type": "array",
+            "description": "Replaces the settings of [run] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "registry": {
+            "type": "array",
+            "description": "Replaces the settings of [registry] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "env": {
+            "type": "array",
+            "description": "Replaces the settings of [env] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "context_menu": {
+            "type": "array",
+            "description": "Replaces the settings of [context_menu] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "migrate": {
+            "type": "array",
+            "description": "Replaces the settings of [migrate] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "updates": {
+            "type": "object",
+            "description": "Replaces the settings of [updates] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "access": {
+            "type": "object",
+            "description": "Replaces the settings of [access] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "signing": {
+            "type": "object",
+            "description": "Replaces the settings of [signing] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "style": {
+            "type": "object",
+            "description": "Replaces the settings of [style] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "layout": {
+            "type": "object",
+            "description": "Replaces the settings of [layout] it names (a table is merged key by key, an array is replaced as a whole)."
+          }
+        }
+      }
     }
   }
 }

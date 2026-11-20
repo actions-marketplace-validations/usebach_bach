@@ -10,6 +10,7 @@ mod gather;
 mod icon;
 mod layout;
 mod options;
+mod profile;
 mod secrets;
 mod style;
 mod system;
@@ -25,6 +26,8 @@ use serde::Deserialize;
 use crate::archive::{Compression, Source};
 use crate::manifest::{self, FileEntry, LogoKind, Manifest};
 use crate::paths;
+
+pub use profile::{list as list_profiles, valid_name as valid_profile_name, Kind as ProfileKind, Profile};
 
 /// The default output, relative to `bach.toml`.
 pub const DEFAULT_OUTPUT: &str = "dist/{name}-Setup-{version}.exe";
@@ -77,6 +80,9 @@ struct File {
     signing: Option<SigningSection>,
     style: Option<style::StyleSection>,
     layout: Option<layout::LayoutSection>,
+    /// Other builds of the app (see `profile.rs`); checked there.
+    #[serde(default)]
+    profiles: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -200,6 +206,10 @@ pub struct Project {
     pub update_github: Option<String>,
     /// `[signing]`: how `bach build` signs the setup files, if it should.
     pub signing: Option<Signing>,
+    /// The profile this project was read with (`[profiles.NAME]`), if any.
+    pub profile: Option<String>,
+    /// What the build writes: a setup file, or (a `zip` profile) a ZIP of the files.
+    pub kind: ProfileKind,
 }
 
 impl Project {
@@ -220,6 +230,9 @@ pub struct Overrides {
     /// Replaces `app.version`, so a release tag is the one place a version
     /// is written down. A leading `v` is dropped.
     pub version: Option<String>,
+    /// Builds a profile of the config instead of the main file (see
+    /// `[profiles.NAME]`).
+    pub profile: Option<String>,
 }
 
 /// Reads, checks and gathers a `bach.toml`.
@@ -246,7 +259,17 @@ pub fn parse(text: &str, root: &Path) -> Result<Project> {
 /// [`parse`] with some settings replaced (see [`Overrides`]).
 pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Project> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let mut file: File = toml::from_str(text).map_err(|err| anyhow::anyhow!("{}", err.to_string().trim()))?;
+    let (mut file, profile) = match &overrides.profile {
+        None => (toml::from_str::<File>(text).map_err(|err| anyhow::anyhow!("{}", err.to_string().trim()))?, None),
+        Some(name) => {
+            let applied = profile::apply(text, name)?;
+            let file: File =
+                applied.table.try_into().map_err(|err| anyhow::anyhow!("with the profile \"{name}\": {}", err.to_string().trim()))?;
+            (file, Some((name.clone(), applied.kind, applied.output)))
+        }
+    };
+    profile::check(&file.profiles)?;
+    let kind = profile.as_ref().map_or(ProfileKind::Setup, |(_, kind, _)| *kind);
     if let Some(version) = file.config_version.filter(|version| *version != CONFIG_VERSION) {
         bail!(
             "config_version is {version}, but this Bach reads version {CONFIG_VERSION}; {}",
@@ -375,10 +398,21 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     let feedback_url = extras::https(&file.uninstall.feedback_url, "uninstall.feedback_url")?;
     let access = extras::access(file.access.as_ref(), updates.is_some())?;
 
-    let output_template = file.installer.output.as_deref().unwrap_or(DEFAULT_OUTPUT);
+    let profile_name = profile.as_ref().map(|(name, _, _)| name.as_str());
+    let (extension, default_output, default_online) = match (profile_name, kind) {
+        (None, _) => ("exe", DEFAULT_OUTPUT.to_string(), DEFAULT_ONLINE_OUTPUT.to_string()),
+        (Some(name), ProfileKind::Setup) => {
+            ("exe", format!("dist/{{name}}-{name}-Setup-{{version}}.exe"), format!("dist/{{name}}-{name}-Web-Setup.exe"))
+        }
+        (Some(name), ProfileKind::Zip) => ("zip", format!("dist/{{name}}-{name}-{{version}}.zip"), DEFAULT_ONLINE_OUTPUT.to_string()),
+    };
+    let own_output = profile.as_ref().and_then(|(_, _, output)| output.as_deref());
+    let output_template = own_output.or(file.installer.output.as_deref()).unwrap_or(&default_output);
     let mut output = root.join(fill_template(output_template, &app));
-    if !has_extension(&output, "exe") {
-        bail!("installer.output must end in .exe; it's \"{output_template}\"");
+    if !has_extension(&output, extension) {
+        let setting =
+            if own_output.is_some() { format!("profiles.{}.output", profile_name.unwrap_or_default()) } else { "installer.output".into() };
+        bail!("{setting} must end in .{extension}; it's \"{output_template}\"");
     }
     // GitHub renames an uploaded file that has spaces or odd characters in its
     // name, which would break the download link in the update feed. With
@@ -390,7 +424,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         }
     }
 
-    let online_template = file.installer.online_output.as_deref().unwrap_or(DEFAULT_ONLINE_OUTPUT);
+    let online_template = file.installer.online_output.as_deref().unwrap_or(&default_online);
     let mut online_output = root.join(fill_template(online_template, &app));
     if !has_extension(&online_output, "exe") {
         bail!("installer.online_output must end in .exe; it's \"{online_template}\"");
@@ -403,7 +437,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     if online_output == output {
         bail!("installer.output and installer.online_output are the same file; give the online installer its own name");
     }
-    let online = file.installer.online.unwrap_or(false);
+    let online = file.installer.online.unwrap_or(false) && kind == ProfileKind::Setup;
     if online && updates.is_none() {
         bail!(
             "installer.online is true, but there's no [updates]; the online installer downloads the newest version through the update feed"
@@ -548,6 +582,8 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         update_download_url,
         update_github,
         signing: signing(file.signing.as_ref())?,
+        profile: profile.map(|(name, _, _)| name),
+        kind,
     })
 }
 
