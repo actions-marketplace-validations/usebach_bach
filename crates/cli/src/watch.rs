@@ -75,7 +75,7 @@ fn kind(options: &PreviewOptions) -> &'static str {
 
 /// Builds the preview from the config as it is now and opens it.
 fn reopen(config: &Path, options: &PreviewOptions, runtime: &Path, serial: u32) -> Result<Child> {
-    let (project, sealing) = preview::load(config)?;
+    let (project, sealing) = preview::load(config, options.profile)?;
     output::warnings(&project.warnings);
     let setup = preview::write(&project, sealing.as_ref(), runtime, serial)?;
     preview::open(&setup, options)

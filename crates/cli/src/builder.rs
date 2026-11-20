@@ -17,9 +17,9 @@ use crate::output::{self, field, Progress};
 use crate::runtime;
 
 /// Loads the config, with the version of a release tag instead of
-/// `app.version` when one is given.
-fn load(config_path: &Path, version: Option<&str>) -> Result<Project> {
-    config::load_with(config_path, &Overrides { version: version.map(String::from) })
+/// `app.version` when one is given, and laid over with a profile when one is named.
+pub(crate) fn load(config_path: &Path, version: Option<&str>, profile: Option<&str>) -> Result<Project> {
+    config::load_with(config_path, &Overrides { version: version.map(String::from), profile: profile.map(String::from) })
 }
 
 /// With `--strict`, a warning is an error: the build is held back until the
@@ -38,14 +38,20 @@ fn strict_gate(warnings: &[String], strict: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn check(config_path: &Path, version: Option<&str>, strict: bool) -> Result<()> {
-    let project = load(config_path, version)?;
+pub fn check(config_path: &Path, version: Option<&str>, profile: Option<&str>, strict: bool) -> Result<()> {
+    let project = load(config_path, version, profile)?;
     let manifest = &project.manifest;
     output::result("name", manifest.app.name.clone());
     output::result("version", manifest.app.version.clone());
     output::result("files", manifest.files.len());
     output::result("size", manifest.total_size());
-    say!("{} {} is ready to build.", manifest.app.name, manifest.app.version);
+    match &project.profile {
+        Some(name) => {
+            output::result("profile", name.clone());
+            say!("{} {} is ready to build, as the {name} profile ({}).", manifest.app.name, manifest.app.version, project.kind.name());
+        }
+        None => say!("{} {} is ready to build.", manifest.app.name, manifest.app.version),
+    }
     summary(&project);
     say!();
     for file in &manifest.files {
@@ -59,6 +65,8 @@ pub fn check(config_path: &Path, version: Option<&str>, strict: bool) -> Result<
 /// What `bach build` was asked for.
 pub struct BuildOptions<'a> {
     pub config: &'a Path,
+    /// Build this profile of the config (`[profiles.NAME]`) instead of the main file.
+    pub profile: Option<&'a str>,
     pub out: Option<&'a Path>,
     pub runtime: Option<&'a Path>,
     pub fast: bool,
@@ -128,10 +136,66 @@ fn read_keys(env: &str, key_file: Option<&Path>) -> Result<Vec<String>> {
     Ok(keys)
 }
 
-pub fn build(options: BuildOptions) -> Result<PathBuf> {
-    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file, sign, patch_from, strict } = options;
+/// What one build wrote.
+pub struct Built {
+    pub path: PathBuf,
+    pub profile: Option<String>,
+    pub kind: config::ProfileKind,
+    /// The file's size on disk.
+    pub size: u64,
+}
+
+/// The main build, then each profile asked for; `all` means the main build
+/// and every profile of the config. Stops at the first one that fails.
+pub fn build_all(options: BuildOptions, profiles: &[String], all: bool) -> Result<()> {
+    let mut wanted: Vec<Option<String>> = Vec::new();
+    if all {
+        wanted.push(None);
+        let text = bach_pack::textfile::read(options.config).with_context(|| format!("couldn't read {}", options.config.display()))?;
+        wanted.extend(config::list_profiles(&text)?.into_iter().map(|profile| Some(profile.name)));
+    } else if profiles.is_empty() {
+        wanted.push(options.profile.map(String::from));
+    } else {
+        wanted.extend(profiles.iter().map(|name| Some(name.clone())));
+    }
+    if wanted.len() > 1 && options.out.is_some() {
+        bail!(
+            "--out names one file, but this builds {} (the main build and its profiles); leave --out out and set each output in bach.toml",
+            wanted.len()
+        );
+    }
+    let mut built = Vec::new();
+    for (index, profile) in wanted.iter().enumerate() {
+        if index > 0 {
+            say!();
+        }
+        let one = BuildOptions { profile: profile.as_deref(), ..options };
+        built.push(build(one)?);
+    }
+    if built.len() > 1 || built.first().is_some_and(|first| first.profile.is_some()) {
+        let list: Vec<serde_json::Value> = built
+            .iter()
+            .map(|one| {
+                serde_json::json!({
+                    "profile": one.profile,
+                    "kind": one.kind.name(),
+                    "file": one.path.display().to_string(),
+                    "size": one.size,
+                })
+            })
+            .collect();
+        output::result("builds", list);
+    }
+    Ok(())
+}
+
+pub fn build(options: BuildOptions) -> Result<Built> {
+    let BuildOptions { config: config_path, profile, out, runtime, fast, version, online, key_file, sign, patch_from, strict } = options;
     let started = Instant::now();
-    let mut project = load(config_path, version)?;
+    let mut project = load(config_path, version, profile)?;
+    if project.kind == config::ProfileKind::Zip {
+        return build_zip(&project, out, strict);
+    }
     if fast {
         project.compression = Compression::Fast;
     }
@@ -146,7 +210,10 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     let output = out.map(Path::to_path_buf).unwrap_or_else(|| project.output.clone());
     let runtime = runtime::find(runtime)?;
     let app = &project.manifest.app;
-    say!("Building {} {}", app.name, app.version);
+    match &project.profile {
+        Some(name) => say!("Building {} {} as the {name} profile", app.name, app.version),
+        None => say!("Building {} {}", app.name, app.version),
+    }
     summary(&project);
 
     output::warnings(&project.warnings);
@@ -166,7 +233,9 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     let installed = project.manifest.total_size().max(1);
     say!();
     say!("Wrote {} ({})", output.display(), output::size(size));
-    output::result("setup", output.display().to_string());
+    if project.profile.is_none() {
+        output::result("setup", output.display().to_string());
+    }
     output::result("version", project.manifest.app.version.clone());
     // Signing is optional: it needs [signing] and a --sign from whoever runs the build.
     let signing = project.signing.as_ref().filter(|_| sign);
@@ -200,7 +269,8 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     } else if sign && project.signing.is_none() {
         bail!("--sign was given, but bach.toml has no [signing] section that says how to sign");
     }
-    if project.manifest.updates.is_some() {
+    // The update feed describes the main setup file; a profile's file isn't what installed apps update to.
+    if project.manifest.updates.is_some() && project.profile.is_none() {
         crate::feed::after_build(&project, &output, patch.as_ref().map(|(file, from)| (file.as_path(), from.as_str())))?;
     }
     if output::json() {
@@ -210,6 +280,7 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
         output::result("size", final_size);
         output::result("packed", packed);
     }
+    let final_size = fs::metadata(&output).map(|meta| meta.len()).unwrap_or(0);
     field(
         "Packed",
         format!(
@@ -220,7 +291,36 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
             started.elapsed().as_secs_f32()
         ),
     );
-    Ok(output)
+    Ok(Built { path: output, profile: project.profile.clone(), kind: project.kind, size: final_size })
+}
+
+/// A `kind = "zip"` profile: the files, zipped. No setup runtime is needed, and
+/// nothing is signed, feed-listed or encrypted: it is a folder in a file.
+fn build_zip(project: &Project, out: Option<&Path>, strict: bool) -> Result<Built> {
+    let started = Instant::now();
+    let app = &project.manifest.app;
+    say!("Building {} {} as the {} profile (a ZIP)", app.name, app.version, project.profile.as_deref().unwrap_or_default());
+    output::warnings(&project.warnings);
+    strict_gate(&project.warnings, strict)?;
+    if project.encrypt {
+        bail!("a ZIP can't be locked with [access]: the files in it would be readable. Use a setup profile for a protected app, or turn [access] off in this profile");
+    }
+    let output = tidy(&out.map(Path::to_path_buf).unwrap_or_else(|| project.output.clone()));
+    let written = crate::zipfile::write(project, &output)?;
+    let size = fs::metadata(&output).map(|meta| meta.len()).unwrap_or(0);
+    say!();
+    say!("Wrote {} ({}), {} files", output.display(), output::size(size), written.files);
+    field(
+        "Zipped",
+        format!(
+            "{} of {} ({:.0}%), in {:.1}s",
+            output::size(size),
+            output::size(written.bytes),
+            size as f64 / written.bytes.max(1) as f64 * 100.0,
+            started.elapsed().as_secs_f32()
+        ),
+    );
+    Ok(Built { path: output, profile: project.profile.clone(), kind: project.kind, size })
 }
 
 /// What writing a setup file gives back: the archive's packed size and the

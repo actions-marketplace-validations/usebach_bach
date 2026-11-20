@@ -4,6 +4,7 @@
 //! bach init              write a starter bach.toml
 //! bach check             read bach.toml and list what would be installed
 //! bach build             write the setup file
+//! bach profiles          list the other builds (portable ZIP, company version) of this bach.toml
 //! bach preview           open the installer window without installing anything
 //! bach watch             keep the preview open and reopen it when bach.toml changes
 //! bach inspect FILE      show what a setup file installs
@@ -45,6 +46,7 @@ mod key;
 mod output;
 mod page;
 mod preview;
+mod profiles;
 #[cfg(windows)]
 mod resources;
 mod runtime;
@@ -58,6 +60,7 @@ mod version_files;
 mod watch;
 mod winget;
 mod workflow;
+mod zipfile;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -106,6 +109,9 @@ struct PreviewArgs {
     /// The setup runtime to build on (default: bach-setup.exe next to bach).
     #[arg(long, env = "BACH_RUNTIME")]
     runtime: Option<PathBuf>,
+    /// Show this profile of the config (`bach profiles` lists them).
+    #[arg(long)]
+    profile: Option<String>,
 }
 
 impl PreviewArgs {
@@ -117,6 +123,7 @@ impl PreviewArgs {
             layout: self.layout.as_deref(),
             lang: self.lang.as_deref(),
             runtime: self.runtime.as_deref(),
+            profile: self.profile.as_deref(),
         }
     }
 }
@@ -140,6 +147,9 @@ enum Command {
         /// Use this version instead of app.version (a leading v is dropped).
         #[arg(long)]
         app_version: Option<String>,
+        /// Check this profile of the config (`bach profiles` lists them).
+        #[arg(long)]
+        profile: Option<String>,
         /// Fail when there is a warning, so a pipeline can't ship what check
         /// complains about (or set BACH_STRICT=1).
         #[arg(long, env = "BACH_STRICT")]
@@ -150,6 +160,13 @@ enum Command {
         /// The config file.
         #[arg(default_value = "bach.toml")]
         config: PathBuf,
+        /// Build this profile instead of the main setup file; repeat it for
+        /// several (`bach profiles` lists them).
+        #[arg(long)]
+        profile: Vec<String>,
+        /// Build the main setup file and every profile.
+        #[arg(long, conflicts_with = "profile")]
+        all_profiles: bool,
         /// Write the setup file here instead of installer.output.
         #[arg(long, short)]
         out: Option<PathBuf>,
@@ -203,6 +220,13 @@ enum Command {
         /// printing them; `bach build --key-file FILE` reads it.
         #[arg(long, short)]
         out: Option<PathBuf>,
+    },
+    /// List the profiles of a bach.toml: other builds of the app, like a
+    /// portable ZIP or a version for companies.
+    Profiles {
+        /// The config file.
+        #[arg(default_value = "bach.toml")]
+        config: PathBuf,
     },
     /// Open the installer window as it will look, without installing anything.
     Preview(PreviewArgs),
@@ -396,21 +420,28 @@ fn main() -> ExitCode {
         Command::Update { version, check, force } => update::command(update::Options { version: version.as_deref(), check, force }),
         Command::UpdateRefresh => update::refresh(),
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
-        Command::Check { config, app_version, strict } => builder::check(&config, app_version.as_deref(), strict),
-        Command::Build { config, out, runtime, fast, app_version, online, key_file, sign, patch_from, strict } => {
-            builder::build(builder::BuildOptions {
-                config: &config,
-                out: out.as_deref(),
-                runtime: runtime.as_deref(),
-                fast,
-                version: app_version.as_deref(),
-                online,
-                key_file: key_file.as_deref(),
-                sign,
-                patch_from: patch_from.as_deref(),
-                strict,
-            })
-            .map(|_| ())
+        Command::Check { config, app_version, profile, strict } => {
+            builder::check(&config, app_version.as_deref(), profile.as_deref(), strict)
+        }
+        Command::Profiles { config } => profiles::command(&config),
+        Command::Build { config, profile, all_profiles, out, runtime, fast, app_version, online, key_file, sign, patch_from, strict } => {
+            builder::build_all(
+                builder::BuildOptions {
+                    config: &config,
+                    profile: None,
+                    out: out.as_deref(),
+                    runtime: runtime.as_deref(),
+                    fast,
+                    version: app_version.as_deref(),
+                    online,
+                    key_file: key_file.as_deref(),
+                    sign,
+                    patch_from: patch_from.as_deref(),
+                    strict,
+                },
+                &profile,
+                all_profiles,
+            )
         }
         Command::Key { count, out } => key::command(count, out.as_deref()),
         Command::FeedKey { out } => feed::key_command(out.as_deref()),

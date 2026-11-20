@@ -80,6 +80,9 @@ pub fn command(options: Options) -> Result<()> {
             done.action
         );
     }
+    if let Some(id) = &done.winget {
+        say!("After each release it also opens the winget pull request for {id}; add a repository secret named WINGET_TOKEN for it (see docs/releasing.md).");
+    }
     say!("Commit and push it, then release on GitHub under Actions > Release > Run workflow.");
     if options.pin == Pin::Commit && !done.pin_failed {
         say!("Dependabot keeps the pin current: add `package-ecosystem: github-actions` to .github/dependabot.yml.");

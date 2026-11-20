@@ -158,7 +158,7 @@ fn url_from_config(setup: &Path, file: &Path, config: Option<&Path>) -> Result<S
         ),
     };
     let version = setup_version(setup)?;
-    let project = config::load_with(&path, &Overrides { version: Some(version) })?;
+    let project = config::load_with(&path, &Overrides { version: Some(version), ..Overrides::default() })?;
     match project.update_download_url {
         Some(template) => Ok(download_url(&template, file)),
         None => {
