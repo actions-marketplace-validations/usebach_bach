@@ -258,6 +258,9 @@ pub fn build(options: BuildOptions) -> Result<Built> {
         say!("The files are encrypted with the access key.");
     }
     let output = tidy(&output);
+    // Components that are downloaded when ticked go into archives of their own, first: the
+    // setup file records each one's SHA-256 and size, and doesn't carry the files.
+    let packs = write_packs(&mut project, &output)?;
     // The checksums come out of the packing pass itself: each file is read once.
     let written = write_setup(&project, &runtime, &output, sealing.as_ref())?;
     let packed = written.packed;
@@ -267,6 +270,23 @@ pub fn build(options: BuildOptions) -> Result<Built> {
     let installed = project.manifest.total_size().max(1);
     say!();
     say!("Wrote {} ({})", output.display(), output::size(size));
+    for pack in &packs {
+        say!("Wrote {} ({}), the download for the component {}", pack.path.display(), output::size(pack.size), pack.component);
+    }
+    if !packs.is_empty() {
+        let listed: Vec<serde_json::Value> = packs
+            .iter()
+            .map(|pack| {
+                serde_json::json!({
+                    "component": pack.component,
+                    "file": pack.path.display().to_string(),
+                    "sha256": pack.sha256,
+                    "size": pack.size,
+                })
+            })
+            .collect();
+        output::result(if is_arch { "packs_arm64" } else { "packs" }, listed);
+    }
     match (&project.arch, &project.profile) {
         (Some(arch), None) => output::result(&format!("setup_{arch}"), output.display().to_string()),
         (None, None) => output::result("setup", output.display().to_string()),
@@ -504,6 +524,89 @@ fn tidy(path: &Path) -> PathBuf {
 /// archive's packed size.
 pub(crate) fn write_setup(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>) -> Result<Written> {
     write_file(project, runtime_path, output, sealing, write_into)
+}
+
+/// A downloaded component's archive, as written.
+pub(crate) struct Pack {
+    pub component: String,
+    pub path: PathBuf,
+    pub sha256: String,
+    pub size: u64,
+}
+
+/// Writes the archive of each component that has `download`, next to the setup
+/// file, records its SHA-256 and size in the manifest and the files' checksums
+/// in the file list, and takes those files out of what the setup file packs.
+pub(crate) fn write_packs(project: &mut Project, setup: &Path) -> Result<Vec<Pack>> {
+    let wanted: Vec<String> =
+        project.manifest.components.iter().filter(|component| component.download.is_some()).map(|c| c.id.clone()).collect();
+    let mut packs = Vec::new();
+    let flavour: Vec<&str> = project.profile.as_deref().into_iter().chain(project.arch.as_deref()).collect();
+    for id in wanted {
+        let members: std::collections::HashSet<String> = project
+            .manifest
+            .files
+            .iter()
+            .filter(|file| file.component.as_deref() == Some(id.as_str()))
+            .map(|file| file.path.clone())
+            .collect();
+        let sources: Vec<archive::Source> = project.sources.iter().filter(|source| members.contains(&source.packaged)).cloned().collect();
+        if sources.is_empty() {
+            bail!("the component \"{id}\" has no files to put in its download");
+        }
+        let name = config::component_pack_name(&project.manifest.app, &id, &flavour);
+        let path = setup.with_file_name(name);
+        let (sha256, size, hashes) = write_pack(project, &sources, &path)?;
+        record_hashes(&mut project.manifest, &sources, &hashes)?;
+        if let Some(download) =
+            project.manifest.components.iter_mut().find(|component| component.id == id).and_then(|c| c.download.as_mut())
+        {
+            download.sha256 = sha256.clone();
+            download.size = size;
+        }
+        project.sources.retain(|source| !members.contains(&source.packaged));
+        packs.push(Pack { component: id, path, sha256, size });
+    }
+    Ok(packs)
+}
+
+/// One archive: through a `.partial` file, so a failed build never leaves half of it where
+/// the real one belongs. Gives its SHA-256, its size and each packed file's SHA-256.
+fn write_pack(project: &Project, sources: &[archive::Source], path: &Path) -> Result<(String, u64, Vec<String>)> {
+    if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+        fs::create_dir_all(dir).with_context(|| format!("couldn't create {}", dir.display()))?;
+    }
+    let mut partial = path.as_os_str().to_owned();
+    partial.push(".partial");
+    let partial = PathBuf::from(partial);
+    let written = (|| -> Result<(String, u64, Vec<String>)> {
+        let file = File::create(&partial).with_context(|| format!("couldn't write {}", partial.display()))?;
+        let total = sources.iter().map(|source| source.size).sum();
+        let mut progress = Progress::new("Packing", total);
+        let plan = project.compression.plan(project.compression_threads, project.compression_memory_mib);
+        let hashing = Hashing { inner: BufWriter::new(file), hasher: Sha256::new() };
+        let (hashing, hashes) =
+            archive::write_hashed(hashing, sources, project.compression, plan.threads, &mut |done| progress.update(done))?;
+        progress.finish();
+        let Hashing { inner, hasher } = hashing;
+        let file = inner.into_inner().map_err(|err| err.into_error())?;
+        file.sync_all()?;
+        let size = file.metadata()?.len();
+        Ok((bach_pack::protect::hex(&hasher.finalize()), size, hashes))
+    })();
+    match written {
+        Ok(done) => {
+            if path.exists() {
+                fs::remove_file(path).with_context(|| format!("couldn't replace {} (is it open?)", path.display()))?;
+            }
+            fs::rename(&partial, path).with_context(|| format!("couldn't move the download to {}", path.display()))?;
+            Ok(done)
+        }
+        Err(err) => {
+            let _ = fs::remove_file(&partial);
+            Err(err)
+        }
+    }
 }
 
 /// The online installer: the same window and manifest as the setup file,
