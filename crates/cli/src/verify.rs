@@ -134,9 +134,9 @@ pub fn command(options: Options) -> Result<()> {
         };
         let outcome = match (encryption, &unlocked) {
             (Some(encryption), Some(unlocked)) => {
-                encryption.reader(reader, unlocked).and_then(|decrypted| archive::read(decrypted, &mut visit))
+                encryption.reader(reader, unlocked).and_then(|decrypted| archive::read_with(decrypted, archive::Bases::Skip, &mut visit))
             }
-            _ => archive::read(reader, &mut visit),
+            _ => archive::read_with(reader, archive::Bases::Skip, &mut visit),
         };
         progress.finish();
         if let Err(err) = outcome {

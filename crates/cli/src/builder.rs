@@ -1,12 +1,13 @@
 //! `bach check`, `bach build` and `bach preview`.
 
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufWriter, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
-use bach_pack::archive::{self, Compression};
+use bach_pack::archive::{self, Compression, DeltaBase};
 use bach_pack::config::{self, Overrides, Project};
 use bach_pack::container;
 use bach_pack::manifest::Encryption;
@@ -482,7 +483,22 @@ fn write_patch(project: &Project, old: &Path, runtime: &Path, output: &Path, key
     let target = tidy(&target);
     // Its own protection data: two files never share a key stream.
     let sealing = seal(&mut patch, key_file, None)?;
-    write_setup(&patch, runtime, &target, sealing.as_ref())?;
+    // A changed file the earlier setup file also has goes in as what differs from it.
+    let wanted: HashMap<String, String> = patch
+        .sources
+        .iter()
+        .filter(|source| earlier.files.iter().any(|entry| entry.path.eq_ignore_ascii_case(&source.packaged) && entry.size >= MIN_DELTA))
+        .map(|source| (source.packaged.to_ascii_lowercase(), source.packaged.clone()))
+        .collect();
+    let bases = read_bases(old, &earlier, &wanted).unwrap_or_else(|err| {
+        output::warnings(&[format!(
+            "the earlier setup file's files couldn't be read for binary deltas ({err:#}), so the patch holds whole files"
+        )]);
+        HashMap::new()
+    });
+    write_file(&patch, runtime, &target, sealing.as_ref(), |project, runtime, path, sealing| {
+        write_into_with(project, runtime, path, sealing, &bases)
+    })?;
     let size = fs::metadata(&target).map(|meta| meta.len()).unwrap_or(0);
     say!(
         "Wrote {} ({}), the update patch from {}: {kept} of {} files changed",
@@ -492,6 +508,52 @@ fn write_patch(project: &Project, old: &Path, runtime: &Path, output: &Path, key
         project.sources.len()
     );
     Ok((target, earlier.app.version))
+}
+
+/// A changed file smaller than this isn't worth a delta.
+const MIN_DELTA: u64 = 64 * 1024;
+
+/// The most earlier files a patch build holds in memory at once.
+const MAX_BASES: u64 = 2 << 30;
+
+/// The earlier version of the `wanted` files, read out of the earlier setup file's
+/// archive: what a binary delta is made from. A file that is too big, and anything
+/// once the memory budget is used up, is left out and goes in whole.
+fn read_bases(old: &Path, earlier: &bach_pack::manifest::Manifest, wanted: &HashMap<String, String>) -> Result<HashMap<String, DeltaBase>> {
+    use std::io::{Read, Seek, SeekFrom};
+    // An encrypted setup file's files can't be read without its key; deltas aren't worth asking for it.
+    if wanted.is_empty() || earlier.access.as_ref().is_some_and(|access| access.encryption.is_some()) {
+        return Ok(HashMap::new());
+    }
+    let mut file = File::open(old).with_context(|| format!("couldn't open {}", old.display()))?;
+    let Some(layout) = container::locate(&mut file)? else {
+        bail!("{} isn't a Bach setup file", old.display());
+    };
+    if !layout.has_archive() {
+        return Ok(HashMap::new());
+    }
+    file.seek(SeekFrom::Start(layout.archive.offset))?;
+    let reader = std::io::BufReader::new(file.take(layout.archive.len));
+    let mut bases = HashMap::new();
+    let mut held = 0u64;
+    let mut visit = |packaged: &str, size: u64, body: &mut dyn Read| -> Result<()> {
+        // The patch packs the file under the new version's name for it.
+        let Some(name) = wanted.get(&packaged.to_ascii_lowercase()) else {
+            return Ok(());
+        };
+        if size > bach_pack::delta::MAX_BASE || held.saturating_add(size) > MAX_BASES {
+            return Ok(());
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+        body.read_to_end(&mut bytes)?;
+        held = held.saturating_add(size);
+        let sha256 = bach_pack::protect::sha256_hex(&bytes[..])?;
+        bases.insert(name.clone(), DeltaBase { bytes, sha256 });
+        Ok(())
+    };
+    // An earlier patch has deltas of its own, which can't be expanded without its earlier version.
+    archive::read_with(reader, archive::Bases::Skip, &mut visit)?;
+    Ok(bases)
 }
 
 fn summary(project: &Project) {
@@ -615,9 +677,13 @@ fn write_online_setup(project: &Project, runtime_path: &Path, output: &Path, sea
     write_file(project, runtime_path, output, sealing, write_online_into)
 }
 
-type WriteSetup = fn(&Project, &[u8], &Path, Option<&Sealing>) -> Result<Written>;
-
-fn write_file(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>, write: WriteSetup) -> Result<Written> {
+fn write_file(
+    project: &Project,
+    runtime_path: &Path,
+    output: &Path,
+    sealing: Option<&Sealing>,
+    write: impl Fn(&Project, &[u8], &Path, Option<&Sealing>) -> Result<Written>,
+) -> Result<Written> {
     let runtime = runtime::read(runtime_path)?;
     if let Some(dir) = output.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         fs::create_dir_all(dir).with_context(|| format!("couldn't create {}", dir.display()))?;
@@ -641,6 +707,17 @@ fn write_file(project: &Project, runtime_path: &Path, output: &Path, sealing: Op
 }
 
 fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&Sealing>) -> Result<Written> {
+    write_into_with(project, runtime, path, sealing, &HashMap::new())
+}
+
+/// [`write_into`] that stores a changed file as a delta from its earlier version when `bases` has one.
+fn write_into_with(
+    project: &Project,
+    runtime: &[u8],
+    path: &Path,
+    sealing: Option<&Sealing>,
+    bases: &HashMap<String, DeltaBase>,
+) -> Result<Written> {
     fs::write(path, runtime).with_context(|| format!("couldn't write {}", path.display()))?;
     brand(project, path)?;
 
@@ -666,10 +743,11 @@ fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&S
         // The hash covers what is appended, which is the encrypted bytes.
         Some(sealing) => {
             let writer = sealing.encryption.writer(hashing, &sealing.unlocked)?;
-            let (writer, hashes) = archive::write_hashed(writer, &project.sources, project.compression, plan.threads, &mut step)?;
+            let (writer, hashes) =
+                archive::write_hashed_with(writer, &project.sources, bases, project.compression, plan.threads, &mut step)?;
             (writer.finish()?, hashes)
         }
-        None => archive::write_hashed(hashing, &project.sources, project.compression, plan.threads, &mut step)?,
+        None => archive::write_hashed_with(hashing, &project.sources, bases, project.compression, plan.threads, &mut step)?,
     };
     progress.finish();
     let Hashing { inner, hasher } = hashing;

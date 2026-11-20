@@ -3,7 +3,7 @@
 //! made from.
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 
 use bach_pack::archive::{self, Bases, Compression, DeltaBase, Source, WrongBase};
