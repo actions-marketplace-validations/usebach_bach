@@ -14,6 +14,34 @@ use windows::Win32::System::Threading::{CreateMutexW, OpenProcess, WaitForSingle
 
 /// The user's Windows display languages, most preferred first, like
 /// `["de-DE", "en-US"]`. Empty if Windows won't say.
+/// The processor architecture of the program that is running, as a feed
+/// names it: `arm64` or `x64`. An installed app updates with its own.
+pub fn own_arch() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    }
+}
+
+/// The architecture of the computer, as a feed names it. A setup file built
+/// for x64 runs on Windows on ARM too (emulated), so it asks the computer, not
+/// itself: an online installer then takes the ARM64 download there.
+pub fn native_arch() -> &'static str {
+    use windows::Win32::System::SystemInformation::IMAGE_FILE_MACHINE;
+    use windows::Win32::System::Threading::{GetCurrentProcess, IsWow64Process2};
+    const ARM64: u16 = 0xAA64;
+    let mut process = IMAGE_FILE_MACHINE(0);
+    let mut native = IMAGE_FILE_MACHINE(0);
+    // SAFETY: both pointers are valid for the call, and the pseudo handle needs no closing.
+    let asked = unsafe { IsWow64Process2(GetCurrentProcess(), &mut process, Some(&mut native)) };
+    if asked.is_ok() && native.0 == ARM64 {
+        "arm64"
+    } else {
+        own_arch()
+    }
+}
+
 pub fn ui_languages() -> Vec<String> {
     let mut count = 0u32;
     let mut len = 0u32;

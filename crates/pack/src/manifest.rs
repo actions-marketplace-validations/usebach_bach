@@ -29,7 +29,7 @@ pub use choices::{
     auto_update_setting as choices_auto_update, Choice, Choices, OPTION_AUTOSTART, OPTION_AUTO_UPDATE, OPTION_DESKTOP, OPTION_PATH,
     OPTION_START_MENU,
 };
-pub use extras::{Check, DeltaEntry, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
+pub use extras::{ArchEntry, Check, DeltaEntry, FeedEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
 pub use features::{Component, FileType, Protocol};
 pub use look_files::{LookBytes, LookFile, LookFileKind};
 pub use scope::Scope;

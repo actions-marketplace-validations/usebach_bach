@@ -71,11 +71,17 @@ fn read_limited(file: &Path) -> Result<String, String> {
 /// bytes from if the first one is down. One feed that can't be reached is no
 /// problem while another answers; when none does, the first one's complaint is
 /// the answer.
-pub fn fetch_offers(urls: &[String], work: &Path, bearer: Option<&Bearer>, signer: Option<Signer>) -> Result<Vec<FeedEntry>, String> {
+pub fn fetch_offers(
+    urls: &[String],
+    work: &Path,
+    bearer: Option<&Bearer>,
+    signer: Option<Signer>,
+    arch: &str,
+) -> Result<Vec<FeedEntry>, String> {
     let mut entries = Vec::new();
     let mut first_error = None;
     for url in urls {
-        let answer = fetch(url, work, bearer).and_then(|entry| accepted(entry, signer));
+        let answer = fetch(url, work, bearer).and_then(|entry| accepted(entry, signer)).map(|entry| pick_arch(entry, arch, signer));
         match answer {
             Ok(entry) => entries.push(entry),
             Err(error) => {
@@ -88,6 +94,35 @@ pub fn fetch_offers(urls: &[String], work: &Path, bearer: Option<&Bearer>, signe
         return Err(first_error.unwrap_or_else(|| "there is no update feed to ask".to_string()));
     }
     Ok(agreeing(entries))
+}
+
+/// The entry for a computer of architecture `arch` (`x64` or `arm64`): the
+/// entry itself, or, when it lists a setup file for that architecture, that
+/// file's link, SHA-256 and size in its place. A listing the publisher's key
+/// didn't sign, or that isn't usable, is left out and the entry stands: an x64
+/// setup file runs on Windows on ARM too, so the worst a missing listing costs
+/// is the emulated download. An update patch is for the x64 file, so it goes.
+pub fn pick_arch(entry: FeedEntry, arch: &str, signer: Option<Signer>) -> FeedEntry {
+    let Some(listed) = entry.arch.get(arch) else {
+        return entry;
+    };
+    let plain = |text: &str| !text.chars().any(char::is_control);
+    let usable = bach_pack::manifest::extras::is_https(&listed.url) && plain(&listed.url) && is_sha256(&listed.sha256);
+    let trusted = match signer {
+        None => true,
+        Some(signer) => {
+            let check = |key: &str| bach_pack::feedsig::verify_arch(key, signer.app_id, &entry.version, arch, listed);
+            check(signer.public_key).or_else(|first| signer.next_public_key.map_or(Err(first), check)).is_ok()
+        }
+    };
+    if !usable || !trusted {
+        crate::log::line(&format!(
+            "The update feed's {arch} download isn't usable or isn't signed by the publisher, so the default one is taken."
+        ));
+        return entry;
+    }
+    crate::log::line(&format!("Taking the {arch} download the feed lists."));
+    FeedEntry { url: listed.url.clone(), sha256: listed.sha256.clone(), size: listed.size, delta: None, ..entry }
 }
 
 /// `entry`, if the publisher's signature allows it. The signature decides, not
@@ -326,6 +361,7 @@ mod tests {
             rollout: None,
             delta: None,
             signature: None,
+            arch: Default::default(),
         }
     }
 
@@ -406,5 +442,77 @@ mod tests {
         // Without a limit nothing changes.
         let open = Some(Signer { max_age_days: None, ..limited });
         assert!(accepted_at(signed(Some("2020-01-01T00:00:00Z")), open, now).is_ok());
+    }
+
+    fn listed_arm() -> bach_pack::manifest::ArchEntry {
+        bach_pack::manifest::ArchEntry { url: "https://x/Setup-arm64.exe".into(), sha256: "cd".repeat(32), size: Some(90), signature: None }
+    }
+
+    #[test]
+    fn a_computer_takes_the_download_listed_for_its_architecture() {
+        let mut main = entry("2.0.0", "https://x/Setup.exe", SHA);
+        main.size = Some(100);
+        main.delta = Some(bach_pack::manifest::DeltaEntry {
+            from: "1.0.0".into(),
+            url: "https://x/patch.exe".into(),
+            sha256: SHA.into(),
+            size: Some(5),
+        });
+        main.arch.insert("arm64".into(), listed_arm());
+        // x64 (and anything not listed) keeps the entry as it is.
+        assert_eq!(pick_arch(main.clone(), "x64", None), main);
+        assert_eq!(pick_arch(main.clone(), "x86", None), main);
+        // ARM64 gets its own file, and not the x64 patch.
+        let picked = pick_arch(main.clone(), "arm64", None);
+        assert_eq!(
+            (picked.url.as_str(), picked.sha256.as_str(), picked.size),
+            ("https://x/Setup-arm64.exe", "cd".repeat(32).as_str(), Some(90))
+        );
+        assert!(picked.delta.is_none() && picked.version == "2.0.0");
+    }
+
+    #[test]
+    fn an_unusable_listing_falls_back_to_the_default_download() {
+        let mut main = entry("2.0.0", "https://x/Setup.exe", SHA);
+        for broken in [
+            bach_pack::manifest::ArchEntry { url: "http://x/a.exe".into(), ..listed_arm() },
+            bach_pack::manifest::ArchEntry { sha256: "nothex".into(), ..listed_arm() },
+            bach_pack::manifest::ArchEntry {
+                url: "https://x/a
+b.exe"
+                    .into(),
+                ..listed_arm()
+            },
+        ] {
+            main.arch.insert("arm64".into(), broken);
+            assert_eq!(pick_arch(main.clone(), "arm64", None), main);
+        }
+    }
+
+    #[test]
+    fn a_signed_app_takes_only_a_signed_listing() {
+        let (private, public) = bach_pack::feedsig::generate().unwrap();
+        let signer = Signer { public_key: &public, next_public_key: None, app_id: "Hello", max_age_days: None };
+        let mut main = entry("2.0.0", "https://x/Setup.exe", SHA);
+        main.arch.insert("arm64".into(), listed_arm());
+        assert_eq!(pick_arch(main.clone(), "arm64", Some(signer)), main, "an unsigned listing is left out");
+
+        let mut listed = listed_arm();
+        listed.signature = Some(bach_pack::feedsig::sign_arch(&private, "Hello", "2.0.0", "arm64", &listed).unwrap());
+        main.arch.insert("arm64".into(), listed.clone());
+        assert_eq!(pick_arch(main.clone(), "arm64", Some(signer)).url, "https://x/Setup-arm64.exe");
+
+        // A host that swaps the link keeps the signature, which no longer fits.
+        let mut swapped = main.clone();
+        swapped.arch.get_mut("arm64").unwrap().url = "https://evil.example/a.exe".into();
+        assert_eq!(pick_arch(swapped.clone(), "arm64", Some(signer)), swapped);
+        // The next key may have signed it, too.
+        let (next_private, next_public) = bach_pack::feedsig::generate().unwrap();
+        let mut by_next = listed_arm();
+        by_next.signature = Some(bach_pack::feedsig::sign_arch(&next_private, "Hello", "2.0.0", "arm64", &by_next).unwrap());
+        main.arch.insert("arm64".into(), by_next);
+        let both = Signer { next_public_key: Some(&next_public), ..signer };
+        assert_eq!(pick_arch(main.clone(), "arm64", Some(both)).url, "https://x/Setup-arm64.exe");
+        assert_eq!(pick_arch(main.clone(), "arm64", Some(signer)), main, "the first key alone doesn't know that signature");
     }
 }

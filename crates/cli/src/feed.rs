@@ -274,6 +274,7 @@ fn write(
         delta,
         signature: None,
         published: None,
+        arch: Default::default(),
     };
     // An app that has a publisher key accepts only signed feeds, so an unsigned
     // one would silently stop every installed copy from updating.
