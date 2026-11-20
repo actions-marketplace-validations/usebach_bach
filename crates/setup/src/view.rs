@@ -455,7 +455,11 @@ impl SetupView {
     pub fn can_cancel(&self) -> bool {
         match &self.stage {
             Stage::Working { label, .. } => {
-                !self.preview && !self.is_removing() && label.as_ref() == self.texts.get(Key::step_copying).as_str()
+                !self.preview
+                    && !self.is_removing()
+                    && (label.as_ref() == self.texts.get(Key::step_copying).as_str()
+                        // A component's download is cancelled just as safely: nothing is written yet.
+                        || work::is_downloading(&self.texts, &self.package.manifest, label.as_ref()))
             }
             _ => false,
         }

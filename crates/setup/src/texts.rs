@@ -58,6 +58,17 @@ impl Texts {
         let fill = |text: &str| i18n::fill(text, &self.values.iter().map(|(k, v)| (*k, v.as_str())).collect::<Vec<_>>());
         let title = i18n::resolve(&component.title, code, fallbacks).map(fill).unwrap_or_else(|| component.id.clone());
         let description = component.description.as_ref().and_then(|text| i18n::resolve(text, code, fallbacks)).map(fill);
+        // A component that is downloaded when it is ticked says how much.
+        let description = match &component.download {
+            Some(download) => {
+                let line = self.with(Key::component_download, &[("size", &size(download.size))]);
+                Some(match description {
+                    Some(text) if !text.trim().is_empty() => format!("{text} \u{b7} {line}"),
+                    _ => line,
+                })
+            }
+            None => description,
+        };
         (title, description)
     }
 }
