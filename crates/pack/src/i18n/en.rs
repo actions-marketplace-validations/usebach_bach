@@ -12,6 +12,7 @@ pub const EN: Strings = Strings {
     reinstall_title: "Reinstall {name}",
     reinstall_subtitle: "{name} {version} is already installed. Reinstalling keeps your data.",
     reinstall_button: "Reinstall",
+    repair_button: "Repair",
     update_title: "Update {name}",
     update_subtitle: "{name} {old_version} is installed. This updates it to {version} and keeps your data.",
     update_button: "Update",

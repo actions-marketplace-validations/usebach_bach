@@ -61,7 +61,7 @@ macro_rules! texts {
 texts! {
     window_install, window_remove,
     install_title, install_subtitle, install_button,
-    reinstall_title, reinstall_subtitle, reinstall_button,
+    reinstall_title, reinstall_subtitle, reinstall_button, repair_button,
     update_title, update_subtitle, update_button,
     remove_title, remove_subtitle, remove_button,
     license_title, license_subtitle, license_accept,

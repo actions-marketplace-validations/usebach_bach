@@ -959,6 +959,7 @@ a text is given in only one, `bach check` points it out.
 | `reinstall_title` | Reinstall {name} |
 | `reinstall_subtitle` | {name} {version} is already installed. Reinstalling keeps your data. |
 | `reinstall_button` | Reinstall |
+| `repair_button` | Repair |
 | `update_title` | Update {name} |
 | `update_subtitle` | {name} {old_version} is installed. This updates it to {version} and keeps your data. |
 | `update_button` | Update |
@@ -1155,7 +1156,7 @@ the exit code. `--help` always works, whatever else is on the line.
 | `--layout NAME` | With `--preview`: shows another built-in [layout](#layout) in place of the setup file's `[layout]`. Without `--preview` it is a mistake too. |
 | `--allow-downgrade` | Install over a newer version (refused otherwise, with exit code 1). |
 | `--skip-requirements` | A silent install goes on although a [`[[requirements]]`](#requirements) entry isn't detected (it stops with exit code 1 otherwise). Setup says which ones, in the terminal and in the log, and that the app may not start without them. Use it when the detection is wrong for a computer, for example a .NET runtime on an unusual drive. |
-| `--repair` | With `--silent`, run the setup file of the version that is installed with this flag, and setup checks every file against the SHA-256 in its manifest and writes back the ones that are missing or changed, then redoes shortcuts and registration. Nothing else in the folder and no user data is touched. A different version, or nothing installed, stops with exit code 1 and says so. The log lists what was written. |
+| `--repair` | With `--silent`, run the setup file of the version that is installed with this flag, and setup checks every file against the SHA-256 in its manifest and writes back the ones that are missing or changed, then redoes shortcuts and registration. Nothing else in the folder and no user data is touched. The window offers the same as a **Repair** button next to **Reinstall** when the installed version is the setup file's own, and repairs with the options the app was installed with. A different version, or nothing installed, stops with exit code 1 and says so. The log lists what was written. |
 | `--overwrite` | A first install into a folder that already holds files of the same names as the setup file's (and no earlier install of this app) is refused with exit code 1, naming up to five of them; this installs over them anyway. |
 | `--key-file FILE` | The access key (first line of the file) for a setup file with [`[access]`](#access). The `BACH_ACCESS_KEY` environment variable does the same. Without a key a silent run exits with code 2. |
 | `--log FILE` | Where the log goes. By default every run writes `%TEMP%\<app id>-setup.log`; a space in the app id is written `%20` in file and folder names (`My App` gives `My%20App-setup.log`), so two ids never share one. |

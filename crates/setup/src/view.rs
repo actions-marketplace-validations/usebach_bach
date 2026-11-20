@@ -129,6 +129,14 @@ impl SetupView {
             }
             Mode::Remove { dir } => (None, None, dir.clone(), Choices::default(), false),
         };
+        // A preview can pretend this very version is installed, to show the repair page.
+        let existing = match std::env::var("BACH_PREVIEW_INSTALLED") {
+            Ok(version) if preview && matches!(mode, Mode::Install) && existing.is_none() => Some(Installed {
+                dir: dir.clone(),
+                version: if version.trim().is_empty() { manifest.app.version.clone() } else { version },
+            }),
+            _ => existing,
+        };
         // Screenshots for docs shouldn't show whose computer took them.
         let dir = match std::env::var_os("BACH_PREVIEW_DIR") {
             Some(shown) if preview => PathBuf::from(shown),
@@ -280,6 +288,29 @@ impl SetupView {
     /// A first install may move; an update stays where it is.
     pub fn can_change_folder(&self) -> bool {
         !self.is_removing() && self.existing.is_none() && self.package.manifest.install.change_folder
+    }
+
+    /// Whether the first page offers "Repair": this very version is installed,
+    /// so its files can be checked and put back without changing anything else.
+    pub fn is_repairable(&self) -> bool {
+        let manifest = &self.package.manifest;
+        matches!(self.stage, Stage::Ready)
+            && !self.is_removing()
+            && !manifest.online
+            && !self.downgrade
+            && self.existing.as_ref().is_some_and(|installed| installed.version == manifest.app.version)
+    }
+
+    /// "Repair": writes back what is missing or changed of the installed
+    /// version, with the options it was installed with (whatever was ticked
+    /// or unticked on this page is left alone).
+    pub fn repair(&mut self, cx: &mut Context<Self>) {
+        if !self.is_repairable() {
+            return;
+        }
+        self.choices = crate::start::install(&self.package.manifest).choices;
+        crate::log::line("Repair was chosen: the installed version is checked and put right.");
+        self.start(cx);
     }
 
     /// Starts installing or removing on a worker thread.
