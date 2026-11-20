@@ -189,6 +189,20 @@ fn components(manifest: &Manifest) -> Result<()> {
         if component.title.is_empty() {
             bail!("the component \"{}\" has no title", component.id);
         }
+        if let Some(download) = &component.download {
+            let plain = !download.url.chars().any(char::is_control);
+            if !is_https(&download.url) || !plain {
+                bail!("the download of the component \"{}\" isn't an https link", component.id);
+            }
+            if download.sha256.len() != 64 || !download.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+                bail!("the download of the component \"{}\" has no valid SHA-256", component.id);
+            }
+            // The files are checked against the archive's own SHA-256 as they are read,
+            // and a download isn't locked with the access key: it would be readable.
+            if manifest.access.as_ref().is_some_and(|access| access.encryption.is_some()) {
+                bail!("the component \"{}\" is downloaded, which a setup file locked with an access key can't do", component.id);
+            }
+        }
     }
     Ok(())
 }

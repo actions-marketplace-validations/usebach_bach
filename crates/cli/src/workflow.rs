@@ -26,6 +26,10 @@ pub struct Options<'a> {
     pub force: bool,
     /// How the workflow names Bach's own action.
     pub pin: Pin,
+    /// The app's winget package id, like `Example.Hello`: the workflow then
+    /// also opens the pull request that updates it in winget-pkgs. Left out,
+    /// a job an earlier run of this command wrote is kept.
+    pub winget: Option<&'a str>,
 }
 
 /// How `uses: usebach/bach@...` is written.
@@ -47,6 +51,8 @@ pub struct Written {
     /// The repository has no GitHub `origin`, so Actions won't see the file yet.
     pub no_github: bool,
     pub updated: bool,
+    /// The winget package the workflow updates, when it has that job.
+    pub winget: Option<String>,
     /// What the action is pinned to: the commit, or the moving `v0` tag.
     pub action: String,
     /// The commit was wanted but couldn't be looked up.
@@ -73,6 +79,9 @@ pub fn command(options: Options) -> Result<()> {
             "The workflow runs Bach's action at one commit ({}); to follow new releases, update it with Dependabot (see below).",
             done.action
         );
+    }
+    if let Some(id) = &done.winget {
+        say!("After each release it also opens the winget pull request for {id}; add a repository secret named WINGET_TOKEN for it (see docs/releasing.md).");
     }
     say!("Commit and push it, then release on GitHub under Actions > Release > Run workflow.");
     if options.pin == Pin::Commit && !done.pin_failed {
@@ -112,7 +121,12 @@ pub fn write(options: &Options) -> Result<Written> {
             None => (FLOATING.to_string(), true),
         },
     };
-    let text = render(&relative, &project, &action)?;
+    let kept = existing.as_deref().filter(|_| ours).and_then(existing_winget);
+    let winget = options.winget.or(kept.as_deref());
+    if let Some(id) = winget {
+        check_winget_id(id)?;
+    }
+    let text = render(&relative, &project, &action, winget)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("couldn't create {}", parent.display()))?;
     }
@@ -121,6 +135,7 @@ pub fn write(options: &Options) -> Result<Written> {
         path: path.strip_prefix(&root).map(|short| short.to_path_buf()).unwrap_or(path),
         stack: project.stack,
         no_github: crate::github::repository(&dir).is_none(),
+        winget: winget.map(str::to_string),
         updated: ours,
         action,
         pin_failed,
@@ -243,7 +258,7 @@ impl Node {
 
 /// The finished YAML for a project in `dir` (relative to the repository, with
 /// `/`, empty for the repository's own folder).
-fn render(dir: &str, project: &Project, action: &str) -> Result<String> {
+fn render(dir: &str, project: &Project, action: &str, winget: Option<&str>) -> Result<String> {
     // The folder lands in YAML and in shell: only plain path characters.
     if !dir.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | ' ')) {
         bail!("the folder \"{dir}\" has characters the workflow can't carry; rename it to letters, digits, spaces, '.', '_' or '-'");
@@ -269,13 +284,76 @@ fn render(dir: &str, project: &Project, action: &str) -> Result<String> {
         .replace("@DEFAULTS@\n", &defaults)
         .replace("@SETUP@\n", &setup)
         .replace("@BUILD@\n", &build)
+        .replace("@WINGET@", &winget.map(winget_job).unwrap_or_default())
         .replace("@CONFIG@", &config)
         .replace("@ACTION@", action);
     debug_assert!(
-        ["@DEFAULTS@", "@SETUP@", "@BUILD@", "@CONFIG@", "@ACTION@"].iter().all(|token| !text.contains(token)),
+        ["@DEFAULTS@", "@SETUP@", "@BUILD@", "@CONFIG@", "@ACTION@", "@WINGET@"].iter().all(|token| !text.contains(token)),
         "every placeholder is filled"
     );
     Ok(text)
+}
+
+/// The package id the winget job of an earlier run carries, so running
+/// `bach workflow` again to update the file doesn't drop the job.
+fn existing_winget(text: &str) -> Option<String> {
+    let line = text.lines().find(|line| line.trim_start().starts_with("PACKAGE: \""))?;
+    let id = line.split('"').nth(1)?;
+    check_winget_id(id).ok().map(|()| id.to_string())
+}
+
+/// A winget package id is `Publisher.Package` (more dots for more levels).
+/// It lands in YAML and in a PowerShell script, so only the characters
+/// winget itself allows get through.
+fn check_winget_id(id: &str) -> Result<()> {
+    let part_ok = |part: &str| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    if id.len() > 128 || !id.contains('.') || !id.split('.').all(part_ok) {
+        bail!("\"{id}\" isn't a winget package id; it looks like Publisher.App (letters, digits, '-' and '_', parts joined by dots)");
+    }
+    Ok(())
+}
+
+/// The job that opens the winget-pkgs pull request once the release is out.
+/// It needs a `WINGET_TOKEN` secret and skips itself, with a notice, without
+/// one, so the release is never held back by it.
+fn winget_job(id: &str) -> String {
+    format!(
+        r#"
+  # Opens the pull request that updates the app in winget (microsoft/winget-pkgs)
+  # with the setup file this release published. The first version of an app is
+  # submitted by hand (`bach winget`); this job updates it from then on.
+  winget:
+    name: Update winget
+    needs: release
+    if: ${{{{ !inputs.dry_run && !inputs.draft && !inputs.prerelease && !contains(needs.release.outputs.version, '-') }}}}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Open the winget pull request
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{{{ secrets.WINGET_TOKEN }}}}
+          GH_TOKEN: ${{{{ github.token }}}}
+          VERSION: ${{{{ needs.release.outputs.version }}}}
+          SETUP: ${{{{ needs.release.outputs.setup }}}}
+          PACKAGE: "{id}"
+        run: |
+          if (-not $env:WINGET_TOKEN) {{
+            Write-Host "::notice::No WINGET_TOKEN secret, so no winget pull request was opened. Add a classic token with the public_repo scope as a repository secret named WINGET_TOKEN."
+            exit 0
+          }}
+          # GitHub writes spaces in an asset's name as dots.
+          $name = (Split-Path $env:SETUP -Leaf) -replace ' ', '.'
+          $assets = (gh release view "v$env:VERSION" --repo $env:GITHUB_REPOSITORY --json assets | ConvertFrom-Json).assets
+          $asset = $assets | Where-Object {{ $_.name -eq $name }} | Select-Object -First 1
+          if (-not $asset) {{ throw "The release v$env:VERSION has no file named $name." }}
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe update $env:PACKAGE -u $asset.url -v $env:VERSION -t $env:WINGET_TOKEN --submit
+          if ($LASTEXITCODE -ne 0) {{ throw "wingetcreate failed with exit code $LASTEXITCODE." }}
+"#
+    )
 }
 
 const RUST_TOOLCHAIN: &str = "
@@ -375,7 +453,7 @@ mod tests {
             "electron",
             &[("package.json", r#"{"name":"n","version":"1.0.0","devDependencies":{"electron":"30"}}"#), ("package-lock.json", "{}")],
         );
-        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float }).unwrap();
+        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap();
         assert_eq!((done.stack, done.no_github, done.updated), (Some("Electron"), false, false));
         let text = written(&dir);
         assert!(text.starts_with(MARK));
@@ -391,7 +469,7 @@ mod tests {
     #[test]
     fn each_stack_builds_its_own_way() {
         let rust = project("rust", &[("Cargo.toml", "[package]\nname = \"a\"\nversion = \"1.0.0\"\n")]);
-        write(&Options { dir: &rust, force: false, pin: Pin::Float }).unwrap();
+        write(&Options { dir: &rust, force: false, pin: Pin::Float, winget: None }).unwrap();
         let text = written(&rust);
         assert!(
             text.contains("dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable")
@@ -403,7 +481,7 @@ mod tests {
             "forge",
             &[("package.json", r#"{"devDependencies":{"electron":"30","@electron-forge/cli":"7"}}"#), ("pnpm-lock.yaml", "")],
         );
-        write(&Options { dir: &forge, force: false, pin: Pin::Float }).unwrap();
+        write(&Options { dir: &forge, force: false, pin: Pin::Float, winget: None }).unwrap();
         let text = written(&forge);
         assert!(
             text.contains("electron-forge package") && text.contains("pnpm install --frozen-lockfile") && text.contains("--lockfile-only")
@@ -413,16 +491,16 @@ mod tests {
             "dotnet",
             &[("A.csproj", "<Project><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>")],
         );
-        write(&Options { dir: &dotnet, force: false, pin: Pin::Float }).unwrap();
+        write(&Options { dir: &dotnet, force: false, pin: Pin::Float, winget: None }).unwrap();
         assert!(written(&dotnet).contains("dotnet publish -c Release -r win-x64 --self-contained"));
 
         let tauri = project("tauri", &[("src-tauri/tauri.conf.json", r#"{"productName":"A","version":"1.0.0"}"#)]);
-        write(&Options { dir: &tauri, force: false, pin: Pin::Float }).unwrap();
+        write(&Options { dir: &tauri, force: false, pin: Pin::Float, winget: None }).unwrap();
         let text = written(&tauri);
         assert!(text.contains("cargo build --release --manifest-path src-tauri/Cargo.toml"), "no package.json, so Cargo alone");
 
         let unknown = project("unknown", &[]);
-        let done = write(&Options { dir: &unknown, force: false, pin: Pin::Float }).unwrap();
+        let done = write(&Options { dir: &unknown, force: false, pin: Pin::Float, winget: None }).unwrap();
         assert!(done.stack.is_none());
         assert!(written(&unknown).contains("TODO: build your app"));
         for dir in [rust, forge, dotnet, tauri, unknown] {
@@ -434,26 +512,70 @@ mod tests {
     fn a_project_in_a_subfolder_runs_from_there() {
         let dir = project("mono", &[("desktop/README", "x")]);
         std::fs::rename(dir.join("bach.toml"), dir.join("desktop/bach.toml")).unwrap();
-        write(&Options { dir: &dir.join("desktop"), force: false, pin: Pin::Float }).unwrap();
+        write(&Options { dir: &dir.join("desktop"), force: false, pin: Pin::Float, winget: None }).unwrap();
         let text = written(&dir);
         assert!(text.contains("working-directory: \"desktop\""));
         assert!(text.contains("config: desktop/bach.toml"));
         std::fs::remove_dir_all(dir).unwrap();
         assert!(
-            render("a\"b", &Project { stack: None, node: None, forge: false, tauri_uses_node: false }, FLOATING).is_err(),
+            render("a\"b", &Project { stack: None, node: None, forge: false, tauri_uses_node: false }, FLOATING, None).is_err(),
             "no quotes in a folder name"
         );
-        assert!(render("a$(x)", &Project { stack: None, node: None, forge: false, tauri_uses_node: false }, FLOATING).is_err());
+        assert!(render("a$(x)", &Project { stack: None, node: None, forge: false, tauri_uses_node: false }, FLOATING, None).is_err());
+    }
+
+    #[test]
+    fn the_winget_job_is_added_on_request_and_kept_on_update() {
+        let dir = project("winget", &[]);
+        write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap();
+        let plain = written(&dir);
+        assert!(!plain.contains("wingetcreate") && !plain.contains("@WINGET@"), "no job unless asked for");
+        assert!(
+            plain.contains(
+                "outputs:
+      version:"
+            ),
+            "the release job hands its version on either way"
+        );
+
+        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: Some("Example.Hello") }).unwrap();
+        assert_eq!(done.winget.as_deref(), Some("Example.Hello"));
+        let text = written(&dir);
+        assert!(text.contains("PACKAGE: \"Example.Hello\"") && text.contains("-t $env:WINGET_TOKEN --submit"), "{text}");
+        assert!(text.contains("needs: release") && text.contains("!inputs.dry_run && !inputs.draft"), "{text}");
+        assert!(
+            text.ends_with(
+                "}
+"
+            ),
+            "the file ends with a newline"
+        );
+
+        // Updating the workflow later, without the flag, keeps the job.
+        let again = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap();
+        assert_eq!(again.winget.as_deref(), Some("Example.Hello"));
+        assert_eq!(written(&dir), text);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_winget_id_that_could_carry_a_command_is_refused() {
+        for bad in ["Example", "Ex ample.Hello", "Example.Hello\"; calc", "Example.$(x)", "Example..Hello", ".Hello", ""] {
+            assert!(check_winget_id(bad).is_err(), "{bad:?} should be refused");
+        }
+        for good in ["Example.Hello", "Some-Co.My_App", "A.B.C"] {
+            assert!(check_winget_id(good).is_ok(), "{good:?}");
+        }
     }
 
     #[test]
     fn a_file_that_isnt_ours_is_kept_unless_forced() {
         let dir = project("keep", &[(FILE, "name: mine\n")]);
-        let error = write(&Options { dir: &dir, force: false, pin: Pin::Float }).err().unwrap().to_string();
+        let error = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).err().unwrap().to_string();
         assert!(error.contains("--force"), "{error}");
         assert_eq!(written(&dir), "name: mine\n");
-        write(&Options { dir: &dir, force: true, pin: Pin::Float }).unwrap();
-        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float }).unwrap();
+        write(&Options { dir: &dir, force: true, pin: Pin::Float, winget: None }).unwrap();
+        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap();
         assert!(done.updated, "Bach's own file is updated in place");
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -463,9 +585,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("bach-workflow-none-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(write(&Options { dir: &dir, force: false, pin: Pin::Float }).unwrap_err().to_string().contains("bach init"));
+        assert!(write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap_err().to_string().contains("bach init"));
         std::fs::write(dir.join("bach.toml"), "").unwrap();
-        assert!(write(&Options { dir: &dir, force: false, pin: Pin::Float }).unwrap_err().to_string().contains("git repository"));
+        assert!(write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None })
+            .unwrap_err()
+            .to_string()
+            .contains("git repository"));
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
@@ -474,11 +599,11 @@ mod tests {
         let pinned = pinned_action(sha, "0.6.0");
         assert_eq!(pinned, format!("usebach/bach@{sha} # v0.6.0"));
         let project = Project { stack: None, node: None, forge: false, tauri_uses_node: false };
-        let text = render("", &project, &pinned).unwrap();
+        let text = render("", &project, &pinned, None).unwrap();
         // Both uses of the action, with a 40-digit commit and the version as a comment.
         assert_eq!(text.matches(&format!("uses: usebach/bach@{sha} # v0.6.0")).count(), 2, "{text}");
         assert!(!text.contains("uses: usebach/bach@v0"));
-        let floating = render("", &project, FLOATING).unwrap();
+        let floating = render("", &project, FLOATING, None).unwrap();
         assert_eq!(
             floating
                 .matches(
@@ -490,7 +615,7 @@ mod tests {
         );
         // The float option writes the moving tag without asking GitHub.
         let dir = project_dir_for_pin();
-        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float }).unwrap();
+        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap();
         assert_eq!((done.action.as_str(), done.pin_failed), (FLOATING, false));
         assert!(written(&dir).contains(
             "uses: usebach/bach@v0

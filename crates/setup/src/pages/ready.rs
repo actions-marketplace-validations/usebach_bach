@@ -62,6 +62,21 @@ impl SetupView {
             .focused(self.is_focused(Target::Primary))
             .on_click(cx.listener(|this, _, _, cx| this.start(cx)));
         let go = if self.is_removing() { go.destructive() } else { go };
+        let mut buttons = vec![FormButton::new("setup-cancel", self.texts.get(Key::cancel))
+            .outline()
+            .focused(self.is_focused(Target::Cancel))
+            .on_click(cx.listener(|this, _, _, cx| this.close(cx)))
+            .into_any_element()];
+        if self.is_repairable() {
+            buttons.push(
+                FormButton::new("setup-repair", self.texts.get(Key::repair_button))
+                    .outline()
+                    .focused(self.is_focused(Target::Repair))
+                    .on_click(cx.listener(|this, _, _, cx| this.repair(cx)))
+                    .into_any_element(),
+            );
+        }
+        buttons.push(go.into_any_element());
         // The card itself scrolls, so a focused row can be scrolled to by
         // its index; the scrollbar sits over its right edge.
         let list = div()
@@ -101,21 +116,7 @@ impl SetupView {
             mark: self.mark(false, &theme),
             subtitle: subtitle.map(|text| subtitle_text(text, &theme)),
             content: Some(choices.into_any_element()),
-            ..PageLayout::new(
-                title,
-                footer(
-                    Some(self.meta()),
-                    vec![
-                        FormButton::new("setup-cancel", self.texts.get(Key::cancel))
-                            .outline()
-                            .focused(self.is_focused(Target::Cancel))
-                            .on_click(cx.listener(|this, _, _, cx| this.close(cx)))
-                            .into_any_element(),
-                        go.into_any_element(),
-                    ],
-                    &theme,
-                ),
-            )
+            ..PageLayout::new(title, footer(Some(self.meta()), buttons, &theme))
         }
         .render(&theme)
     }

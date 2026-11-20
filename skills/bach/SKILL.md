@@ -309,11 +309,30 @@ window speaks several).
 - To make a Chocolatey package: `bach choco SETUP.exe --url URL --license MIT`,
   then `choco pack` in the folder it writes (use `installer.scope = "machine"`,
   since Chocolatey installs as an administrator).
+- For Group Policy or Configuration Manager: `bach build --msi` also writes a real `.msi` (files, shortcuts,
+  registry, optional components, upgrades); it says what it can't carry. 3-number versions only. Opening the `.msi`
+  shows the same Bach window as the setup file (Windows Installer does the work under it); `/qn` stays quiet.
 - To deploy with Microsoft Intune: `bach intune SETUP.exe` writes the install and
   uninstall commands and the detection rule (`intune.md`) and a detection script
   (`detect.ps1`); use `installer.scope = "machine"` for devices.
+- To have each release also open the winget update PR: `bach workflow --winget Publisher.App`
+  (needs a `WINGET_TOKEN` repository secret; the first winget submission is still by hand).
+- To try a setup file on a clean Windows: `bach test [SETUP.exe]` runs install, start and
+  uninstall in Windows Sandbox (Pro/Enterprise/Education only) and reports failures and
+  leftovers; `--dry-run` only writes the sandbox files.
 - To check a setup file without installing it: `bach verify SETUP.exe` (add
   `--key-file FILE` for an encrypted one; `--json` gives `verified` and `signature`).
+- For one download that serves x64 and ARM64: add `[arch.arm64] source = "<arm64 folder>"`; `bach build
+  --runtime-arm64 <ARM64 bach-setup.exe>` writes both setup files and one `latest.json` that lists both
+  (`--x64-only` skips the ARM64 one).
+- For files most people won't want (language packs, HD textures, demo files): give the `[[components]]`
+  entry `download = true` (or an https link). `bach build` writes them to `Name-component-version.bachpack`
+  to upload; the installer downloads it only when the box is ticked.
+- For a portable ZIP or a company (machine-wide) version of the same app: add `[profiles.NAME]`
+  to `bach.toml` (`kind = "zip"`, or settings that differ), then `bach build --profile NAME` or
+  `bach build --all-profiles`; `bach profiles` lists them.
+- To see what changed between two releases: `bach diff OLD.exe NEW.exe` (files added,
+  removed and changed, new registry values, which files grew the app; `--json` too).
 - For a download page: `bach page SETUP.exe --url URL` writes `download/index.html`.
 - In CI, `bach check --strict` (or `BACH_STRICT=1`) fails on any warning.
 

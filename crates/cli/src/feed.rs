@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use bach_pack::config::{self, Overrides, Project};
 use bach_pack::container;
-use bach_pack::manifest::{DeltaEntry, FeedEntry};
+use bach_pack::manifest::{ArchEntry, DeltaEntry, FeedEntry};
 
 use crate::output::field;
 
@@ -18,10 +18,19 @@ pub const FILE_NAME: &str = "latest.json";
 /// A release note longer than this is cut, so a feed stays small.
 const MAX_NOTES: usize = 4000;
 
+/// A setup file for another architecture that the feed lists.
+pub struct ArchFile {
+    /// `arm64`.
+    pub name: String,
+    /// The https link it is downloaded from.
+    pub url: String,
+    pub path: PathBuf,
+}
+
 /// After a build: the feed, when the config says where the file will live.
 /// `patch` is the update patch built this time and the version it updates
 /// from; the feed offers it to computers that have that version.
-pub fn after_build(project: &Project, setup: &Path, patch: Option<(&Path, &str)>) -> Result<()> {
+pub fn after_build(project: &Project, setup: &Path, patch: Option<(&Path, &str)>, arch: &[(String, PathBuf)]) -> Result<()> {
     match &project.update_download_url {
         Some(template) => {
             let delta = match patch {
@@ -37,7 +46,20 @@ pub fn after_build(project: &Project, setup: &Path, patch: Option<(&Path, &str)>
             };
             // A build without the private key (a developer's own machine) still writes the
             // feed, unsigned, with a warning; `bach feed` is where signing is required.
-            let written = write(setup, &download_url(template, setup), None, None, delta, None, false)?;
+            let listed: Vec<ArchFile> = arch
+                .iter()
+                .map(|(name, file)| ArchFile { name: name.clone(), url: download_url(template, file), path: file.clone() })
+                .collect();
+            let written = write(Feed {
+                setup,
+                url: &download_url(template, setup),
+                notes: None,
+                rollout: None,
+                delta,
+                arch: &listed,
+                out: None,
+                key_required: false,
+            })?;
             field("Update feed", written.display());
             crate::output::result("feed", written.display().to_string());
         }
@@ -67,6 +89,10 @@ pub struct Options<'a> {
     /// The link the patch is downloaded from; the config's download link when
     /// left out.
     pub patch_url: Option<&'a str>,
+    /// The ARM64 setup file of the same version, to list for ARM64 computers.
+    pub arm64: Option<&'a Path>,
+    /// The link it is downloaded from; the config's download link when left out.
+    pub arm64_url: Option<&'a str>,
 }
 
 /// `bach feed`: the feed for a (possibly signed) setup file.
@@ -85,17 +111,37 @@ pub fn command(options: Options) -> Result<()> {
         }
         None => None,
     };
+    let mut listed = Vec::new();
+    if let Some(file) = options.arm64 {
+        let url = match options.arm64_url {
+            Some(url) => url.to_string(),
+            None => url_from_config(options.setup, file, options.config)?,
+        };
+        listed.push(ArchFile { name: "arm64".into(), url, path: file.to_path_buf() });
+    }
     let notes = match (options.notes, options.notes_file) {
         (Some(notes), _) => Some(notes.to_string()),
         (None, Some(file)) => Some(bach_pack::textfile::read(file).with_context(|| format!("couldn't read {}", file.display()))?),
         (None, None) => None,
     };
-    let written = write(options.setup, &url, notes.as_deref(), options.rollout, delta.clone(), options.out, true)?;
+    let written = write(Feed {
+        setup: options.setup,
+        url: &url,
+        notes: notes.as_deref(),
+        rollout: options.rollout,
+        delta: delta.clone(),
+        arch: &listed,
+        out: options.out,
+        key_required: true,
+    })?;
     crate::output::result("feed", written.display().to_string());
     say!("Wrote {}", written.display());
     field("Download", &url);
     if let Some(delta) = &delta {
         field("Patch", format!("from {}, {}", delta.from, delta.url));
+    }
+    for file in &listed {
+        field("Also", format!("{} setup file, {}", file.name, file.url));
     }
     if let Some(percent) = options.rollout {
         field("Rollout", format!("{percent}% of computers take it by themselves"));
@@ -158,7 +204,7 @@ fn url_from_config(setup: &Path, file: &Path, config: Option<&Path>) -> Result<S
         ),
     };
     let version = setup_version(setup)?;
-    let project = config::load_with(&path, &Overrides { version: Some(version) })?;
+    let project = config::load_with(&path, &Overrides { version: Some(version), ..Overrides::default() })?;
     match project.update_download_url {
         Some(template) => Ok(download_url(&template, file)),
         None => {
@@ -235,15 +281,21 @@ pub fn digest_of(path: &Path) -> Result<(String, u64)> {
     Ok((sha256, size))
 }
 
-fn write(
-    setup: &Path,
-    url: &str,
-    notes: Option<&str>,
+/// What the feed for one setup file is made of.
+struct Feed<'a> {
+    setup: &'a Path,
+    url: &'a str,
+    notes: Option<&'a str>,
     rollout: Option<u8>,
     delta: Option<DeltaEntry>,
-    out: Option<&Path>,
+    arch: &'a [ArchFile],
+    out: Option<&'a Path>,
+    /// A missing signing key is an error (`bach feed`), not a warning (`bach build`).
     key_required: bool,
-) -> Result<PathBuf> {
+}
+
+fn write(feed: Feed) -> Result<PathBuf> {
+    let Feed { setup, url, notes, rollout, delta, arch, out, key_required } = feed;
     if rollout.is_some_and(|percent| percent > 100) {
         bail!("--rollout is a percentage, from 0 to 100");
     }
@@ -263,6 +315,10 @@ fn write(
         bail!("{} is {what}; point bach feed at the full setup file", setup.display());
     }
     let (sha256, size) = digest_of(setup)?;
+    let mut listed = std::collections::BTreeMap::new();
+    for file in arch {
+        listed.insert(file.name.clone(), arch_entry(file, &manifest)?);
+    }
     let notes = notes.map(str::trim).filter(|notes| !notes.is_empty()).map(|notes| notes.chars().take(MAX_NOTES).collect());
     let mut entry = FeedEntry {
         version: manifest.app.version.clone(),
@@ -274,6 +330,7 @@ fn write(
         delta,
         signature: None,
         published: None,
+        arch: listed,
     };
     // An app that has a publisher key accepts only signed feeds, so an unsigned
     // one would silently stop every installed copy from updating.
@@ -288,6 +345,10 @@ fn write(
                 // Signed with the time, so an app that limits a feed's age can tell it is fresh.
                 entry.published = Some(bach_pack::feedsig::format_utc(signing_time()));
                 entry.signature = Some(bach_pack::feedsig::sign(&private, &manifest.app.id, &entry)?);
+                let version = entry.version.clone();
+                for (name, listed) in entry.arch.iter_mut() {
+                    listed.signature = Some(bach_pack::feedsig::sign_arch(&private, &manifest.app.id, &version, name, listed)?);
+                }
             }
             Err(err) if key_required => return Err(err),
             Err(err) => crate::output::warnings(&[format!(
@@ -307,6 +368,41 @@ fn write(
     let json = serde_json::to_string_pretty(&entry)?;
     std::fs::write(&target, format!("{json}\n")).with_context(|| format!("couldn't write {}", target.display()))?;
     Ok(target)
+}
+
+/// What the feed lists for a setup file of another architecture: its link, SHA-256 and
+/// size, read from the (signed) file. It has to be a full setup file of the same app and
+/// version, for that architecture, because an installed app swaps one for the other.
+fn arch_entry(file: &ArchFile, main: &bach_pack::manifest::Manifest) -> Result<ArchEntry> {
+    let shown = file.path.display();
+    if !bach_pack::manifest::extras::OTHER_ARCHES.contains(&file.name.as_str()) {
+        bail!("the feed can't list a {} setup file", file.name);
+    }
+    if !bach_pack::manifest::extras::is_https(&file.url) {
+        bail!("the {} setup file's download link \"{}\" must be an https link", file.name, file.url);
+    }
+    let mut handle = std::fs::File::open(&file.path).with_context(|| format!("couldn't open {shown}"))?;
+    let Some(layout) = container::locate(&mut handle)? else {
+        bail!("{shown} isn't a Bach setup file");
+    };
+    let manifest = container::read_manifest(&mut handle, &layout)?;
+    if manifest.app.id != main.app.id || manifest.app.version != main.app.version {
+        bail!(
+            "{shown} is {} {}, but the setup file the feed is for is {} {}: build both from one bach.toml and version",
+            manifest.app.id,
+            manifest.app.version,
+            main.app.id,
+            main.app.version
+        );
+    }
+    if manifest.patch_from.is_some() || !layout.has_archive() {
+        bail!("{shown} isn't a full setup file (an update patch, an online installer or an uninstaller can't be listed here)");
+    }
+    if file.name == "arm64" && config::pe_machine(&file.path) != Some(0xAA64) {
+        bail!("{shown} isn't an ARM64 setup file: it was built on the x64 runtime, so list it for x64 or build it with --runtime-arm64");
+    }
+    let (sha256, size) = digest_of(&file.path)?;
+    Ok(ArchEntry { url: file.url.clone(), sha256, size: Some(size), signature: None })
 }
 
 /// When the feed is signed: now, or `SOURCE_DATE_EPOCH` when it is set (the

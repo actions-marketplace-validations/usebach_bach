@@ -4,10 +4,13 @@
 //! bach init              write a starter bach.toml
 //! bach check             read bach.toml and list what would be installed
 //! bach build             write the setup file
+//! bach profiles          list the other builds (portable ZIP, company version) of this bach.toml
 //! bach preview           open the installer window without installing anything
 //! bach watch             keep the preview open and reopen it when bach.toml changes
 //! bach inspect FILE      show what a setup file installs
+//! bach test [FILE]       install, start and remove a setup file in Windows Sandbox
 //! bach verify FILE       check a setup file for damage without installing it
+//! bach diff OLD NEW      show what changed between two setup files of an app
 //! bach doctor            check that everything a build needs is in place
 //! bach feed FILE         write the update feed for a (signed) setup file
 //! bach sign FILE         sign a setup file the way [signing] in bach.toml says
@@ -34,18 +37,22 @@ macro_rules! say {
 mod builder;
 mod choco;
 mod detect;
+mod diff;
 mod doctor;
 mod feed;
 mod github;
 mod inspect;
 mod intune;
 mod key;
+mod msi;
 mod output;
 mod page;
 mod preview;
+mod profiles;
 #[cfg(windows)]
 mod resources;
 mod runtime;
+mod sandbox;
 mod sign;
 mod styles;
 mod template;
@@ -56,6 +63,7 @@ mod version_files;
 mod watch;
 mod winget;
 mod workflow;
+mod zipfile;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -104,6 +112,9 @@ struct PreviewArgs {
     /// The setup runtime to build on (default: bach-setup.exe next to bach).
     #[arg(long, env = "BACH_RUNTIME")]
     runtime: Option<PathBuf>,
+    /// Show this profile of the config (`bach profiles` lists them).
+    #[arg(long)]
+    profile: Option<String>,
 }
 
 impl PreviewArgs {
@@ -115,6 +126,7 @@ impl PreviewArgs {
             layout: self.layout.as_deref(),
             lang: self.lang.as_deref(),
             runtime: self.runtime.as_deref(),
+            profile: self.profile.as_deref(),
         }
     }
 }
@@ -138,6 +150,9 @@ enum Command {
         /// Use this version instead of app.version (a leading v is dropped).
         #[arg(long)]
         app_version: Option<String>,
+        /// Check this profile of the config (`bach profiles` lists them).
+        #[arg(long)]
+        profile: Option<String>,
         /// Fail when there is a warning, so a pipeline can't ship what check
         /// complains about (or set BACH_STRICT=1).
         #[arg(long, env = "BACH_STRICT")]
@@ -148,6 +163,24 @@ enum Command {
         /// The config file.
         #[arg(default_value = "bach.toml")]
         config: PathBuf,
+        /// Build this profile instead of the main setup file; repeat it for
+        /// several (`bach profiles` lists them).
+        #[arg(long)]
+        profile: Vec<String>,
+        /// Build the main setup file and every profile.
+        #[arg(long, conflicts_with = "profile")]
+        all_profiles: bool,
+        /// The ARM64 setup runtime (bach-setup.exe from the ARM64 release) for
+        /// [arch.arm64] in bach.toml, when the config doesn't name one.
+        #[arg(long, env = "BACH_RUNTIME_ARM64")]
+        runtime_arm64: Option<PathBuf>,
+        /// Build only the x64 setup file, even when bach.toml has [arch.arm64].
+        #[arg(long)]
+        x64_only: bool,
+        /// Also write a Windows Installer package (.msi) of the app, for
+        /// Group Policy, Configuration Manager and Intune.
+        #[arg(long)]
+        msi: bool,
         /// Write the setup file here instead of installer.output.
         #[arg(long, short)]
         out: Option<PathBuf>,
@@ -202,6 +235,13 @@ enum Command {
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
+    /// List the profiles of a bach.toml: other builds of the app, like a
+    /// portable ZIP or a version for companies.
+    Profiles {
+        /// The config file.
+        #[arg(default_value = "bach.toml")]
+        config: PathBuf,
+    },
     /// Open the installer window as it will look, without installing anything.
     Preview(PreviewArgs),
     /// Keep the preview open, and reopen it whenever bach.toml (or a file it
@@ -242,6 +282,14 @@ enum Command {
         /// Write the feed here instead of latest.json next to the setup file.
         #[arg(long, short)]
         out: Option<PathBuf>,
+        /// The ARM64 setup file of the same version (built with the ARM64
+        /// runtime), to list for computers that run on ARM64.
+        #[arg(long)]
+        arm64: Option<PathBuf>,
+        /// The https link the ARM64 setup file is downloaded from (default:
+        /// the download link of [updates] in bach.toml, for its file name).
+        #[arg(long, requires = "arm64")]
+        arm64_url: Option<String>,
         /// An update patch made by `bach build --patch-from`, to offer to
         /// computers that have the version it updates from.
         #[arg(long)]
@@ -278,6 +326,49 @@ enum Command {
         /// Write the package into this folder.
         #[arg(long, short)]
         out: Option<PathBuf>,
+    },
+    /// Try a setup file on a clean Windows in Windows Sandbox: install it
+    /// silently, start the app, remove it, and report what failed and what
+    /// was left behind.
+    Test {
+        /// The setup file (default: the one bach.toml builds).
+        file: Option<PathBuf>,
+        /// The config file, to find the setup file.
+        #[arg(long, default_value = "bach.toml")]
+        config: PathBuf,
+        /// Install with these options on (ids as for the setup file's --with).
+        #[arg(long, value_delimiter = ',')]
+        with: Vec<String>,
+        /// Install with these options off.
+        #[arg(long, value_delimiter = ',')]
+        without: Vec<String>,
+        /// How many seconds to leave the app running after it starts; 0 doesn't start it.
+        #[arg(long, default_value_t = 5)]
+        launch: u32,
+        /// Give the sandbox the network (off by default, so the test needs nothing from outside).
+        #[arg(long)]
+        network: bool,
+        /// Give up waiting for the sandbox after this many minutes.
+        #[arg(long, default_value_t = 20)]
+        timeout: u32,
+        /// Leave the sandbox open when the test ends, to look around in it.
+        #[arg(long)]
+        keep: bool,
+        /// Write the files the test would use and stop (works without Windows Sandbox).
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Show what changed between two setup files of one app: the files added,
+    /// removed and changed, what the new one writes to the registry and the
+    /// environment, and which files made the installer bigger.
+    Diff {
+        /// The older setup file.
+        old: PathBuf,
+        /// The newer setup file.
+        new: PathBuf,
+        /// How many of the files that grew the most to list.
+        #[arg(long, default_value_t = 5)]
+        top: usize,
     },
     /// Check a setup file for damage, without installing it: the archive and
     /// every file against the checksums recorded when it was built.
@@ -340,6 +431,10 @@ enum Command {
         /// commit of this release, `float` follows the newest 0.x release.
         #[arg(long, value_enum, default_value = "commit")]
         pin: PinArg,
+        /// The app's winget package id (like Example.Hello): also open the
+        /// pull request that updates it in winget-pkgs after each release.
+        #[arg(long, value_name = "ID")]
+        winget: Option<String>,
     },
     /// List the built-in styles of the installer window, for installer.style.
     Styles,
@@ -378,10 +473,34 @@ fn main() -> ExitCode {
         Command::Update { version, check, force } => update::command(update::Options { version: version.as_deref(), check, force }),
         Command::UpdateRefresh => update::refresh(),
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
-        Command::Check { config, app_version, strict } => builder::check(&config, app_version.as_deref(), strict),
-        Command::Build { config, out, runtime, fast, app_version, online, key_file, sign, patch_from, strict } => {
-            builder::build(builder::BuildOptions {
+        Command::Check { config, app_version, profile, strict } => {
+            builder::check(&config, app_version.as_deref(), profile.as_deref(), strict)
+        }
+        Command::Profiles { config } => profiles::command(&config),
+        Command::Build {
+            config,
+            profile,
+            all_profiles,
+            runtime_arm64,
+            x64_only,
+            msi,
+            out,
+            runtime,
+            fast,
+            app_version,
+            online,
+            key_file,
+            sign,
+            patch_from,
+            strict,
+        } => builder::build_all(
+            builder::BuildOptions {
                 config: &config,
+                runtime_arm64: runtime_arm64.as_deref(),
+                x64_only,
+                msi,
+                arch: None,
+                profile: None,
                 out: out.as_deref(),
                 runtime: runtime.as_deref(),
                 fast,
@@ -391,9 +510,10 @@ fn main() -> ExitCode {
                 sign,
                 patch_from: patch_from.as_deref(),
                 strict,
-            })
-            .map(|_| ())
-        }
+            },
+            &profile,
+            all_profiles,
+        ),
         Command::Key { count, out } => key::command(count, out.as_deref()),
         Command::FeedKey { out } => feed::key_command(out.as_deref()),
         Command::Sign { file, config } => sign::command(sign::Options { file: &file, config: &config }),
@@ -406,9 +526,10 @@ fn main() -> ExitCode {
         Command::Version { target, config, dry_run } => {
             version::command(version::Options { config: &config, target: target.as_deref(), dry_run })
         }
-        Command::Workflow { dir, force, pin } => workflow::command(workflow::Options {
+        Command::Workflow { dir, force, pin, winget } => workflow::command(workflow::Options {
             dir: &dir,
             force,
+            winget: winget.as_deref(),
             pin: match pin {
                 PinArg::Commit => workflow::Pin::Commit,
                 PinArg::Float => workflow::Pin::Float,
@@ -420,6 +541,18 @@ fn main() -> ExitCode {
         Command::Choco { file, url, license, out } => {
             choco::command(choco::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
         }
+        Command::Test { file, config, with, without, launch, network, timeout, keep, dry_run } => sandbox::command(sandbox::Options {
+            file: file.as_deref(),
+            config: &config,
+            with: &with,
+            without: &without,
+            launch_seconds: launch,
+            network,
+            timeout_minutes: timeout,
+            keep,
+            dry_run,
+        }),
+        Command::Diff { old, new, top } => diff::command(diff::Options { old: &old, new: &new, top }),
         Command::Verify { file, key_file } => verify::command(verify::Options { file: &file, key_file: key_file.as_deref() }),
         Command::Page { file, url, out, notes_file, winget } => page::command(page::Options {
             setup: &file,
@@ -429,17 +562,21 @@ fn main() -> ExitCode {
             winget: winget.as_deref(),
         }),
         Command::Intune { file, out } => intune::command(intune::Options { setup: &file, out: out.as_deref() }),
-        Command::Feed { file, url, config, notes, notes_file, rollout, out, patch, patch_url } => feed::command(feed::Options {
-            setup: &file,
-            url: url.as_deref(),
-            config: config.as_deref(),
-            notes: notes.as_deref(),
-            notes_file: notes_file.as_deref(),
-            rollout,
-            out: out.as_deref(),
-            patch: patch.as_deref(),
-            patch_url: patch_url.as_deref(),
-        }),
+        Command::Feed { file, url, config, notes, notes_file, rollout, out, arm64, arm64_url, patch, patch_url } => {
+            feed::command(feed::Options {
+                arm64: arm64.as_deref(),
+                arm64_url: arm64_url.as_deref(),
+                setup: &file,
+                url: url.as_deref(),
+                config: config.as_deref(),
+                notes: notes.as_deref(),
+                notes_file: notes_file.as_deref(),
+                rollout,
+                out: out.as_deref(),
+                patch: patch.as_deref(),
+                patch_url: patch_url.as_deref(),
+            })
+        }
     };
     let code = match result {
         Ok(()) => {

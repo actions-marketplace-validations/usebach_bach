@@ -24,6 +24,7 @@ pub mod env_path;
 pub mod folders;
 pub mod host;
 pub mod integration;
+pub mod msi;
 pub mod secret;
 pub mod task;
 

@@ -21,12 +21,17 @@ pub struct PreviewOptions<'a> {
     pub layout: Option<&'a str>,
     pub lang: Option<&'a str>,
     pub runtime: Option<&'a Path>,
+    /// Show this profile of the config.
+    pub profile: Option<&'a str>,
 }
 
 /// The config as the preview wants it: quick to compress, and sealed with a
 /// made-up key, because a preview opens the key page too and any key passes there.
-pub(crate) fn load(config_path: &Path) -> Result<(Project, Option<Sealing>)> {
-    let mut project = config::load(config_path)?;
+pub(crate) fn load(config_path: &Path, profile: Option<&str>) -> Result<(Project, Option<Sealing>)> {
+    let mut project = crate::builder::load(config_path, None, profile)?;
+    if project.kind == config::ProfileKind::Zip {
+        bail!("the profile \"{}\" makes a ZIP, which has no window to preview", project.profile.as_deref().unwrap_or_default());
+    }
     project.compression = Compression::Fast;
     let sealing = seal(&mut project, None, Some("preview-only-key"))?;
     Ok((project, sealing))
@@ -113,7 +118,7 @@ pub(crate) fn open(setup: &Path, options: &PreviewOptions) -> Result<Child> {
 }
 
 pub fn preview(config_path: &Path, options: PreviewOptions) -> Result<()> {
-    let (project, sealing) = load(config_path)?;
+    let (project, sealing) = load(config_path, options.profile)?;
     check(&options, "preview")?;
     output::warnings(&project.warnings);
     let runtime = runtime::find(options.runtime)?;

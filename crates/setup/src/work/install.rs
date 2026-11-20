@@ -26,6 +26,7 @@ use bach_pack::manifest::{Choices, Manifest, UNINSTALLER};
 use bach_pack::paths;
 use bach_pack::protect::{KeyError, Unlocked};
 
+use super::components;
 use super::patch::patch_base;
 use super::place::{self, Transaction};
 use super::{describe, failed, is_disk_full, is_in_use, is_in_use_at, plain, remove_empty_parents, remove_file_if_present, Report};
@@ -178,6 +179,7 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     }
     report(0.99, &texts.get(Key::step_tidying));
     committed.finish();
+    components::forget(&manifest.app.id);
     if let Some(uninstaller) = uninstaller_before {
         let _ = fs::remove_file(uninstaller);
     }
@@ -369,8 +371,15 @@ fn unpack(
     place::clear_leftovers(&dir.join(UNINSTALLER));
 
     let copying = texts.get(Key::step_copying);
-    let total = needed.max(1);
-    let mut done = 0u64;
+    // What is downloaded comes first, before anything is written, and counts toward the bar
+    // like what is written. A failed or cancelled download leaves the computer as it was.
+    let downloads = components::needed(manifest, choices, matching);
+    let download_total: u64 = downloads.iter().filter_map(|component| component.download.as_ref()).map(|download| download.size).sum();
+    let total = needed.saturating_add(download_total).max(1);
+    let done = std::cell::Cell::new(0u64);
+    let packs = components::fetch(plan, &downloads, &mut |bytes, label| {
+        report(0.04 + UNPACK_SHARE * (bytes as f32 / total as f32).min(1.0), label);
+    })?;
     let mut source = File::open(&plan.package.exe).map_err(read_failed)?;
     source.seek(SeekFrom::Start(archive_section.offset)).map_err(read_failed)?;
     // The archive is checked against the builder's SHA-256 as it is read (and
@@ -405,8 +414,8 @@ fn unpack(
         let mut verifying = archive::Verifying::new(super::cancel::Cancellable(body));
         transaction
             .stage(&target, &mut verifying, &mut |chunk| {
-                done = done.saturating_add(chunk);
-                report(0.04 + UNPACK_SHARE * (done as f32 / total as f32).min(1.0), &copying);
+                done.set(done.get().saturating_add(chunk));
+                report(0.04 + UNPACK_SHARE * (download_total.saturating_add(done.get()) as f32 / total as f32).min(1.0), &copying);
             })
             .map_err(|err| {
                 write_error = Some(if super::cancel::requested() {
@@ -428,15 +437,42 @@ fn unpack(
         Ok(())
     };
     let encryption = manifest.access.as_ref().and_then(|access| access.encryption.as_ref());
-    let unpacked = match (encryption, unlocked) {
-        (Some(encryption), Some(unlocked)) => {
-            encryption.reader(reader, unlocked).and_then(|decrypted| archive::read(decrypted, &mut visit))
+    // An update patch may hold a changed file as a binary delta from the file it replaces, which
+    // is read from the install folder (before anything in it is touched) and has to be exactly the
+    // file the delta was made from. A full setup file holds none.
+    let mut earlier = |packaged: &str, size: u64| -> anyhow::Result<Vec<u8>> {
+        let path = paths::under(dir, packaged);
+        let wrong = || anyhow::Error::from(archive::WrongBase { path: packaged.to_string() });
+        if size > bach_pack::delta::MAX_BASE || fs::metadata(&path).map_or(true, |meta| meta.len() != size) {
+            return Err(wrong());
         }
-        _ => archive::read(reader, &mut visit),
+        fs::read(&path).map_err(|_| wrong())
     };
+    let mut unpacked = match (encryption, unlocked) {
+        (Some(encryption), Some(unlocked)) => encryption
+            .reader(reader, unlocked)
+            .and_then(|decrypted| archive::read_with(decrypted, archive::Bases::From(&mut earlier), &mut visit)),
+        _ => archive::read_with(reader, archive::Bases::From(&mut earlier), &mut visit),
+    };
+    // The downloaded components' archives go through the same checks and the same transaction.
+    for pack in &packs {
+        if unpacked.is_err() {
+            break;
+        }
+        unpacked = File::open(&pack.file).map_err(anyhow::Error::from).and_then(|file| archive::read(BufReader::new(file), &mut visit));
+    }
     if let Err(err) = unpacked {
         transaction.discard();
         remove_empty_parents(dir, wanted.iter().copied());
+        // A delta made from another file than the one here: the patch is for another version.
+        if let Some(wrong) = err.downcast_ref::<archive::WrongBase>() {
+            crate::log::line(&format!(
+                "The update patch needs {} as it was in version {}, and it isn't.",
+                wrong.path,
+                manifest.patch_from.as_deref().unwrap_or("?")
+            ));
+            return Err(texts.get(Key::error_patch_base));
+        }
         return Err(write_error.unwrap_or_else(|| format!("{} {}", texts.get(Key::error_damaged), plain(&err))));
     }
     if let Some(expected) = &manifest.archive_sha256 {

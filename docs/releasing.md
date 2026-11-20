@@ -137,6 +137,32 @@ the lock file is updated with a plain `yarn install`.
 With no lock file committed the workflow runs `npm install` and says so;
 commit a lock file for repeatable releases.
 
+## Update winget with each release
+
+```bash
+bach workflow --winget Example.Hello
+```
+
+adds a second job, `Update winget`, that runs after the release is published.
+It downloads Microsoft's `wingetcreate`, points it at the setup file of the
+release and opens the pull request that updates `Example.Hello` in
+[microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs).
+
+- The package must already be in winget-pkgs: submit the first version by hand
+  (`bach winget`, see [Listing your app in winget](config.md#listing-your-app-in-winget)).
+  The job updates it from then on.
+- Add a repository secret named `WINGET_TOKEN`: a classic personal access token
+  with the `public_repo` scope. Without it the job ends with a notice and
+  opens nothing, so the release is never held back.
+- The job is skipped for a dry run, a draft, and any pre-release or version
+  with a `-` in it.
+- Run `bach workflow` again later without `--winget` and the job stays: Bach
+  keeps the package id it finds in the file. The id is `Publisher.App`
+  (letters, digits, `-` and `_`, parts joined by dots).
+
+To follow the pull request, watch the job's log under Actions: `wingetcreate`
+prints the link to it.
+
 ## Sign the setup file
 
 The workflow holds a commented `sign-command` input in its last step. Remove

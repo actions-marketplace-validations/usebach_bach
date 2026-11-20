@@ -131,22 +131,27 @@ Every setting is in the [config reference](docs/config.md).
 | Command | What it does |
 | --- | --- |
 | `bach init` | Writes a starter `bach.toml`; fills it in for Rust, Tauri, Electron, .NET, Godot and Unity projects. In a GitHub checkout it also writes the release workflow (`--no-workflow` skips that). |
-| `bach workflow` | Adds, or updates, the one-click release workflow in `.github/workflows/bach-release.yml`. See [releasing](docs/releasing.md). |
+| `bach workflow` | Adds, or updates, the one-click release workflow in `.github/workflows/bach-release.yml`; `--winget ID` also opens the winget-pkgs update pull request after each release. See [releasing](docs/releasing.md). |
 | `bach version [patch\|minor\|major\|X.Y.Z]` | Lists the version in every file that has one, or raises it in all of them at once: `bach.toml`, `package.json` and its lock file, `Cargo.toml` and `Cargo.lock`, Tauri's config, `.csproj`. |
 | `bach check` | Validates the config and lists every file and option, with warnings. `--strict` (or `BACH_STRICT=1`) turns a warning into an error, so a pipeline can't ship what check complains about. |
 | `bach preview` | Opens the window without installing; `--uninstall`, `--theme dark`, `--lang de`, `--style arcade` and `--layout showcase` (try another style or layout without changing `bach.toml`). |
 | `bach watch` | Like `bach preview`, and opens the window again every time you save `bach.toml` (or a file it names: the logo, license, texts, fonts or pictures). A mistake is printed and the window stays as it was. |
 | `bach build` | Writes the setup file; `--fast` compresses less, `--out` picks the path, `--app-version v1.4.0` sets the version (from a release tag), `--online` also writes the online installer, `--key-file` gives the access key, `--patch-from OLD.exe` also writes an update patch with only the files that changed, `--strict` stops before building when `bach check` would warn. |
+| `bach build --runtime-arm64 FILE` | With `[arch.arm64]` in `bach.toml`, also writes the ARM64 setup file next to the x64 one and lists both in `latest.json`; the online installer picks the right one. See [`[arch.arm64]`](docs/config.md#archarm64). |
+| `bach profiles` | Lists the profiles of `bach.toml`: other builds of the app, like a portable ZIP or a machine-wide company version. `bach build --profile NAME` builds one, `--all-profiles` builds them all. See [`[profiles]`](docs/config.md#profiles). |
 | `bach sign FILE` | Signs a setup file with the program `[signing]` names; `bach build --sign` does it for the files it writes. Optional. |
+| `bach build --msi` | Also writes a Windows Installer package (`.msi`) of the app, for Group Policy, Configuration Manager and Intune: files, shortcuts, registry values, optional components and major upgrades; opened by hand it shows the same window as the setup file. See [Windows Installer packages](docs/config.md#windows-installer-packages-msi). |
 | `bach key` | Makes random access keys for an app with `[access]` (`--count N`). |
 | `bach inspect FILE` | Shows what a setup file or an installed `uninstall.exe` carries. |
+| `bach test [FILE]` | Installs a setup file on a clean Windows in Windows Sandbox, starts the app, removes it and reports what failed and what was left behind (`--with`, `--launch`, `--network`, `--dry-run`). See [Testing a setup file](docs/config.md#testing-a-setup-file-in-windows-sandbox). |
 | `bach verify FILE` | Checks a setup file for damage without installing it: the archive and every file against the checksums recorded at build, and whether it carries a signature. `--key-file` opens an encrypted one. See [Checking a setup file](docs/config.md#checking-a-setup-file). |
+| `bach diff OLD NEW` | Shows what changed between two setup files of an app: files added, removed and changed, new registry values and variables, and which files made the app bigger. See [Comparing two setup files](docs/config.md#comparing-two-setup-files). |
 | `bach page FILE --url URL` | Writes a download page for a setup file: one HTML file with the name, version, size, a download button and the SHA-256 (`--notes-file`, `--winget ID`). See [A download page](docs/config.md#a-download-page). |
 | `bach styles` | Lists the 14 built-in styles of the window (`installer.style`): what each looks like and what kind of app it suits. See [`[style]`](docs/config.md#style). |
 | `bach layouts` | Lists the 10 built-in layouts (`[layout] preset`). See [`[layout]`](docs/config.md#layout). |
 | `bach doctor` | Says whether everything a build needs is in place. |
 | `bach update [VERSION]` | Updates `bach` itself to the newest release (or exactly `VERSION`). `--check` only says whether a newer release exists, `--force` installs again. A copy managed by npm, Scoop, winget or Cargo gets the command that updates it instead. See [Keeping bach up to date](#keeping-bach-up-to-date). |
-| `bach feed FILE` | Writes the update feed for a (signed) setup file; the link comes from `bach.toml` (or `--url`), `--notes-file` says what's new, `--rollout 10` offers it to 10% of computers first, `--patch FILE` offers an update patch. |
+| `bach feed FILE` | Writes the update feed for a (signed) setup file; the link comes from `bach.toml` (or `--url`), `--notes-file` says what's new, `--rollout 10` offers it to 10% of computers first, `--patch FILE` offers an update patch, `--arm64 FILE` lists the ARM64 setup file. |
 | `bach winget FILE --url URL` | Writes the manifests that list a setup file in winget. |
 | `bach intune FILE` | Writes what Microsoft Intune needs to deploy a setup file: the install and uninstall commands, the detection rule and a detection script. See [Deploying with Intune](docs/config.md#deploying-with-intune). |
 

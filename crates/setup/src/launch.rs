@@ -136,6 +136,12 @@ pub struct Args {
     pub style: Option<String>,
     /// `--layout NAME`: a built-in layout to preview instead of the payload's.
     pub layout: Option<String>,
+    /// `--msi-package FILE`, with `--msi-product` and `--msi-upgrade`: this is the
+    /// front of a `.msi` package, which a Windows Installer package starts to show
+    /// this window; the install itself is Windows Installer's (see `system/msi.rs`).
+    pub msi_package: Option<PathBuf>,
+    pub msi_product: Option<String>,
+    pub msi_upgrade: Option<String>,
 }
 
 impl Args {
@@ -202,6 +208,9 @@ impl Args {
             };
             parsed.set(flag.names[0], value)?;
         }
+        if parsed.msi_package.is_some() && (parsed.msi_product.is_none() || parsed.msi_upgrade.is_none()) {
+            return Err("--msi-package goes with --msi-product and --msi-upgrade.".into());
+        }
         if parsed.style.is_some() && !parsed.preview {
             return Err("--style only works with --preview: a setup file always wears the style it was built with.".into());
         }
@@ -236,6 +245,9 @@ impl Args {
             "with" => self.with.extend(ids(&text)),
             "without" => self.without.extend(ids(&text)),
             "log" => self.log = Some(PathBuf::from(text)),
+            "msi-package" => self.msi_package = Some(PathBuf::from(text)),
+            "msi-product" => self.msi_product = Some(text),
+            "msi-upgrade" => self.msi_upgrade = Some(text),
             "key-file" => self.key_file = Some(PathBuf::from(text)),
             "wait-for" => {
                 self.wait_for = Some(text.trim().parse().map_err(|_| format!("--wait-for needs a process number, not \"{text}\"."))?)
@@ -314,6 +326,9 @@ const FLAGS: &[Flag] = &[
     valued(&["style"]),
     valued(&["layout"]),
     valued(&["channel"]),
+    valued(&["msi-package"]),
+    valued(&["msi-product"]),
+    valued(&["msi-upgrade"]),
 ];
 
 /// `--dir=C:\Apps` or `/DIR=C:\Apps` → ("dir", Some("C:\Apps")); `--silent` →
@@ -364,6 +379,16 @@ pub fn elevate_and_wait(args: &Args) -> i32 {
 /// The mode for this package. For the installed uninstaller this hands
 /// over to a temp copy and exits the process.
 pub fn mode(args: &Args, package: &Package) -> Mode {
+    // The front of a .msi installs or removes the package's product, not a setup file's.
+    if let Some(link) = system::msi::link() {
+        if !args.uninstall {
+            return Mode::Install;
+        }
+        let dir = system::msi::installed(link, &package.manifest)
+            .map(|installed| installed.dir)
+            .unwrap_or_else(|| system::default_install_dir(&package.manifest));
+        return Mode::Remove { dir };
+    }
     let removing = args.uninstall || !package.is_installer();
     if !removing {
         return Mode::Install;
@@ -597,7 +622,8 @@ mod tests {
         // And the other way round: every option the parser knows is in the help.
         for flag in FLAGS {
             let name = format!("--{}", flag.names[0]);
-            let internal = ["json", "launch", "install-dir", "uninstall"].contains(&flag.names[0]);
+            let internal =
+                ["json", "launch", "install-dir", "uninstall", "msi-package", "msi-product", "msi-upgrade"].contains(&flag.names[0]);
             assert!(HELP.contains(&name) || internal, "{name} is parsed but not in the help text");
         }
     }

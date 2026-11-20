@@ -5,7 +5,17 @@
 //! b'F' | path length (u16 LE) | path (UTF-8, '/'-separated) | size (u64 LE) | bytes
 //! ```
 //!
-//! and a single `b'E'` ends it. One stream compresses better than separate
+//! An update patch may store a changed file as what differs from the file it
+//! replaces, a binary delta (see [`crate::delta`]):
+//!
+//! ```text
+//! b'D' | path length | path | size (u64 LE) | base size (u64 LE) | base SHA-256 (32 bytes) | delta length (u64 LE) | delta
+//! ```
+//!
+//! `size` is the size of the *new* file in both, and a reader hands the new file's
+//! bytes to its visitor either way: the delta is expanded against the earlier
+//! file, which has to be exactly the one the entry names. A single `b'E'` ends the
+//! archive. One stream compresses better than separate
 //! files and can be read front to back without seeking, so extraction
 //! needs no temp copy of the archive.
 
@@ -16,9 +26,10 @@ use std::path::PathBuf;
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
 
-use crate::paths;
+use crate::{delta, paths};
 
 const FILE: u8 = b'F';
+const DELTA: u8 = b'D';
 const END: u8 = b'E';
 
 /// The memory budget for compressing when `installer.compression_memory`
@@ -124,6 +135,40 @@ pub struct Source {
     pub size: u64,
 }
 
+/// The earlier version of a file, to store the new one as a delta from.
+#[derive(Clone, Debug)]
+pub struct DeltaBase {
+    pub bytes: Vec<u8>,
+    /// `bytes`' SHA-256, lowercase hex.
+    pub sha256: String,
+}
+
+/// A delta in the archive was made from another file than the one on this
+/// computer. Not a damaged archive: an update patch is only good over the version
+/// it was made for.
+#[derive(Debug)]
+pub struct WrongBase {
+    pub path: String,
+}
+
+impl std::fmt::Display for WrongBase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} isn't the file this update patch was made from", self.path)
+    }
+}
+
+impl std::error::Error for WrongBase {}
+
+/// What a reader does with a binary delta entry.
+pub enum Bases<'a> {
+    /// There are none: an entry like that is an error (a full setup file has none).
+    Refuse,
+    /// Step over them without expanding (to check the rest of an update patch alone).
+    Skip,
+    /// Ask for the earlier file of this path, which has this many bytes.
+    From(&'a mut dyn FnMut(&str, u64) -> Result<Vec<u8>>),
+}
+
 /// Compresses `sources` into `out`, calling `progress` with the bytes read
 /// so far. Returns `out` once the stream is finished.
 pub fn write<W: Write>(out: W, sources: &[Source], compression: Compression, progress: &mut dyn FnMut(u64)) -> Result<W> {
@@ -142,6 +187,19 @@ pub fn write<W: Write>(out: W, sources: &[Source], compression: Compression, pro
 pub fn write_hashed<W: Write>(
     out: W,
     sources: &[Source],
+    compression: Compression,
+    threads: u32,
+    progress: &mut dyn FnMut(u64),
+) -> Result<(W, Vec<String>)> {
+    write_hashed_with(out, sources, &std::collections::HashMap::new(), compression, threads, progress)
+}
+
+/// Like [`write_hashed`], and stores a file as a delta from its earlier version when
+/// `bases` has one for its path and the delta is clearly smaller (under four fifths of the file).
+pub fn write_hashed_with<W: Write>(
+    out: W,
+    sources: &[Source],
+    bases: &std::collections::HashMap<String, DeltaBase>,
     compression: Compression,
     threads: u32,
     progress: &mut dyn FnMut(u64),
@@ -165,6 +223,29 @@ pub fn write_hashed<W: Write>(
         if size != source.size {
             bail!("{} changed size while it was being packaged", source.path.display());
         }
+        if let Some(base) = bases.get(&packaged).filter(|_| size > 0) {
+            let limit = usize::try_from(size / 5 * 4).unwrap_or(usize::MAX);
+            let mut reading = Verifying::new(&mut file);
+            let made = delta::encode(&base.bytes, &mut reading, size, limit)
+                .with_context(|| format!("couldn't read {}", source.path.display()))?;
+            let (read, sha256) = reading.digest();
+            if let Some(delta) = made.filter(|_| read == size) {
+                encoder.write_all(&[DELTA])?;
+                encoder.write_all(&name_len.to_le_bytes())?;
+                encoder.write_all(name)?;
+                encoder.write_all(&size.to_le_bytes())?;
+                encoder.write_all(&(base.bytes.len() as u64).to_le_bytes())?;
+                encoder.write_all(&unhex_sha(&base.sha256)?)?;
+                encoder.write_all(&(delta.len() as u64).to_le_bytes())?;
+                encoder.write_all(&delta)?;
+                done = done.saturating_add(size);
+                progress(done);
+                hashes.push(sha256);
+                continue;
+            }
+            // Not worth a delta (or the encoder stopped early): the whole file, from its start.
+            file = File::open(&source.path).with_context(|| format!("couldn't open {}", source.path.display()))?;
+        }
         encoder.write_all(&[FILE])?;
         encoder.write_all(&name_len.to_le_bytes())?;
         encoder.write_all(name)?;
@@ -184,10 +265,30 @@ pub fn write_hashed<W: Write>(
     Ok((encoder.finish()?, hashes))
 }
 
+/// A SHA-256 in hex as its 32 bytes.
+fn unhex_sha(hex: &str) -> Result<[u8; 32]> {
+    let hex = hex.trim();
+    if hex.len() != 64 || !hex.is_ascii() {
+        bail!("a checksum isn't 64 hex digits");
+    }
+    let mut out = [0u8; 32];
+    for (index, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).context("a checksum isn't hex")?;
+    }
+    Ok(out)
+}
+
 /// Reads an archive front to back, handing each file to `visit` with its
 /// packaged path, its size and a reader over exactly its bytes. Whatever
-/// `visit` leaves unread is skipped.
+/// `visit` leaves unread is skipped. An archive with binary deltas needs
+/// [`read_with`].
 pub fn read<R: Read>(input: R, visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -> Result<()>) -> Result<()> {
+    read_with(input, Bases::Refuse, visit)
+}
+
+/// [`read`] for an archive that may hold binary deltas: `bases` says where the
+/// earlier files are.
+pub fn read_with<R: Read>(input: R, mut bases: Bases, visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -> Result<()>) -> Result<()> {
     let mut decoder = zstd::stream::Decoder::new(BufReader::new(input))?;
     // The builder writes every file once. A path twice (or two paths Windows takes for
     // one file) is a damaged or crafted archive, and two writes to one file would
@@ -198,7 +299,7 @@ pub fn read<R: Read>(input: R, visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -
         decoder.read_exact(&mut kind).context("the archive ends early")?;
         match kind[0] {
             END => return Ok(()),
-            FILE => {}
+            FILE | DELTA => {}
             other => bail!("the archive is damaged (unexpected byte {other:#04x})"),
         }
         let mut len = [0u8; 2];
@@ -216,6 +317,39 @@ pub fn read<R: Read>(input: R, visit: &mut dyn FnMut(&str, u64, &mut dyn Read) -
         let mut size = [0u8; 8];
         decoder.read_exact(&mut size)?;
         let size = u64::from_le_bytes(size);
+
+        if kind[0] == DELTA {
+            let mut head = [0u8; 8 + 32 + 8];
+            decoder.read_exact(&mut head)?;
+            let base_size = u64::from_le_bytes(head[..8].try_into().unwrap_or_default());
+            let mut base_sha = [0u8; 32];
+            base_sha.copy_from_slice(&head[8..40]);
+            let delta_len = u64::from_le_bytes(head[40..].try_into().unwrap_or_default());
+            // A delta is held in no more than the file it makes; a longer one is damaged.
+            if delta_len > size.saturating_add(1 << 20) || base_size > delta::MAX_BASE || size > delta::MAX_NEW {
+                bail!("the archive is damaged (\"{packaged}\" has an impossible delta)");
+            }
+            let mut stored = io::BufReader::new((&mut decoder).take(delta_len));
+            match &mut bases {
+                Bases::Refuse => bail!("\"{packaged}\" is stored as a binary delta, which only an update patch has"),
+                Bases::Skip => {}
+                Bases::From(earlier) => {
+                    let base = earlier(&packaged, base_size)?;
+                    let actual = crate::protect::sha256_hex(&base[..])?;
+                    if base.len() as u64 != base_size || !actual.eq_ignore_ascii_case(&crate::protect::hex(&base_sha)) {
+                        return Err(WrongBase { path: packaged }.into());
+                    }
+                    let mut new = delta::decode(&base, size, &mut stored)?.take(size);
+                    visit(&packaged, size, &mut new)?;
+                    io::copy(&mut new, &mut io::sink())?;
+                    if new.limit() != 0 {
+                        bail!("the delta for \"{packaged}\" ends early");
+                    }
+                }
+            }
+            io::copy(&mut stored, &mut io::sink())?;
+            continue;
+        }
 
         let mut body = (&mut decoder).take(size);
         visit(&packaged, size, &mut body)?;

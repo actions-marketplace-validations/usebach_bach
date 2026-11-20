@@ -96,6 +96,18 @@ pub fn command(options: Options) -> Result<()> {
         file.seek(SeekFrom::Start(layout.archive.offset))?;
         let reader = BufReader::new((&mut file).take(layout.archive.len));
         let recorded: HashMap<&str, &FileEntry> = manifest.files.iter().map(|entry| (entry.path.as_str(), entry)).collect();
+        // The files of a component that is downloaded aren't in this archive; their own archive is checked below.
+        let downloaded: HashSet<&str> = manifest
+            .files
+            .iter()
+            .filter(|entry| {
+                manifest
+                    .components
+                    .iter()
+                    .any(|component| component.download.is_some() && entry.component.as_deref() == Some(component.id.as_str()))
+            })
+            .map(|entry| entry.path.as_str())
+            .collect();
         let total = manifest.total_size();
         let mut progress = Progress::new("Checking", total);
         let mut done = 0u64;
@@ -122,9 +134,9 @@ pub fn command(options: Options) -> Result<()> {
         };
         let outcome = match (encryption, &unlocked) {
             (Some(encryption), Some(unlocked)) => {
-                encryption.reader(reader, unlocked).and_then(|decrypted| archive::read(decrypted, &mut visit))
+                encryption.reader(reader, unlocked).and_then(|decrypted| archive::read_with(decrypted, archive::Bases::Skip, &mut visit))
             }
-            _ => archive::read(reader, &mut visit),
+            _ => archive::read_with(reader, archive::Bases::Skip, &mut visit),
         };
         progress.finish();
         if let Err(err) = outcome {
@@ -133,7 +145,7 @@ pub fn command(options: Options) -> Result<()> {
         // An update patch carries only what changed; every other file is on the computer already.
         if manifest.patch_from.is_none() {
             for entry in &manifest.files {
-                if !seen.contains(&entry.path) {
+                if !seen.contains(&entry.path) && !downloaded.contains(entry.path.as_str()) {
                     bad.push(format!("{} is in the manifest but not in the archive", entry.path));
                 }
             }
@@ -151,6 +163,31 @@ pub fn command(options: Options) -> Result<()> {
             message.push_str(&format!("; and {more} more"));
         }
         bail!("{message}. Download or build it again");
+    }
+
+    // 3. The archives of components that are downloaded: the one next to the setup file, when it is there.
+    for component in manifest.components.iter().filter(|component| component.download.is_some()) {
+        let Some(download) = &component.download else { continue };
+        let name = download.url.split(['?', '#']).next().and_then(|link| link.rsplit('/').next()).unwrap_or_default();
+        let beside = path.parent().map(|folder| folder.join(name)).filter(|candidate| !name.is_empty() && candidate.is_file());
+        match beside {
+            None => field("Download", format!("{}: {name} isn't next to the setup file, so it wasn't checked", component.id)),
+            Some(archive_path) => {
+                let actual = protect::sha256_hex(BufReader::new(File::open(&archive_path)?))
+                    .with_context(|| format!("couldn't read {}", archive_path.display()))?;
+                let size = std::fs::metadata(&archive_path).map(|meta| meta.len()).unwrap_or(0);
+                if actual.eq_ignore_ascii_case(&download.sha256) && size == download.size {
+                    field("Download", format!("{}: {name} matches the SHA-256 in the setup file ({size} bytes)", component.id));
+                } else {
+                    output::result("verified", false);
+                    bail!(
+                        "{} doesn't match the SHA-256 and size the setup file records for the component {}. Download or build it again",
+                        archive_path.display(),
+                        component.id
+                    );
+                }
+            }
+        }
     }
 
     output::result("verified", true);

@@ -1,12 +1,13 @@
 //! `bach check`, `bach build` and `bach preview`.
 
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufWriter, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
-use bach_pack::archive::{self, Compression};
+use bach_pack::archive::{self, Compression, DeltaBase};
 use bach_pack::config::{self, Overrides, Project};
 use bach_pack::container;
 use bach_pack::manifest::Encryption;
@@ -17,9 +18,17 @@ use crate::output::{self, field, Progress};
 use crate::runtime;
 
 /// Loads the config, with the version of a release tag instead of
-/// `app.version` when one is given.
-fn load(config_path: &Path, version: Option<&str>) -> Result<Project> {
-    config::load_with(config_path, &Overrides { version: version.map(String::from) })
+/// `app.version` when one is given, and laid over with a profile when one is named.
+pub(crate) fn load(config_path: &Path, version: Option<&str>, profile: Option<&str>) -> Result<Project> {
+    load_arch(config_path, version, profile, None)
+}
+
+/// [`load`] for the setup file of another architecture (`arm64`), from `[arch.arm64]`.
+pub(crate) fn load_arch(config_path: &Path, version: Option<&str>, profile: Option<&str>, arch: Option<&str>) -> Result<Project> {
+    config::load_with(
+        config_path,
+        &Overrides { version: version.map(String::from), profile: profile.map(String::from), arch: arch.map(String::from) },
+    )
 }
 
 /// With `--strict`, a warning is an error: the build is held back until the
@@ -38,14 +47,20 @@ fn strict_gate(warnings: &[String], strict: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn check(config_path: &Path, version: Option<&str>, strict: bool) -> Result<()> {
-    let project = load(config_path, version)?;
+pub fn check(config_path: &Path, version: Option<&str>, profile: Option<&str>, strict: bool) -> Result<()> {
+    let project = load(config_path, version, profile)?;
     let manifest = &project.manifest;
     output::result("name", manifest.app.name.clone());
     output::result("version", manifest.app.version.clone());
     output::result("files", manifest.files.len());
     output::result("size", manifest.total_size());
-    say!("{} {} is ready to build.", manifest.app.name, manifest.app.version);
+    match &project.profile {
+        Some(name) => {
+            output::result("profile", name.clone());
+            say!("{} {} is ready to build, as the {name} profile ({}).", manifest.app.name, manifest.app.version, project.kind.name());
+        }
+        None => say!("{} {} is ready to build.", manifest.app.name, manifest.app.version),
+    }
     summary(&project);
     say!();
     for file in &manifest.files {
@@ -59,6 +74,16 @@ pub fn check(config_path: &Path, version: Option<&str>, strict: bool) -> Result<
 /// What `bach build` was asked for.
 pub struct BuildOptions<'a> {
     pub config: &'a Path,
+    /// The ARM64 setup runtime for `[arch.arm64]` (`--runtime-arm64`), when bach.toml doesn't name one.
+    pub runtime_arm64: Option<&'a Path>,
+    /// Build only the main (x64) setup file, even when bach.toml has `[arch.arm64]`.
+    pub x64_only: bool,
+    /// Also write a Windows Installer package of the app.
+    pub msi: bool,
+    /// Build the setup file of this architecture (set when the main build asks for it).
+    pub arch: Option<&'a str>,
+    /// Build this profile of the config (`[profiles.NAME]`) instead of the main file.
+    pub profile: Option<&'a str>,
     pub out: Option<&'a Path>,
     pub runtime: Option<&'a Path>,
     pub fast: bool,
@@ -128,14 +153,88 @@ fn read_keys(env: &str, key_file: Option<&Path>) -> Result<Vec<String>> {
     Ok(keys)
 }
 
-pub fn build(options: BuildOptions) -> Result<PathBuf> {
-    let BuildOptions { config: config_path, out, runtime, fast, version, online, key_file, sign, patch_from, strict } = options;
+/// What one build wrote.
+pub struct Built {
+    pub path: PathBuf,
+    pub profile: Option<String>,
+    pub kind: config::ProfileKind,
+    /// The file's size on disk.
+    pub size: u64,
+}
+
+/// The main build, then each profile asked for; `all` means the main build
+/// and every profile of the config. Stops at the first one that fails.
+pub fn build_all(options: BuildOptions, profiles: &[String], all: bool) -> Result<()> {
+    let mut wanted: Vec<Option<String>> = Vec::new();
+    if all {
+        wanted.push(None);
+        let text = bach_pack::textfile::read(options.config).with_context(|| format!("couldn't read {}", options.config.display()))?;
+        wanted.extend(config::list_profiles(&text)?.into_iter().map(|profile| Some(profile.name)));
+    } else if profiles.is_empty() {
+        wanted.push(options.profile.map(String::from));
+    } else {
+        wanted.extend(profiles.iter().map(|name| Some(name.clone())));
+    }
+    if wanted.len() > 1 && options.out.is_some() {
+        bail!(
+            "--out names one file, but this builds {} (the main build and its profiles); leave --out out and set each output in bach.toml",
+            wanted.len()
+        );
+    }
+    let mut built = Vec::new();
+    for (index, profile) in wanted.iter().enumerate() {
+        if index > 0 {
+            say!();
+        }
+        let one = BuildOptions { profile: profile.as_deref(), ..options };
+        built.push(build(one)?);
+    }
+    if built.len() > 1 || built.first().is_some_and(|first| first.profile.is_some()) {
+        let list: Vec<serde_json::Value> = built
+            .iter()
+            .map(|one| {
+                serde_json::json!({
+                    "profile": one.profile,
+                    "kind": one.kind.name(),
+                    "file": one.path.display().to_string(),
+                    "size": one.size,
+                })
+            })
+            .collect();
+        output::result("builds", list);
+    }
+    Ok(())
+}
+
+pub fn build(options: BuildOptions) -> Result<Built> {
+    let BuildOptions {
+        config: config_path,
+        runtime_arm64,
+        x64_only,
+        msi,
+        arch,
+        profile,
+        out,
+        runtime,
+        fast,
+        version,
+        online,
+        key_file,
+        sign,
+        patch_from,
+        strict,
+    } = options;
     let started = Instant::now();
-    let mut project = load(config_path, version)?;
+    let mut project = load_arch(config_path, version, profile, arch)?;
+    if project.kind == config::ProfileKind::Zip {
+        return build_zip(&project, out, strict);
+    }
     if fast {
         project.compression = Compression::Fast;
     }
-    if online {
+    // Only the main build writes the online installer, the patch and the feed.
+    let is_arch = project.arch.is_some();
+    if online && !is_arch {
         project.online = true;
     }
     if project.online && project.manifest.updates.is_none() {
@@ -146,7 +245,13 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     let output = out.map(Path::to_path_buf).unwrap_or_else(|| project.output.clone());
     let runtime = runtime::find(runtime)?;
     let app = &project.manifest.app;
-    say!("Building {} {}", app.name, app.version);
+    let what = match (&project.profile, &project.arch) {
+        (Some(name), Some(arch)) => format!(" as the {name} profile, for {arch}"),
+        (Some(name), None) => format!(" as the {name} profile"),
+        (None, Some(arch)) => format!(" for {arch}"),
+        (None, None) => String::new(),
+    };
+    say!("Building {} {}{what}", app.name, app.version);
     summary(&project);
 
     output::warnings(&project.warnings);
@@ -157,6 +262,11 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
         say!("The files are encrypted with the access key.");
     }
     let output = tidy(&output);
+    // Components that are downloaded when ticked go into archives of their own, first: the
+    // setup file records each one's SHA-256 and size, and doesn't carry the files.
+    // An MSI holds every file, so it is made from the project as it was before the downloads were split off.
+    let for_msi = (msi && !is_arch).then(|| project.clone());
+    let packs = write_packs(&mut project, &output)?;
     // The checksums come out of the packing pass itself: each file is read once.
     let written = write_setup(&project, &runtime, &output, sealing.as_ref())?;
     let packed = written.packed;
@@ -166,7 +276,28 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     let installed = project.manifest.total_size().max(1);
     say!();
     say!("Wrote {} ({})", output.display(), output::size(size));
-    output::result("setup", output.display().to_string());
+    for pack in &packs {
+        say!("Wrote {} ({}), the download for the component {}", pack.path.display(), output::size(pack.size), pack.component);
+    }
+    if !packs.is_empty() {
+        let listed: Vec<serde_json::Value> = packs
+            .iter()
+            .map(|pack| {
+                serde_json::json!({
+                    "component": pack.component,
+                    "file": pack.path.display().to_string(),
+                    "sha256": pack.sha256,
+                    "size": pack.size,
+                })
+            })
+            .collect();
+        output::result(if is_arch { "packs_arm64" } else { "packs" }, listed);
+    }
+    match (&project.arch, &project.profile) {
+        (Some(arch), None) => output::result(&format!("setup_{arch}"), output.display().to_string()),
+        (None, None) => output::result("setup", output.display().to_string()),
+        _ => {}
+    }
     output::result("version", project.manifest.app.version.clone());
     // Signing is optional: it needs [signing] and a --sign from whoever runs the build.
     let signing = project.signing.as_ref().filter(|_| sign);
@@ -184,7 +315,7 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
             crate::sign::sign(signing, &online_output, publisher)?;
         }
     }
-    let patch = match patch_from {
+    let patch = match patch_from.filter(|_| !is_arch) {
         Some(old) => {
             let (patch, from) = write_patch(&project, old, &runtime, &output, key_file)?;
             if let Some(signing) = signing {
@@ -200,8 +331,39 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
     } else if sign && project.signing.is_none() {
         bail!("--sign was given, but bach.toml has no [signing] section that says how to sign");
     }
-    if project.manifest.updates.is_some() {
-        crate::feed::after_build(&project, &output, patch.as_ref().map(|(file, from)| (file.as_path(), from.as_str())))?;
+    if let Some(whole) = &for_msi {
+        let msi_output = output.with_extension("msi");
+        let plan = crate::msi::write(whole, &msi_output, &runtime)?;
+        let size = fs::metadata(&msi_output).map(|meta| meta.len()).unwrap_or(0);
+        say!("Wrote {} ({}), the Windows Installer package", msi_output.display(), output::size(size));
+        for what in &plan.skipped {
+            say!("  not in the MSI: {what}");
+        }
+        output::result("msi", msi_output.display().to_string());
+        if !plan.skipped.is_empty() {
+            output::result("msi_skipped", plan.skipped.clone());
+        }
+    }
+    // The setup files for the other architectures, before the feed that lists them.
+    let mut arch_files: Vec<(String, PathBuf)> = Vec::new();
+    if !is_arch && !x64_only {
+        for other in &project.arches {
+            let arm_runtime = arch_runtime(runtime_arm64, other)?;
+            say!();
+            let built = build(BuildOptions {
+                arch: Some(&other.name),
+                runtime: Some(&arm_runtime),
+                out: None,
+                online: false,
+                patch_from: None,
+                ..options
+            })?;
+            arch_files.push((other.name.clone(), built.path));
+        }
+    }
+    // The update feed describes the main setup file; a profile's file isn't what installed apps update to.
+    if project.manifest.updates.is_some() && project.profile.is_none() && !is_arch {
+        crate::feed::after_build(&project, &output, patch.as_ref().map(|(file, from)| (file.as_path(), from.as_str())), &arch_files)?;
     }
     if output::json() {
         // Of the file as it is now: signed, if it was signed.
@@ -210,6 +372,7 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
         output::result("size", final_size);
         output::result("packed", packed);
     }
+    let final_size = fs::metadata(&output).map(|meta| meta.len()).unwrap_or(0);
     field(
         "Packed",
         format!(
@@ -220,7 +383,63 @@ pub fn build(options: BuildOptions) -> Result<PathBuf> {
             started.elapsed().as_secs_f32()
         ),
     );
-    Ok(output)
+    Ok(Built { path: output, profile: project.profile.clone(), kind: project.kind, size: final_size })
+}
+
+/// The setup runtime of another architecture: `--runtime-arm64` (or
+/// `BACH_RUNTIME_ARM64`), else the one `[arch.arm64]` names. It must be a
+/// program for that architecture, because it ends up inside the setup file.
+fn arch_runtime(given: Option<&Path>, arch: &config::ArchBuild) -> Result<PathBuf> {
+    let Some(path) = given.map(Path::to_path_buf).or_else(|| arch.runtime.clone()) else {
+        bail!(
+            "bach.toml has [arch.{name}], so the build also writes the {name} setup file, and that needs the {name} setup runtime. \
+             Pass --runtime-arm64 FILE (or set BACH_RUNTIME_ARM64), or set runtime in [arch.{name}]. \
+             Every Bach release has one in bach-<version>-windows-arm64.zip; to build only the x64 file, add --x64-only",
+            name = arch.name
+        );
+    };
+    if !path.is_file() {
+        bail!("the {} setup runtime {} doesn't exist", arch.name, path.display());
+    }
+    // 0xAA64 is ARM64; 0xA641 is ARM64EC, which a runtime never is.
+    match config::pe_machine(&path) {
+        Some(0xAA64) => Ok(path),
+        Some(other) => bail!(
+            "{} isn't an ARM64 program (its machine type is 0x{other:04X}), so a setup file built on it would not run on Windows on ARM; \
+             use the bach-setup.exe from bach-<version>-windows-arm64.zip",
+            path.display()
+        ),
+        None => bail!("{} isn't a Windows program", path.display()),
+    }
+}
+
+/// A `kind = "zip"` profile: the files, zipped. No setup runtime is needed, and
+/// nothing is signed, feed-listed or encrypted: it is a folder in a file.
+fn build_zip(project: &Project, out: Option<&Path>, strict: bool) -> Result<Built> {
+    let started = Instant::now();
+    let app = &project.manifest.app;
+    say!("Building {} {} as the {} profile (a ZIP)", app.name, app.version, project.profile.as_deref().unwrap_or_default());
+    output::warnings(&project.warnings);
+    strict_gate(&project.warnings, strict)?;
+    if project.encrypt {
+        bail!("a ZIP can't be locked with [access]: the files in it would be readable. Use a setup profile for a protected app, or turn [access] off in this profile");
+    }
+    let output = tidy(&out.map(Path::to_path_buf).unwrap_or_else(|| project.output.clone()));
+    let written = crate::zipfile::write(project, &output)?;
+    let size = fs::metadata(&output).map(|meta| meta.len()).unwrap_or(0);
+    say!();
+    say!("Wrote {} ({}), {} files", output.display(), output::size(size), written.files);
+    field(
+        "Zipped",
+        format!(
+            "{} of {} ({:.0}%), in {:.1}s",
+            output::size(size),
+            output::size(written.bytes),
+            size as f64 / written.bytes.max(1) as f64 * 100.0,
+            started.elapsed().as_secs_f32()
+        ),
+    );
+    Ok(Built { path: output, profile: project.profile.clone(), kind: project.kind, size })
 }
 
 /// What writing a setup file gives back: the archive's packed size and the
@@ -282,7 +501,22 @@ fn write_patch(project: &Project, old: &Path, runtime: &Path, output: &Path, key
     let target = tidy(&target);
     // Its own protection data: two files never share a key stream.
     let sealing = seal(&mut patch, key_file, None)?;
-    write_setup(&patch, runtime, &target, sealing.as_ref())?;
+    // A changed file the earlier setup file also has goes in as what differs from it.
+    let wanted: HashMap<String, String> = patch
+        .sources
+        .iter()
+        .filter(|source| earlier.files.iter().any(|entry| entry.path.eq_ignore_ascii_case(&source.packaged) && entry.size >= MIN_DELTA))
+        .map(|source| (source.packaged.to_ascii_lowercase(), source.packaged.clone()))
+        .collect();
+    let bases = read_bases(old, &earlier, &wanted).unwrap_or_else(|err| {
+        output::warnings(&[format!(
+            "the earlier setup file's files couldn't be read for binary deltas ({err:#}), so the patch holds whole files"
+        )]);
+        HashMap::new()
+    });
+    write_file(&patch, runtime, &target, sealing.as_ref(), |project, runtime, path, sealing| {
+        write_into_with(project, runtime, path, sealing, &bases)
+    })?;
     let size = fs::metadata(&target).map(|meta| meta.len()).unwrap_or(0);
     say!(
         "Wrote {} ({}), the update patch from {}: {kept} of {} files changed",
@@ -292,6 +526,52 @@ fn write_patch(project: &Project, old: &Path, runtime: &Path, output: &Path, key
         project.sources.len()
     );
     Ok((target, earlier.app.version))
+}
+
+/// A changed file smaller than this isn't worth a delta.
+const MIN_DELTA: u64 = 64 * 1024;
+
+/// The most earlier files a patch build holds in memory at once.
+const MAX_BASES: u64 = 2 << 30;
+
+/// The earlier version of the `wanted` files, read out of the earlier setup file's
+/// archive: what a binary delta is made from. A file that is too big, and anything
+/// once the memory budget is used up, is left out and goes in whole.
+fn read_bases(old: &Path, earlier: &bach_pack::manifest::Manifest, wanted: &HashMap<String, String>) -> Result<HashMap<String, DeltaBase>> {
+    use std::io::{Read, Seek, SeekFrom};
+    // An encrypted setup file's files can't be read without its key; deltas aren't worth asking for it.
+    if wanted.is_empty() || earlier.access.as_ref().is_some_and(|access| access.encryption.is_some()) {
+        return Ok(HashMap::new());
+    }
+    let mut file = File::open(old).with_context(|| format!("couldn't open {}", old.display()))?;
+    let Some(layout) = container::locate(&mut file)? else {
+        bail!("{} isn't a Bach setup file", old.display());
+    };
+    if !layout.has_archive() {
+        return Ok(HashMap::new());
+    }
+    file.seek(SeekFrom::Start(layout.archive.offset))?;
+    let reader = std::io::BufReader::new(file.take(layout.archive.len));
+    let mut bases = HashMap::new();
+    let mut held = 0u64;
+    let mut visit = |packaged: &str, size: u64, body: &mut dyn Read| -> Result<()> {
+        // The patch packs the file under the new version's name for it.
+        let Some(name) = wanted.get(&packaged.to_ascii_lowercase()) else {
+            return Ok(());
+        };
+        if size > bach_pack::delta::MAX_BASE || held.saturating_add(size) > MAX_BASES {
+            return Ok(());
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+        body.read_to_end(&mut bytes)?;
+        held = held.saturating_add(size);
+        let sha256 = bach_pack::protect::sha256_hex(&bytes[..])?;
+        bases.insert(name.clone(), DeltaBase { bytes, sha256 });
+        Ok(())
+    };
+    // An earlier patch has deltas of its own, which can't be expanded without its earlier version.
+    archive::read_with(reader, archive::Bases::Skip, &mut visit)?;
+    Ok(bases)
 }
 
 fn summary(project: &Project) {
@@ -326,15 +606,128 @@ pub(crate) fn write_setup(project: &Project, runtime_path: &Path, output: &Path,
     write_file(project, runtime_path, output, sealing, write_into)
 }
 
+/// A downloaded component's archive, as written.
+pub(crate) struct Pack {
+    pub component: String,
+    pub path: PathBuf,
+    pub sha256: String,
+    pub size: u64,
+}
+
+/// Writes the archive of each component that has `download`, next to the setup
+/// file, records its SHA-256 and size in the manifest and the files' checksums
+/// in the file list, and takes those files out of what the setup file packs.
+pub(crate) fn write_packs(project: &mut Project, setup: &Path) -> Result<Vec<Pack>> {
+    let wanted: Vec<String> =
+        project.manifest.components.iter().filter(|component| component.download.is_some()).map(|c| c.id.clone()).collect();
+    let mut packs = Vec::new();
+    let flavour: Vec<&str> = project.profile.as_deref().into_iter().chain(project.arch.as_deref()).collect();
+    for id in wanted {
+        let members: std::collections::HashSet<String> = project
+            .manifest
+            .files
+            .iter()
+            .filter(|file| file.component.as_deref() == Some(id.as_str()))
+            .map(|file| file.path.clone())
+            .collect();
+        let sources: Vec<archive::Source> = project.sources.iter().filter(|source| members.contains(&source.packaged)).cloned().collect();
+        if sources.is_empty() {
+            bail!("the component \"{id}\" has no files to put in its download");
+        }
+        let name = config::component_pack_name(&project.manifest.app, &id, &flavour);
+        let path = setup.with_file_name(name);
+        let (sha256, size, hashes) = write_pack(project, &sources, &path)?;
+        record_hashes(&mut project.manifest, &sources, &hashes)?;
+        if let Some(download) =
+            project.manifest.components.iter_mut().find(|component| component.id == id).and_then(|c| c.download.as_mut())
+        {
+            download.sha256 = sha256.clone();
+            download.size = size;
+        }
+        project.sources.retain(|source| !members.contains(&source.packaged));
+        packs.push(Pack { component: id, path, sha256, size });
+    }
+    Ok(packs)
+}
+
+/// One archive: through a `.partial` file, so a failed build never leaves half of it where
+/// the real one belongs. Gives its SHA-256, its size and each packed file's SHA-256.
+fn write_pack(project: &Project, sources: &[archive::Source], path: &Path) -> Result<(String, u64, Vec<String>)> {
+    if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+        fs::create_dir_all(dir).with_context(|| format!("couldn't create {}", dir.display()))?;
+    }
+    let mut partial = path.as_os_str().to_owned();
+    partial.push(".partial");
+    let partial = PathBuf::from(partial);
+    let written = (|| -> Result<(String, u64, Vec<String>)> {
+        let file = File::create(&partial).with_context(|| format!("couldn't write {}", partial.display()))?;
+        let total = sources.iter().map(|source| source.size).sum();
+        let mut progress = Progress::new("Packing", total);
+        let plan = project.compression.plan(project.compression_threads, project.compression_memory_mib);
+        let hashing = Hashing { inner: BufWriter::new(file), hasher: Sha256::new() };
+        let (hashing, hashes) =
+            archive::write_hashed(hashing, sources, project.compression, plan.threads, &mut |done| progress.update(done))?;
+        progress.finish();
+        let Hashing { inner, hasher } = hashing;
+        let file = inner.into_inner().map_err(|err| err.into_error())?;
+        file.sync_all()?;
+        let size = file.metadata()?.len();
+        Ok((bach_pack::protect::hex(&hasher.finalize()), size, hashes))
+    })();
+    match written {
+        Ok(done) => {
+            if path.exists() {
+                fs::remove_file(path).with_context(|| format!("couldn't replace {} (is it open?)", path.display()))?;
+            }
+            fs::rename(&partial, path).with_context(|| format!("couldn't move the download to {}", path.display()))?;
+            Ok(done)
+        }
+        Err(err) => {
+            let _ = fs::remove_file(&partial);
+            Err(err)
+        }
+    }
+}
+
 /// The online installer: the same window and manifest as the setup file,
 /// and no files. It downloads the newest setup file when it runs.
 fn write_online_setup(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>) -> Result<Written> {
     write_file(project, runtime_path, output, sealing, write_online_into)
 }
 
-type WriteSetup = fn(&Project, &[u8], &Path, Option<&Sealing>) -> Result<Written>;
+/// The small copy of the setup program a `.msi` carries: the same window, with the manifest but
+/// no files, which asks the questions and hands the install to Windows Installer.
+pub(crate) fn write_msi_front(project: &Project, runtime_path: &Path, output: &Path) -> Result<Written> {
+    write_file(project, runtime_path, output, None, write_front_into)
+}
 
-fn write_file(project: &Project, runtime_path: &Path, output: &Path, sealing: Option<&Sealing>, write: WriteSetup) -> Result<Written> {
+fn write_front_into(project: &Project, runtime: &[u8], path: &Path, _sealing: Option<&Sealing>) -> Result<Written> {
+    fs::write(path, runtime).with_context(|| format!("couldn't write {}", path.display()))?;
+    brand(project, path)?;
+    let mut file = File::options().read(true).write(true).open(path)?;
+    let offset = file.seek(SeekFrom::End(0))?;
+    let mut manifest = project.manifest.clone();
+    // What the package doesn't carry is left out, so the window never offers it.
+    manifest.online = false;
+    manifest.archive_sha256 = None;
+    manifest.patch_from = None;
+    manifest.updates = None;
+    manifest.uninstall.data.clear();
+    for component in &mut manifest.components {
+        component.download = None;
+    }
+    container::finish(&mut file, offset, &project.look_section(), &manifest)?;
+    file.sync_all()?;
+    Ok(Written { packed: 0, hashes: Vec::new() })
+}
+
+fn write_file(
+    project: &Project,
+    runtime_path: &Path,
+    output: &Path,
+    sealing: Option<&Sealing>,
+    write: impl Fn(&Project, &[u8], &Path, Option<&Sealing>) -> Result<Written>,
+) -> Result<Written> {
     let runtime = runtime::read(runtime_path)?;
     if let Some(dir) = output.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         fs::create_dir_all(dir).with_context(|| format!("couldn't create {}", dir.display()))?;
@@ -358,6 +751,17 @@ fn write_file(project: &Project, runtime_path: &Path, output: &Path, sealing: Op
 }
 
 fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&Sealing>) -> Result<Written> {
+    write_into_with(project, runtime, path, sealing, &HashMap::new())
+}
+
+/// [`write_into`] that stores a changed file as a delta from its earlier version when `bases` has one.
+fn write_into_with(
+    project: &Project,
+    runtime: &[u8],
+    path: &Path,
+    sealing: Option<&Sealing>,
+    bases: &HashMap<String, DeltaBase>,
+) -> Result<Written> {
     fs::write(path, runtime).with_context(|| format!("couldn't write {}", path.display()))?;
     brand(project, path)?;
 
@@ -383,10 +787,11 @@ fn write_into(project: &Project, runtime: &[u8], path: &Path, sealing: Option<&S
         // The hash covers what is appended, which is the encrypted bytes.
         Some(sealing) => {
             let writer = sealing.encryption.writer(hashing, &sealing.unlocked)?;
-            let (writer, hashes) = archive::write_hashed(writer, &project.sources, project.compression, plan.threads, &mut step)?;
+            let (writer, hashes) =
+                archive::write_hashed_with(writer, &project.sources, bases, project.compression, plan.threads, &mut step)?;
             (writer.finish()?, hashes)
         }
-        None => archive::write_hashed(hashing, &project.sources, project.compression, plan.threads, &mut step)?,
+        None => archive::write_hashed_with(hashing, &project.sources, bases, project.compression, plan.threads, &mut step)?,
     };
     progress.finish();
     let Hashing { inner, hasher } = hashing;
