@@ -115,6 +115,48 @@
         "other": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "profile": { "type": "string", "description": "check --profile: the profile that was read." },
+    "profiles": {
+      "type": "array",
+      "description": "profiles: the profiles of bach.toml.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "kind": { "type": "string", "enum": ["setup", "zip"] },
+          "description": { "type": ["string", "null"] },
+          "output": { "type": ["string", "null"], "description": "The file a build of it writes, relative to bach.toml." },
+          "problem": { "type": ["string", "null"], "description": "Why it can't be built yet, when it can't." }
+        }
+      }
+    },
+    "builds": {
+      "type": "array",
+      "description": "build: every file written, when more than the main setup file was (profiles).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": ["string", "null"], "description": "null for the main build." },
+          "kind": { "type": "string", "enum": ["setup", "zip"] },
+          "file": { "type": "string" },
+          "size": { "type": "integer" }
+        }
+      }
+    },
+    "packs": {
+      "type": "array",
+      "description": "build: the archives of components that are downloaded when ticked, next to the setup file (packs_arm64 for the ARM64 setup file).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "component": { "type": "string" },
+          "file": { "type": "string" },
+          "sha256": { "type": "string" },
+          "size": { "type": "integer" }
+        }
+      }
+    },
+    "packs_arm64": { "type": "array", "description": "build: like packs, for the ARM64 setup file.", "items": { "type": "object" } },
     "verified": { "type": "boolean", "description": "verify: whether the setup file is intact (a damaged file is an error instead)." },
     "signature": { "type": "string", "enum": ["signed", "unsigned"], "description": "verify: whether the file carries a signature (Windows decides whether it is valid)." },
     "install_command": { "type": "string", "description": "intune: the command that installs the setup file silently." },

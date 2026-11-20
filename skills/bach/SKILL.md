@@ -322,6 +322,9 @@ window speaks several).
 - For one download that serves x64 and ARM64: add `[arch.arm64] source = "<arm64 folder>"`; `bach build
   --runtime-arm64 <ARM64 bach-setup.exe>` writes both setup files and one `latest.json` that lists both
   (`--x64-only` skips the ARM64 one).
+- For files most people won't want (language packs, HD textures, demo files): give the `[[components]]`
+  entry `download = true` (or an https link). `bach build` writes them to `Name-component-version.bachpack`
+  to upload; the installer downloads it only when the box is ticked.
 - For a portable ZIP or a company (machine-wide) version of the same app: add `[profiles.NAME]`
   to `bach.toml` (`kind = "zip"`, or settings that differ), then `bach build --profile NAME` or
   `bach build --all-profiles`; `bach profiles` lists them.

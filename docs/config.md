@@ -486,6 +486,58 @@ A file belongs to the first component whose pattern matches it. A component
 must match at least one file, and `app.executable` can't be in one. Unticking
 a component on an update removes its files.
 
+### Components that are downloaded
+
+Language packs, HD textures or demo files that most people won't want don't
+have to make everybody's download bigger. Add `download` and a component's
+files stay out of the setup file; they are downloaded when somebody ticks the
+box.
+
+```toml
+[[components]]
+id = "hd-textures"
+title = "HD textures"
+files = ["textures/hd/**"]
+default = false
+download = true                     # or an https link, see below
+```
+
+`bach build` packs those files into a file of their own next to the setup file:
+
+```console
+Wrote dist/Hello-Setup-1.4.0.exe (11.2 MB)
+Wrote dist/Hello-hd-textures-1.4.0.bachpack (412.6 MB), the download for the component hd-textures
+```
+
+Upload that file to the link the component names. When the user ticks the box
+the setup window says how big the download is ("412.6 MB download"), and
+setup downloads the file when it installs, checks it against the SHA-256
+recorded in the setup file, and puts the files in place together with the
+others: if the download fails, nothing was changed and the page offers to try
+again. Cancel works while it downloads.
+
+| `download` | Meaning |
+| --- | --- |
+| `true` | The link of `[updates]` (`github = "owner/repo"` or `download_url`), with the file's name in place of `{file}`. |
+| `"https://…"` | Any https link. `{file}` is the file's name (`Hello-hd-textures-1.4.0.bachpack`), `{version}` the app's version, `{id}` the app id and `{component}` the component's id. |
+
+- **The file is checked, not the host.** Its SHA-256 and size are in the setup
+  file, so the link can be any host or CDN: a changed file is refused. Sign
+  the setup file and the whole chain is covered.
+- **Updates** download again only when a file of the component changed: files
+  that are already installed exactly as the new version records them are left
+  alone, and an update that leaves the component unticked never downloads it.
+- **An online installer** and an update patch carry the same component
+  list, so they download the file the same way.
+- **`--with hd-textures`** in a silent install downloads it too, and a silent
+  install without it never does.
+- A setup file that is locked with [`[access]`](#access) can't have a
+  downloaded component: the downloaded file would not be locked, so the build
+  refuses it. A downloaded component can't contain `app.executable`.
+- With a GitHub release, upload the `.bachpack` file as an asset of the same
+  release. `bach build --json` lists them as `packs` (`component`, `file`,
+  `sha256`, `size`).
+
 ## [[protocols]]
 
 Links like `myapp://open?file=x` start your app with the link as its first
@@ -1001,6 +1053,7 @@ a text is given in only one, `bach check` points it out.
 | `requirement_title`, `requirement_subtitle`, `requirement_button` (all `{requirement}`), `requirement_skip` | The page for a missing requirement, and its "Continue anyway" button. |
 | `step_downloading`, `error_download` (`{error}`) | Updating from the app. |
 | `step_finding`, `step_fetching`, `error_fetch` (`{error}`) | The online installer's labels, and what it says when it can't download. |
+| `component_download` (`{size}`) | The line under a component whose files are downloaded when its box is ticked, like "120.0 MB download". Also the label while they download is `step_fetching`, with the component's title for `{name}`. |
 | `access_title`, `access_subtitle`, `access_hint`, `access_button`, `access_paste`, `access_get`, `access_wrong` | The access key page. |
 | `step_running`, `error_run` (`{task}`, `{code}`) | A `[[run]]` step's label and its failure. |
 | `step_migrating` | The label while an older install by another installer is removed (`[[migrate]]`). |
