@@ -119,11 +119,19 @@ pub fn run(args: &Args, package: Package) -> i32 {
                 }
             }
             let plan = work::InstallPlan { package: package.clone(), texts: texts.clone(), dir, choices, key };
-            work::install(&plan, &report)
+            if crate::system::msi::link().is_some() {
+                work::msi::install(&plan, args.repair, &report)
+            } else {
+                work::install(&plan, &report)
+            }
         }
         Mode::Remove { dir } => {
             let plan = work::RemovePlan { package: package.clone(), texts: texts.clone(), dir, delete_data: args.delete_data };
-            work::remove(&plan, &report)
+            if crate::system::msi::link().is_some() {
+                work::msi::remove(&plan, &report)
+            } else {
+                work::remove(&plan, &report)
+            }
         }
     };
     match result {

@@ -7,6 +7,7 @@ mod components;
 mod conflicts;
 mod install;
 mod migrate;
+pub mod msi;
 mod online;
 mod patch;
 mod place;

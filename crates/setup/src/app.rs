@@ -29,7 +29,7 @@ const BASE_HEIGHT: f32 = 490.;
 const MAX_SCREEN_SHARE: f32 = 0.85;
 
 pub fn main() {
-    let args = match Args::parse() {
+    let mut args = match Args::parse() {
         Ok(args) => args,
         Err(mistake) => {
             // Exit code 2 is "a mistake in the options", as for every silent run.
@@ -41,6 +41,14 @@ pub fn main() {
         crate::system::host::attach_parent_console();
         print!("{}", launch::HELP);
         return;
+    }
+    // The front of a .msi package: Windows Installer does the work (see system/msi.rs). Tests run it
+    // without a window with BACH_MSI_FRONT_SILENT, because Windows Installer starts it with fixed arguments.
+    if let (Some(package), Some(product), Some(upgrade)) = (&args.msi_package, &args.msi_product, &args.msi_upgrade) {
+        crate::system::msi::set_link(crate::system::msi::Link { package: package.clone(), product: product.clone(), upgrade: upgrade.clone() });
+        if std::env::var_os("BACH_MSI_FRONT_SILENT").is_some() {
+            args.silent = true;
+        }
     }
     let package = match Package::load() {
         Ok(Some(package)) => Ok(package),

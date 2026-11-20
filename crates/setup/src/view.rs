@@ -85,6 +85,8 @@ pub struct SetupView {
     pub support: SupportState,
     /// "Cancel" was pressed while files were being unpacked; the job is stopping.
     pub cancelling: bool,
+    /// The next run puts the installed version back (Windows Installer's repair).
+    repairing: bool,
     pub stage: Stage,
     /// Counts attempts, so each one's page and bar start fresh.
     pub attempt: usize,
@@ -178,6 +180,7 @@ impl SetupView {
             closing_app: false,
             support: SupportState::Idle,
             cancelling: false,
+            repairing: false,
             stage,
             attempt: 0,
             focus_handle: cx.focus_handle(),
@@ -310,6 +313,7 @@ impl SetupView {
         }
         self.choices = crate::start::install(&self.package.manifest).choices;
         crate::log::line("Repair was chosen: the installed version is checked and put right.");
+        self.repairing = true;
         self.start(cx);
     }
 
@@ -321,6 +325,7 @@ impl SetupView {
         let (sender, mut events) = mpsc::unbounded::<Event>();
         self.cancelling = false;
         let texts = self.texts.clone();
+        let repairing = std::mem::take(&mut self.repairing);
         let job = match (&self.mode, self.preview) {
             (_, true) => Job::Pretend {
                 removing: self.is_removing(),
@@ -334,13 +339,21 @@ impl SetupView {
                     .map(|step| step.name.clone())
                     .collect(),
             },
-            (Mode::Install, false) => Job::Install(InstallPlan {
-                package: self.package.clone(),
-                texts: texts.clone(),
-                dir: self.dir.clone(),
-                choices: self.choices.clone(),
-                key: (!self.key.is_empty()).then(|| self.key.clone()),
-            }),
+            (Mode::Install, false) => {
+                let plan = InstallPlan {
+                    package: self.package.clone(),
+                    texts: texts.clone(),
+                    dir: self.dir.clone(),
+                    choices: self.choices.clone(),
+                    key: (!self.key.is_empty()).then(|| self.key.clone()),
+                };
+                // The front of a .msi hands the work to Windows Installer.
+                if crate::system::msi::link().is_some() {
+                    Job::InstallWithMsi(plan, repairing)
+                } else {
+                    Job::Install(plan)
+                }
+            }
             (Mode::Remove { .. }, false) => Job::Remove(RemovePlan {
                 package: self.package.clone(),
                 texts: texts.clone(),
@@ -360,6 +373,8 @@ impl SetupView {
             // A panic on the worker becomes a failed page, never a crash.
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
                 Job::Install(plan) => work::install(plan, &report),
+                Job::InstallWithMsi(plan, repair) => work::msi::install(plan, *repair, &report),
+                Job::Remove(plan) if crate::system::msi::link().is_some() => work::msi::remove(plan, &report),
                 Job::Remove(plan) => work::remove(plan, &report),
                 Job::Pretend { removing, online, tasks } => work::pretend(&texts, *removing, *online, tasks, &report),
             }))
@@ -483,6 +498,8 @@ pub fn can_close(stage: &Stage) -> bool {
 
 enum Job {
     Install(InstallPlan),
+    /// The same, done by Windows Installer: a `.msi` package's window (the flag says repair).
+    InstallWithMsi(InstallPlan, bool),
     Remove(RemovePlan),
     Pretend { removing: bool, online: bool, tasks: Vec<String> },
 }
