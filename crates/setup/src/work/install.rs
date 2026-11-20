@@ -437,11 +437,22 @@ fn unpack(
         Ok(())
     };
     let encryption = manifest.access.as_ref().and_then(|access| access.encryption.as_ref());
-    let mut unpacked = match (encryption, unlocked) {
-        (Some(encryption), Some(unlocked)) => {
-            encryption.reader(reader, unlocked).and_then(|decrypted| archive::read(decrypted, &mut visit))
+    // An update patch may hold a changed file as a binary delta from the file it replaces, which
+    // is read from the install folder (before anything in it is touched) and has to be exactly the
+    // file the delta was made from. A full setup file holds none.
+    let mut earlier = |packaged: &str, size: u64| -> anyhow::Result<Vec<u8>> {
+        let path = paths::under(dir, packaged);
+        let wrong = || anyhow::Error::from(archive::WrongBase { path: packaged.to_string() });
+        if size > bach_pack::delta::MAX_BASE || fs::metadata(&path).map_or(true, |meta| meta.len() != size) {
+            return Err(wrong());
         }
-        _ => archive::read(reader, &mut visit),
+        fs::read(&path).map_err(|_| wrong())
+    };
+    let mut unpacked = match (encryption, unlocked) {
+        (Some(encryption), Some(unlocked)) => encryption
+            .reader(reader, unlocked)
+            .and_then(|decrypted| archive::read_with(decrypted, archive::Bases::From(&mut earlier), &mut visit)),
+        _ => archive::read_with(reader, archive::Bases::From(&mut earlier), &mut visit),
     };
     // The downloaded components' archives go through the same checks and the same transaction.
     for pack in &packs {
@@ -453,6 +464,15 @@ fn unpack(
     if let Err(err) = unpacked {
         transaction.discard();
         remove_empty_parents(dir, wanted.iter().copied());
+        // A delta made from another file than the one here: the patch is for another version.
+        if let Some(wrong) = err.downcast_ref::<archive::WrongBase>() {
+            crate::log::line(&format!(
+                "The update patch needs {} as it was in version {}, and it isn't.",
+                wrong.path,
+                manifest.patch_from.as_deref().unwrap_or("?")
+            ));
+            return Err(texts.get(Key::error_patch_base));
+        }
         return Err(write_error.unwrap_or_else(|| format!("{} {}", texts.get(Key::error_damaged), plain(&err))));
     }
     if let Some(expected) = &manifest.archive_sha256 {
