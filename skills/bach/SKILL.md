@@ -310,7 +310,8 @@ window speaks several).
   then `choco pack` in the folder it writes (use `installer.scope = "machine"`,
   since Chocolatey installs as an administrator).
 - For Group Policy or Configuration Manager: `bach build --msi` also writes a real `.msi` (files, shortcuts,
-  registry, optional components, upgrades); it says what it can't carry. 3-number versions only.
+  registry, optional components, upgrades); it says what it can't carry. 3-number versions only. Opening the `.msi`
+  shows the same Bach window as the setup file (Windows Installer does the work under it); `/qn` stays quiet.
 - To deploy with Microsoft Intune: `bach intune SETUP.exe` writes the install and
   uninstall commands and the detection rule (`intune.md`) and a detection script
   (`detect.ps1`); use `installer.scope = "machine"` for devices.

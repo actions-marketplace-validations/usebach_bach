@@ -1044,6 +1044,7 @@ a text is given in only one, `bach check` points it out.
 | `error_still_open`, `error_in_use` (`{path}`), `error_busy`, `error_disk_full` (`{size}`, `{free}`), `error_no_access` (`{path}`) | The errors people meet most. |
 | `error_create`, `error_write`, `error_delete`, `error_shortcut`, `error_delete_data`, `error_not_found` (all `{path}`) | Errors about one file or folder; Windows' own reason follows them. |
 | `error_read_setup`, `error_damaged`, `error_uninstaller`, `error_register`, `error_unregister`, `error_system`, `error_open_failed` (`{error}`) | The rarer errors. |
+| `error_msi` (`{code}`) | What the window says when Windows Installer, which the `.msi` package hands its work to, stops with an error. |
 | `problem_title`, `problem_damaged` (`{error}`) | The page a damaged setup file shows. |
 | `downgrade_title`, `downgrade_subtitle` (`{old_version}`), `downgrade_button` | Installing over a newer version. `downgrade_button` also confirms the next one. |
 | `error_unsafe_folder` | A machine-wide app's install folder that ordinary users can change. |
@@ -1544,6 +1545,26 @@ The package is made by Bach (a real MSI database with its files in an embedded
 cabinet), not a wrapper that runs the setup file. Windows Installer installs,
 repairs, upgrades and removes it itself, so deployment tools can track it.
 
+### The window
+
+Open the `.msi` (double-click, or remove it under Settings › Apps) and you get the
+same window as the setup file's, not Windows Installer's plain progress box: the
+same style and layout, the install folder, the options, the license, the
+requirements, "Repair" and the removal page, in the user's language. The package
+carries a small copy of the setup program for it (about 10 MB). The window asks
+the questions and then calls Windows Installer with the answers, so the install is
+a real one (the same files, shortcuts, registry values, upgrade rules and Settings ›
+Apps entry as below), and its progress bar follows Windows Installer's own. Cancelling
+makes Windows Installer undo what it did. A machine-wide package asks Windows for
+administrator rights once, as the setup file does.
+
+A quiet install (`msiexec /i ... /qn`, `/qb`, Group Policy, Intune and friends) never
+shows it: those run Windows Installer's own install with the defaults and
+`ADDLOCAL`, as in the commands below. So the license page and the requirements
+other than a Windows build are checked by the window and not by a quiet install.
+Windows Installer's own log of a window's run is `%TEMP%\<app id>-msi.log`, next to
+the setup log.
+
 | In the MSI | How |
 | --- | --- |
 | Files and folders | Every file is its own component, with an id made from the app id and the file's path, so it stays the same from one version to the next. |
@@ -1559,12 +1580,13 @@ repairs, upgrades and removes it itself, so deployment tools can track it.
 
 What it doesn't carry, and says so when your config uses it (`not in the MSI:`):
 `[[migrate]]`, `[updates]` (an MSI is updated by installing a newer MSI),
-`[uninstall]` data folders, the license page (an MSI has no window of its own here),
-the `download` of a component (its files are in the package), requirements
-other than a Windows build (WebView2, .NET, VC++, file and registry checks), a
+`[uninstall]` data folders, the `download` of a component (its files are in the
+package), requirements other than a Windows build in a quiet install (WebView2,
+.NET, VC++, file and registry checks: the window checks them), a
 run step's other exit codes (Windows Installer accepts `0`) and an `elevated` run
 step in a per-user package (it never has administrator rights). Use the setup
-file where you need those. Windows texts are English.
+file where you need those. The texts Windows Installer shows itself (in a quiet or
+basic install) are English; the window speaks the user's language.
 
 ```powershell
 msiexec /i Hello-Setup-1.4.0.msi /qn                    # install silently
@@ -1591,6 +1613,9 @@ Limits and rules:
 - A real run: Bach's own tests install a package like this per user with every item
   above, check the registry, `PATH`, the variables, the shortcuts and the run steps, upgrade it,
   see an older package refused and remove it again with `msiexec`, checking that all of it goes.
+  Another test opens the package with Windows' full interface and checks that the window's
+  program runs, that Windows Installer installs under it (once, not twice), that opening it
+  again repairs and that removing it removes everything.
 
 ## Checking a setup file
 
