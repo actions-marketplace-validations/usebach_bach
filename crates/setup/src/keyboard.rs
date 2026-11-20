@@ -33,6 +33,8 @@ pub enum Target {
     Support,
     /// "Continue anyway" on the requirement page.
     Skip,
+    /// "Repair" on the first page, when this version is already installed.
+    Repair,
     /// The page's main button: I agree, Install, Open, Try again.
     Primary,
 }
@@ -50,6 +52,8 @@ pub struct PageFacts {
     pub rows: Vec<Option<Target>>,
     /// The working page offers "Cancel".
     pub cancellable: bool,
+    /// The first page offers "Repair": this very version is installed.
+    pub repairable: bool,
 }
 
 /// The page's controls in Tab order. Pure, so the order can be tested
@@ -70,7 +74,11 @@ pub fn page_targets(stage: &Stage, facts: &PageFacts) -> Vec<Target> {
         }
         Stage::Failed(_) => vec![Target::Cancel, Target::Support, Target::Primary],
         Stage::License => buttons(true),
-        Stage::Ready => facts.rows.iter().flatten().copied().chain(buttons(true)).collect(),
+        Stage::Ready => {
+            let repair = facts.repairable.then_some(Target::Repair);
+            let (cancel, primary) = (Target::Cancel, Target::Primary);
+            facts.rows.iter().flatten().copied().chain([cancel]).chain(repair).chain([primary]).collect()
+        }
         Stage::Working { .. } if facts.cancellable => vec![Target::Cancel],
         Stage::Working { .. } => Vec::new(),
         Stage::Done => {
@@ -83,7 +91,17 @@ pub fn page_targets(stage: &Stage, facts: &PageFacts) -> Vec<Target> {
 /// The buttons along the bottom, which `[layout] primary = "first"` shows
 /// in reverse order: Tab follows them as they are drawn.
 fn is_footer_button(target: &Target) -> bool {
-    matches!(target, Target::Cancel | Target::Primary | Target::Secondary | Target::Skip | Target::Support | Target::Link | Target::GetKey)
+    matches!(
+        target,
+        Target::Cancel
+            | Target::Primary
+            | Target::Secondary
+            | Target::Skip
+            | Target::Support
+            | Target::Link
+            | Target::GetKey
+            | Target::Repair
+    )
 }
 
 /// `targets` with its footer buttons in reverse order, everything else in place.
@@ -108,6 +126,7 @@ impl SetupView {
                 open_button: self.has_open_button(),
                 rows: self.row_targets(),
                 cancellable: self.can_cancel(),
+                repairable: self.is_repairable(),
             },
         );
         let layout = self.package.manifest.look.layout.as_ref();
@@ -197,6 +216,7 @@ impl SetupView {
             Target::Secondary => self.recheck_requirements(cx),
             Target::Support => self.save_support(cx),
             Target::Skip => self.skip_requirements(cx),
+            Target::Repair => self.repair(cx),
             Target::GetKey => self.open_get_key(),
             Target::Paste => self.paste_key(cx),
             Target::Link if self.is_removing() => self.open_feedback(),
@@ -231,7 +251,7 @@ mod tests {
     use crate::view::Toggle;
 
     fn facts() -> PageFacts {
-        PageFacts { get_key_link: false, done_link: false, open_button: true, rows: Vec::new(), cancellable: false }
+        PageFacts { get_key_link: false, done_link: false, open_button: true, rows: Vec::new(), cancellable: false, repairable: false }
     }
 
     #[test]
@@ -278,6 +298,18 @@ mod tests {
                 Target::Primary
             ],
             "rows that aren't shown are skipped"
+        );
+    }
+
+    #[test]
+    fn repair_sits_between_cancel_and_the_main_button() {
+        let repairable = PageFacts { repairable: true, ..facts() };
+        assert_eq!(page_targets(&Stage::Ready, &repairable), [Target::Cancel, Target::Repair, Target::Primary]);
+        assert_eq!(page_targets(&Stage::Ready, &facts()), [Target::Cancel, Target::Primary], "only when this version is installed");
+        assert_eq!(
+            footer_reversed(page_targets(&Stage::Ready, &repairable)),
+            [Target::Primary, Target::Repair, Target::Cancel],
+            "primary = \"first\" turns the footer around, Repair included"
         );
     }
 

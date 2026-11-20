@@ -23,6 +23,8 @@ default, so a five-line config already builds a complete installer.
 - [`[updates]`](#updates): updates the installed app fetches itself
 - [`[text]`](#text): any text in the window, in any language
 - [`[uninstall]`](#uninstall): the user's data
+- [`[profiles]`](#profiles): other builds of the app: a company version, a portable ZIP
+- [`[arch.arm64]`](#archarm64): one download for x64 and ARM64
 - [`[signing]`](#signing): sign the setup files while building (optional)
 - [A complete example](#a-complete-example)
 - [Silent installs](#silent-installs) and [updating from the app](#updating-from-the-app)
@@ -483,6 +485,58 @@ default = true                      # ticked on a first install
 A file belongs to the first component whose pattern matches it. A component
 must match at least one file, and `app.executable` can't be in one. Unticking
 a component on an update removes its files.
+
+### Components that are downloaded
+
+Language packs, HD textures or demo files that most people won't want don't
+have to make everybody's download bigger. Add `download` and a component's
+files stay out of the setup file; they are downloaded when somebody ticks the
+box.
+
+```toml
+[[components]]
+id = "hd-textures"
+title = "HD textures"
+files = ["textures/hd/**"]
+default = false
+download = true                     # or an https link, see below
+```
+
+`bach build` packs those files into a file of their own next to the setup file:
+
+```console
+Wrote dist/Hello-Setup-1.4.0.exe (11.2 MB)
+Wrote dist/Hello-hd-textures-1.4.0.bachpack (412.6 MB), the download for the component hd-textures
+```
+
+Upload that file to the link the component names. When the user ticks the box
+the setup window says how big the download is ("412.6 MB download"), and
+setup downloads the file when it installs, checks it against the SHA-256
+recorded in the setup file, and puts the files in place together with the
+others: if the download fails, nothing was changed and the page offers to try
+again. Cancel works while it downloads.
+
+| `download` | Meaning |
+| --- | --- |
+| `true` | The link of `[updates]` (`github = "owner/repo"` or `download_url`), with the file's name in place of `{file}`. |
+| `"https://…"` | Any https link. `{file}` is the file's name (`Hello-hd-textures-1.4.0.bachpack`), `{version}` the app's version, `{id}` the app id and `{component}` the component's id. |
+
+- **The file is checked, not the host.** Its SHA-256 and size are in the setup
+  file, so the link can be any host or CDN: a changed file is refused. Sign
+  the setup file and the whole chain is covered.
+- **Updates** download again only when a file of the component changed: files
+  that are already installed exactly as the new version records them are left
+  alone, and an update that leaves the component unticked never downloads it.
+- **An online installer** and an update patch carry the same component
+  list, so they download the file the same way.
+- **`--with hd-textures`** in a silent install downloads it too, and a silent
+  install without it never does.
+- A setup file that is locked with [`[access]`](#access) can't have a
+  downloaded component: the downloaded file would not be locked, so the build
+  refuses it. A downloaded component can't contain `app.executable`.
+- With a GitHub release, upload the `.bachpack` file as an asset of the same
+  release. `bach build --json` lists them as `packs` (`component`, `file`,
+  `sha256`, `size`).
 
 ## [[protocols]]
 
@@ -959,6 +1013,7 @@ a text is given in only one, `bach check` points it out.
 | `reinstall_title` | Reinstall {name} |
 | `reinstall_subtitle` | {name} {version} is already installed. Reinstalling keeps your data. |
 | `reinstall_button` | Reinstall |
+| `repair_button` | Repair |
 | `update_title` | Update {name} |
 | `update_subtitle` | {name} {old_version} is installed. This updates it to {version} and keeps your data. |
 | `update_button` | Update |
@@ -989,6 +1044,7 @@ a text is given in only one, `bach check` points it out.
 | `error_still_open`, `error_in_use` (`{path}`), `error_busy`, `error_disk_full` (`{size}`, `{free}`), `error_no_access` (`{path}`) | The errors people meet most. |
 | `error_create`, `error_write`, `error_delete`, `error_shortcut`, `error_delete_data`, `error_not_found` (all `{path}`) | Errors about one file or folder; Windows' own reason follows them. |
 | `error_read_setup`, `error_damaged`, `error_uninstaller`, `error_register`, `error_unregister`, `error_system`, `error_open_failed` (`{error}`) | The rarer errors. |
+| `error_msi` (`{code}`) | What the window says when Windows Installer, which the `.msi` package hands its work to, stops with an error. |
 | `problem_title`, `problem_damaged` (`{error}`) | The page a damaged setup file shows. |
 | `downgrade_title`, `downgrade_subtitle` (`{old_version}`), `downgrade_button` | Installing over a newer version. `downgrade_button` also confirms the next one. |
 | `error_unsafe_folder` | A machine-wide app's install folder that ordinary users can change. |
@@ -998,6 +1054,7 @@ a text is given in only one, `bach check` points it out.
 | `requirement_title`, `requirement_subtitle`, `requirement_button` (all `{requirement}`), `requirement_skip` | The page for a missing requirement, and its "Continue anyway" button. |
 | `step_downloading`, `error_download` (`{error}`) | Updating from the app. |
 | `step_finding`, `step_fetching`, `error_fetch` (`{error}`) | The online installer's labels, and what it says when it can't download. |
+| `component_download` (`{size}`) | The line under a component whose files are downloaded when its box is ticked, like "120.0 MB download". Also the label while they download is `step_fetching`, with the component's title for `{name}`. |
 | `access_title`, `access_subtitle`, `access_hint`, `access_button`, `access_paste`, `access_get`, `access_wrong` | The access key page. |
 | `step_running`, `error_run` (`{task}`, `{code}`) | A `[[run]]` step's label and its failure. |
 | `step_migrating` | The label while an older install by another installer is removed (`[[migrate]]`). |
@@ -1017,6 +1074,152 @@ files there every translation.
 
 Write Windows paths in TOML with single quotes so backslashes stay as they
 are: `data = ['%APPDATA%\My App']`.
+
+## [profiles]
+
+A profile is another build of the same app from the same `bach.toml`: a normal
+setup file, a company version that installs for every user, a portable ZIP.
+Each profile holds only what differs from the file above it.
+
+```toml
+[profiles.enterprise]
+description = "For IT departments: machine-wide, no shortcuts, no self-updates."
+
+[profiles.enterprise.installer]
+scope = "machine"
+desktop_shortcut = false
+start_with_windows = false
+
+[profiles.portable]
+kind = "zip"
+description = "Unzip and run; nothing is installed."
+
+# Replaces [[components]]: the portable build carries the samples.
+[[profiles.portable.components]]
+id = "samples"
+title = "Samples"
+files = ["samples/**"]
+default = true
+```
+
+```bash
+bach profiles                       # lists them and the files they write
+bach build                          # the main setup file, as before
+bach build --profile enterprise     # only that profile (repeat --profile for several)
+bach build --all-profiles           # the main setup file and every profile
+bach check --profile portable       # read one profile without building it
+bach preview --profile enterprise   # open its installer window
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `kind` | `"setup"` (default) writes a setup file. `"zip"` writes a ZIP of the files instead: no runtime is needed, and nothing is signed or listed in the update feed. |
+| `description` | One line about what the profile is for. `bach profiles` shows it. |
+| `output` | Where the file goes, with `{name}`, `{version}` and `{id}` filled in. Without it a setup file is `dist/{name}-NAME-Setup-{version}.exe` and a ZIP `dist/{name}-NAME-{version}.zip`. A setup file's name must end in `.exe`, a ZIP's in `.zip`. |
+
+Anything else in a profile is a section of `bach.toml` (`app`, `files`,
+`installer`, `components`, `registry`, `style`, ...) and is laid over the
+main file:
+
+- A **table** is merged key by key: `[profiles.enterprise.installer]` with
+  `scope = "machine"` changes that one setting and leaves the rest of
+  `[installer]` as it is.
+- An **array** (`[[components]]`, `[[registry]]`, ...) is replaced as a whole,
+  so a profile that lists `[[components]]` drops the main file's.
+- A profile can't change `config_version` and can't contain profiles. A typo
+  is one sentence naming it: `profiles.enterprise.scoop isn't a setting a
+  profile knows`.
+
+A profile's name is lowercase letters, digits and `-`, up to 32 characters,
+because it ends up in file names.
+
+**A ZIP** holds the files of the components ticked by default, laid out as
+they are in the install folder (`hello.exe`, `sub/data.txt`). The entries have
+a fixed date, so the same files give the same ZIP wherever it is built. A ZIP
+can't be locked with [`[access]`](#access) (the build says so) and has no
+window to preview. A single file of 4 GiB or more is stored in ZIP64.
+
+**A setup profile** is a full setup file. Two things to know:
+
+- It shares `app.id` with the main build unless the profile sets another. Two
+  setup files with one id update and uninstall each other, which is right for
+  "the same app, installed for another scope" and wrong for "both on one
+  computer". Give a profile that must live next to the main build its own
+  `app.id` and `installer.folder`.
+- The update feed (`latest.json`) describes the main setup file only, so
+  profile builds never write it. A company that installs the enterprise file
+  by hand or with Intune updates by installing the next one.
+
+`--json` adds `builds`: one object per build with `profile` (null for the main
+one), `kind`, `file` and `size`. `bach profiles --json` prints `profiles`
+(`name`, `kind`, `description`, `output`, `problem`).
+
+## [arch.arm64]
+
+One download for x64 and ARM64. The main build packs `files.source` with the
+x64 setup runtime. `[arch.arm64]` names the ARM64 build of the same app, and
+`bach build` then also writes an ARM64 setup file, built on the ARM64 runtime,
+and lists both in the update feed.
+
+```toml
+[files]
+source = "build/x64"
+
+[arch.arm64]
+source = "build/arm64"                   # the ARM64 build of the app's files
+exclude = ["*.pdb"]                      # optional: files.exclude for this folder
+runtime = "tools/arm64/bach-setup.exe"   # optional: or --runtime-arm64 / BACH_RUNTIME_ARM64
+```
+
+```bash
+bach build --runtime-arm64 path/to/arm64/bach-setup.exe
+```
+
+```console
+Building Hello 1.4.0
+...
+Wrote dist/Hello-Setup-1.4.0.exe (11.2 MB)
+
+Building Hello 1.4.0 for arm64
+...
+Wrote dist/Hello-Setup-1.4.0-arm64.exe (10.8 MB)
+  Update feed  dist/latest.json
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `source` | The folder with the ARM64 files, relative to `bach.toml`. Required. |
+| `exclude` | `files.exclude` for this folder. The main `files.exclude` applies when left out. |
+| `runtime` | The ARM64 `bach-setup.exe`, relative to `bach.toml`. Left out, `--runtime-arm64 FILE` (or `BACH_RUNTIME_ARM64`) names it. |
+
+- **The ARM64 runtime** comes from the ARM64 release: every Bach release has a
+  `bach-<version>-windows-arm64.zip` with an ARM64 `bach.exe` and
+  `bach-setup.exe`. It ends up inside the ARM64 setup file, so Bach checks
+  that the file is an ARM64 program and refuses an x64 one. Without it the
+  build stops and says so; `--x64-only` builds only the x64 file.
+- **Same app, same version.** Both setup files carry the same `app.id` and
+  version, so an update of either replaces the other, and `bach check` tells
+  you when `arch.arm64.source` isn't a folder.
+- **The file is named** like the x64 one with the architecture before the
+  extension: `Hello-Setup-1.4.0-arm64.exe`. It is signed with `--sign`
+  like the others.
+- **The update feed** (`latest.json`) keeps the x64 setup file as its main entry
+  and adds the ARM64 one under `arch.arm64` with its own link, SHA-256, size
+  and, with `[updates] public_key`, its own signature. An older app that doesn't
+  know `arch` ignores it and keeps taking the x64 file. See
+  [Updates](updates.md#one-feed-for-x64-and-arm64).
+- **The online installer** is built once, from the x64 runtime, and runs on
+  both. It asks Windows what the computer is, not what it is itself, so on
+  Windows on ARM it downloads the ARM64 setup file.
+- **Updates** of an installed app use the architecture the app was installed
+  with: an ARM64 install takes the ARM64 file, and an x64 install on an ARM
+  computer stays x64.
+- `bach feed SETUP.exe --arm64 SETUP-arm64.exe [--arm64-url URL]` writes the
+  feed with the ARM64 listing when you build the files separately, and checks
+  that it is a full ARM64 setup file of the same app and version.
+- Profiles: a profile build also writes its ARM64 file.
+
+`--json` adds `setup_arm64`, the ARM64 setup file's path.
 
 ## [signing]
 
@@ -1155,7 +1358,7 @@ the exit code. `--help` always works, whatever else is on the line.
 | `--layout NAME` | With `--preview`: shows another built-in [layout](#layout) in place of the setup file's `[layout]`. Without `--preview` it is a mistake too. |
 | `--allow-downgrade` | Install over a newer version (refused otherwise, with exit code 1). |
 | `--skip-requirements` | A silent install goes on although a [`[[requirements]]`](#requirements) entry isn't detected (it stops with exit code 1 otherwise). Setup says which ones, in the terminal and in the log, and that the app may not start without them. Use it when the detection is wrong for a computer, for example a .NET runtime on an unusual drive. |
-| `--repair` | With `--silent`, run the setup file of the version that is installed with this flag, and setup checks every file against the SHA-256 in its manifest and writes back the ones that are missing or changed, then redoes shortcuts and registration. Nothing else in the folder and no user data is touched. A different version, or nothing installed, stops with exit code 1 and says so. The log lists what was written. |
+| `--repair` | With `--silent`, run the setup file of the version that is installed with this flag, and setup checks every file against the SHA-256 in its manifest and writes back the ones that are missing or changed, then redoes shortcuts and registration. Nothing else in the folder and no user data is touched. The window offers the same as a **Repair** button next to **Reinstall** when the installed version is the setup file's own, and repairs with the options the app was installed with. A different version, or nothing installed, stops with exit code 1 and says so. The log lists what was written. |
 | `--overwrite` | A first install into a folder that already holds files of the same names as the setup file's (and no earlier install of this app) is refused with exit code 1, naming up to five of them; this installs over them anyway. |
 | `--key-file FILE` | The access key (first line of the file) for a setup file with [`[access]`](#access). The `BACH_ACCESS_KEY` environment variable does the same. Without a key a silent run exits with code 2. |
 | `--log FILE` | Where the log goes. By default every run writes `%TEMP%\<app id>-setup.log`; a space in the app id is written `%20` in file and folder names (`My App` gives `My%20App-setup.log`), so two ids never share one. |
@@ -1321,6 +1524,99 @@ Things to know:
 `--json` prints `install_command`, `uninstall_command`, `run_as`,
 `detection_key` (machine-wide apps) and `detection_script`.
 
+## Windows Installer packages (MSI)
+
+Companies that deploy with Group Policy, Configuration Manager or Intune ask
+for an `.msi`. `bach build --msi` writes one from the same `bach.toml`, next to
+the setup file:
+
+```bash
+bach build --msi
+```
+
+```console
+Wrote dist/Hello-Setup-1.4.0.exe (11.2 MB)
+Wrote dist/Hello-Setup-1.4.0.msi (9.8 MB), the Windows Installer package
+  not in the MSI: [[run]] steps
+  not in the MSI: adding to PATH
+```
+
+The package is made by Bach (a real MSI database with its files in an embedded
+cabinet), not a wrapper that runs the setup file. Windows Installer installs,
+repairs, upgrades and removes it itself, so deployment tools can track it.
+
+### The window
+
+Open the `.msi` (double-click, or remove it under Settings › Apps) and you get the
+same window as the setup file's, not Windows Installer's plain progress box: the
+same style and layout, the install folder, the options, the license, the
+requirements, "Repair" and the removal page, in the user's language. The package
+carries a small copy of the setup program for it (about 10 MB). The window asks
+the questions and then calls Windows Installer with the answers, so the install is
+a real one (the same files, shortcuts, registry values, upgrade rules and Settings ›
+Apps entry as below), and its progress bar follows Windows Installer's own. Cancelling
+makes Windows Installer undo what it did. A machine-wide package asks Windows for
+administrator rights once, as the setup file does.
+
+A quiet install (`msiexec /i ... /qn`, `/qb`, Group Policy, Intune and friends) never
+shows it: those run Windows Installer's own install with the defaults and
+`ADDLOCAL`, as in the commands below. So the license page and the requirements
+other than a Windows build are checked by the window and not by a quiet install.
+Windows Installer's own log of a window's run is `%TEMP%\<app id>-msi.log`, next to
+the setup log.
+
+| In the MSI | How |
+| --- | --- |
+| Files and folders | Every file is its own component, with an id made from the app id and the file's path, so it stays the same from one version to the next. |
+| Shortcuts | The Start menu shortcut (in the folder `installer.start_menu_folder` names, which removal takes away again), the desktop one and `[[shortcuts]]`, each in a component of its own, with the app's icon. |
+| Registry values, variables and integration | `[[registry]]`, `[[env]]` variables, `[[protocols]]`, `[[file_types]]` (as "Open with") and `[[context_menu]]` entries, written and removed exactly where the setup file writes them. `{app}` is the install folder, here with a trailing backslash. |
+| Optional components and options | One feature each, named like the setup file's own `--with` ids: a component by its id, and the options of the install page as `desktop_shortcut`, `start_menu`, `autostart` and `path` (a `-` is written `_`). Ticked ones install by default; the others with `ADDLOCAL=id`. An option that is `always` is part of the product, `never` isn't in the package. |
+| Start with Windows, PATH | The `Run` entry, and the install folder (or `installer.path_folder`) appended to the user's `PATH` and taken off again on removal, the rest of `PATH` kept. |
+| Run steps | `[[run]]` steps are custom actions that start the packaged program after the files are in place (`install`, `first_install`) or before they go (`uninstall`, never stopping the removal), for the component they name. |
+| Requirements | A `windows` requirement is a launch condition on the Windows build. |
+| Settings › Apps | Name, publisher, version, website, icon and the install location. |
+| Upgrades | A package of a higher version replaces older ones (a major upgrade; the upgrade code comes from `app.id`). An older package refuses to replace a newer one (error 1603, with "A newer version of Hello is already installed."). |
+| Scope | `installer.scope = "machine"`: per machine, in `Program Files`, for all users. The default `"user"`: per user, in `%LOCALAPPDATA%\Programs`, and installing needs no administrator rights. |
+
+What it doesn't carry, and says so when your config uses it (`not in the MSI:`):
+`[[migrate]]`, `[updates]` (an MSI is updated by installing a newer MSI),
+`[uninstall]` data folders, the `download` of a component (its files are in the
+package), requirements other than a Windows build in a quiet install (WebView2,
+.NET, VC++, file and registry checks: the window checks them), a
+run step's other exit codes (Windows Installer accepts `0`) and an `elevated` run
+step in a per-user package (it never has administrator rights). Use the setup
+file where you need those. The texts Windows Installer shows itself (in a quiet or
+basic install) are English; the window speaks the user's language.
+
+```powershell
+msiexec /i Hello-Setup-1.4.0.msi /qn                    # install silently
+msiexec /i Hello-Setup-1.4.0.msi /qn ADDLOCAL=ALL       # with every optional component
+msiexec /x Hello-Setup-1.4.0.msi /qn                    # remove it
+```
+
+Limits and rules:
+
+- **The version** has to be three numbers (`1.4.2`): the first two up to 255, the
+  last up to 65535, and no suffix like `-beta`. Windows Installer compares
+  versions that way. Anything else is refused, naming `app.version`.
+- **Size.** The cabinet holds up to 2 GB and 32,000 files; a bigger app is refused with that
+  sentence. Names (the app's, the publisher's, the folders') are written in the
+  Windows-1252 code page that Windows Installer reads, so a character outside it shows as `?`.
+- **An app locked with [`[access]`](#access)** can't be an MSI: the files in the
+  package would be readable by anybody. The build refuses it.
+- The package is **x64**: the ARM64 setup file (`[arch.arm64]`) isn't turned into an MSI. `--msi` with a
+  [profile](#profiles) writes that profile's package next to its setup file (`Hello-enterprise-Setup-1.4.0.msi`),
+  which is how a company version gets its own; a `zip` profile has none.
+- It isn't signed by `--sign` (Windows Installer's own signing is a different
+  mechanism): sign it with `signtool sign` like any other file.
+- `--json` adds `msi` (the file) and `msi_skipped` (what it left out).
+- A real run: Bach's own tests install a package like this per user with every item
+  above, check the registry, `PATH`, the variables, the shortcuts and the run steps, upgrade it,
+  see an older package refused and remove it again with `msiexec`, checking that all of it goes.
+  Another test opens the package with Windows' full interface and checks that the window's
+  program runs, that Windows Installer installs under it (once, not twice), that opening it
+  again repairs and that removing it removes everything.
+
 ## Checking a setup file
 
 ```bash
@@ -1358,6 +1654,128 @@ sentence that names the first few files that are wrong.
 
 `--json` prints `verified`, `signature`, `files`, `name` and `version`; a
 damaged file is the usual `{"ok": false, "error": "…"}`.
+
+## Comparing two setup files
+
+`bach diff` reads two setup files of one app and says what changed, without
+unpacking anything. Use it to see what a release really ships, or why it got
+bigger.
+
+```bash
+bach diff dist/Hello-Setup-1.0.0.exe dist/Hello-Setup-1.1.0.exe
+```
+
+```console
+Hello 1.0.0 → 1.1.0
+  Files        1 added, 1 removed, 1 changed, 0 unchanged
+  Installed    585.9 KB → 195.3 KB (-390.6 KB)
+  Packed       586.0 KB → 195.4 KB (-390.6 KB)
+
+Files:
+  - data.bin  (585.9 KB)
+  + extra.dat  (195.3 KB)
+  ~ hello.exe  (2 bytes → 4 bytes, +2 bytes)
+
+Made the app bigger:
+     +195.3 KB  extra.dat
+      +2 bytes  hello.exe
+```
+
+- A file counts as **changed** when its SHA-256 differs (a setup file built
+  before checksums were recorded is compared by size, and the output says so).
+  Names are matched the way Windows matches them, so `Data.bin` and `data.bin`
+  are one file.
+- **Besides files** lists what the new setup file does to Windows that the old
+  one didn't (`+`), no longer does (`-`) or does differently (`~`):
+  `[[registry]]` values, `[[env]]` variables, `[[context_menu]]` entries,
+  `[[shortcuts]]`, link schemes, file types, `[[run]]` steps, requirements,
+  components and `[[migrate]]` entries.
+- **Made the app bigger** ranks the files by how many bytes they added to the
+  installed app, biggest first (`--top N`, default 5). The archive is one
+  compressed stream, so Bach can't say how much each file added to the
+  *setup file*; the installed size and the packed total are shown instead.
+- Both files must be for the same app id. An installed `uninstall.exe` works
+  as either side too.
+
+`--json` prints `old_version`, `new_version`, `unchanged`, `installed_growth`,
+`setup_size_old`, `setup_size_new`, `changed_files` (`path`, `change`,
+`old_size`, `new_size`) and `changes` (`change`, `what`).
+
+## Testing a setup file in Windows Sandbox
+
+`bach test` installs your setup file on a clean Windows, starts the app, removes
+it and tells you what went wrong and what was left behind. The sandbox is a
+fresh copy of Windows every time and is thrown away when the test ends, so
+nothing is installed on your computer.
+
+```bash
+bach build
+bach test                          # the file bach.toml builds
+bach test dist/Hello-Setup-1.4.0.exe --with samples
+```
+
+```console
+Testing Hello 1.4.0 in Windows Sandbox
+  Sandbox      starting; a fresh Windows takes about a minute
+  ok    Installed      exit code 0 in 0.7 s
+  ok    Registered     Settings > Apps lists Hello 1.4.0
+  ok    Files          12 of 12 files are in C:\Users\WDAGUtilityAccount\AppData\Local\Programs\Hello
+  ok    Uninstaller    uninstall.exe is in the install folder
+  ok    Started        still running after 5 s
+  ok    Removed        exit code 0 in 0.7 s
+  FAIL  Left behind    1 files and folders, 0 registry keys, 0 other changes
+
+Files and folders left behind:
+  C:\Users\WDAGUtilityAccount\AppData\Local\Hello
+```
+
+What it checks, in order:
+
+1. **Installed**: the setup file's silent install (`--silent`) ends with exit code 0.
+2. **Registered**: Settings › Apps lists the app with the setup file's version.
+3. **Files**: every file the install should have written is there, with the size
+   the manifest records.
+4. **Uninstaller**: `uninstall.exe` is in the install folder.
+5. **Started**: the app starts and, in 5 seconds (`--launch SECONDS`; `0` skips
+   this), does not end with an error. An app that is still running counts as
+   good; one that ends with exit code 0 does too. The test closes it afterwards.
+6. **Removed**: the silent removal (`uninstall.exe --silent --delete-data`) ends
+   with exit code 0 and takes the Settings › Apps entry away.
+7. **Left behind**: it compares the folders an install writes to (your profile,
+   Program Files, ProgramData, the desktop and the Start menu, two levels deep),
+   the registry (`Software`, the uninstall entries), user environment variables,
+   the Run key and scheduled tasks with how they were before the install. What is
+   new afterwards is listed, and the check fails. Windows' own folders
+   (`Temp`, `Microsoft`, `Packages`, ...) are left out because an app doesn't
+   write there.
+
+The report ends with a summary line and exit code `0` when every check passed,
+`1` otherwise.
+
+| Option | Meaning |
+| --- | --- |
+| `FILE` | The setup file to test. Without it, the file `bach.toml` builds (`bach build` first). |
+| `--with IDS`, `--without IDS` | Options to install with, like the setup file's own `--with` (`samples`, `desktop-shortcut`, ...). A component's files are only expected when it is on. |
+| `--launch SECONDS` | How long to leave the app running (default 5; `0` doesn't start it). |
+| `--network` | Give the sandbox the network. It is off by default, so the test needs nothing from outside; an online installer needs it (and says so). |
+| `--timeout MINUTES` | How long to wait for the report (default 20). |
+| `--keep` | Leave the sandbox open when the test ends, to look around in it. |
+| `--dry-run` | Write the files the test would use and stop. It works without Windows Sandbox and prints where the `.wsb` file is. |
+
+`--json` prints `passed`, `steps` (`name`, `ok`, `detail`) and `left_behind`
+(`files`, `registry`, `other`).
+
+- **Windows Sandbox** comes with Windows 10 and 11 **Pro, Enterprise and
+  Education** (not Home). Turn it on under "Turn Windows features on or off",
+  restart, and `bach test` finds it. Only one sandbox runs at a time.
+- A setup file that asks for **administrator rights** (`installer.scope =
+  "machine"`, or an elevated run step) shows Windows' prompt inside the sandbox
+  window; accept it there. A setup file with **[`[access]`](#access)** asks
+  for a key a silent test can't type: test a build without it.
+- The files in the sandbox's folders are the setup file, a script that Bach
+  writes (`run.ps1`), and `params.json` with what the script checks against.
+  The script reads that file as data and never builds commands from what a
+  setup file says. The setup file's folder is mapped read-only.
 
 ## A download page
 

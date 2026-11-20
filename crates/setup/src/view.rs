@@ -85,6 +85,8 @@ pub struct SetupView {
     pub support: SupportState,
     /// "Cancel" was pressed while files were being unpacked; the job is stopping.
     pub cancelling: bool,
+    /// The next run puts the installed version back (Windows Installer's repair).
+    repairing: bool,
     pub stage: Stage,
     /// Counts attempts, so each one's page and bar start fresh.
     pub attempt: usize,
@@ -129,6 +131,14 @@ impl SetupView {
             }
             Mode::Remove { dir } => (None, None, dir.clone(), Choices::default(), false),
         };
+        // A preview can pretend this very version is installed, to show the repair page.
+        let existing = match std::env::var("BACH_PREVIEW_INSTALLED") {
+            Ok(version) if preview && matches!(mode, Mode::Install) && existing.is_none() => Some(Installed {
+                dir: dir.clone(),
+                version: if version.trim().is_empty() { manifest.app.version.clone() } else { version },
+            }),
+            _ => existing,
+        };
         // Screenshots for docs shouldn't show whose computer took them.
         let dir = match std::env::var_os("BACH_PREVIEW_DIR") {
             Some(shown) if preview => PathBuf::from(shown),
@@ -170,6 +180,7 @@ impl SetupView {
             closing_app: false,
             support: SupportState::Idle,
             cancelling: false,
+            repairing: false,
             stage,
             attempt: 0,
             focus_handle: cx.focus_handle(),
@@ -282,6 +293,30 @@ impl SetupView {
         !self.is_removing() && self.existing.is_none() && self.package.manifest.install.change_folder
     }
 
+    /// Whether the first page offers "Repair": this very version is installed,
+    /// so its files can be checked and put back without changing anything else.
+    pub fn is_repairable(&self) -> bool {
+        let manifest = &self.package.manifest;
+        matches!(self.stage, Stage::Ready)
+            && !self.is_removing()
+            && !manifest.online
+            && !self.downgrade
+            && self.existing.as_ref().is_some_and(|installed| installed.version == manifest.app.version)
+    }
+
+    /// "Repair": writes back what is missing or changed of the installed
+    /// version, with the options it was installed with (whatever was ticked
+    /// or unticked on this page is left alone).
+    pub fn repair(&mut self, cx: &mut Context<Self>) {
+        if !self.is_repairable() {
+            return;
+        }
+        self.choices = crate::start::install(&self.package.manifest).choices;
+        crate::log::line("Repair was chosen: the installed version is checked and put right.");
+        self.repairing = true;
+        self.start(cx);
+    }
+
     /// Starts installing or removing on a worker thread.
     pub fn start(&mut self, cx: &mut Context<Self>) {
         if matches!(self.stage, Stage::Working { .. }) {
@@ -290,6 +325,7 @@ impl SetupView {
         let (sender, mut events) = mpsc::unbounded::<Event>();
         self.cancelling = false;
         let texts = self.texts.clone();
+        let repairing = std::mem::take(&mut self.repairing);
         let job = match (&self.mode, self.preview) {
             (_, true) => Job::Pretend {
                 removing: self.is_removing(),
@@ -303,13 +339,21 @@ impl SetupView {
                     .map(|step| step.name.clone())
                     .collect(),
             },
-            (Mode::Install, false) => Job::Install(InstallPlan {
-                package: self.package.clone(),
-                texts: texts.clone(),
-                dir: self.dir.clone(),
-                choices: self.choices.clone(),
-                key: (!self.key.is_empty()).then(|| self.key.clone()),
-            }),
+            (Mode::Install, false) => {
+                let plan = InstallPlan {
+                    package: self.package.clone(),
+                    texts: texts.clone(),
+                    dir: self.dir.clone(),
+                    choices: self.choices.clone(),
+                    key: (!self.key.is_empty()).then(|| self.key.clone()),
+                };
+                // The front of a .msi hands the work to Windows Installer.
+                if crate::system::msi::link().is_some() {
+                    Job::InstallWithMsi(plan, repairing)
+                } else {
+                    Job::Install(plan)
+                }
+            }
             (Mode::Remove { .. }, false) => Job::Remove(RemovePlan {
                 package: self.package.clone(),
                 texts: texts.clone(),
@@ -329,6 +373,8 @@ impl SetupView {
             // A panic on the worker becomes a failed page, never a crash.
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
                 Job::Install(plan) => work::install(plan, &report),
+                Job::InstallWithMsi(plan, repair) => work::msi::install(plan, *repair, &report),
+                Job::Remove(plan) if crate::system::msi::link().is_some() => work::msi::remove(plan, &report),
                 Job::Remove(plan) => work::remove(plan, &report),
                 Job::Pretend { removing, online, tasks } => work::pretend(&texts, *removing, *online, tasks, &report),
             }))
@@ -424,7 +470,11 @@ impl SetupView {
     pub fn can_cancel(&self) -> bool {
         match &self.stage {
             Stage::Working { label, .. } => {
-                !self.preview && !self.is_removing() && label.as_ref() == self.texts.get(Key::step_copying).as_str()
+                !self.preview
+                    && !self.is_removing()
+                    && (label.as_ref() == self.texts.get(Key::step_copying).as_str()
+                        // A component's download is cancelled just as safely: nothing is written yet.
+                        || work::is_downloading(&self.texts, &self.package.manifest, label.as_ref()))
             }
             _ => false,
         }
@@ -448,8 +498,14 @@ pub fn can_close(stage: &Stage) -> bool {
 
 enum Job {
     Install(InstallPlan),
+    /// The same, done by Windows Installer: a `.msi` package's window (the flag says repair).
+    InstallWithMsi(InstallPlan, bool),
     Remove(RemovePlan),
-    Pretend { removing: bool, online: bool, tasks: Vec<String> },
+    Pretend {
+        removing: bool,
+        online: bool,
+        tasks: Vec<String>,
+    },
 }
 
 /// A first install shows the license; an update only when it changed.

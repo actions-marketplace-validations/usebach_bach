@@ -9,7 +9,7 @@
     "error": { "type": "string", "description": "The first sentence of the error." },
     "causes": { "type": "array", "items": { "type": "string" }, "description": "The sentences underneath it." },
     "warnings": { "type": "array", "items": { "type": "string" } },
-    "name": { "type": "string", "description": "check, inspect: the app's name." },
+    "name": { "type": "string", "description": "check, inspect, diff: the app's name." },
     "app_id": { "type": "string", "description": "inspect: the app id." },
     "version": { "type": "string", "description": "check, build, feed, inspect, version: the app's version (version: the one everything says, or the new one)." },
     "dry_run": { "type": "boolean", "description": "version TARGET: whether --dry-run was given, so nothing was written." },
@@ -20,6 +20,9 @@
     "files": { "type": ["integer", "array"], "items": { "type": "string" }, "description": "check, inspect: how many files are installed. version: the files that carry the version." },
     "size": { "type": "integer", "description": "Bytes. check, inspect: what is installed; build: the setup file; feed: the setup file." },
     "setup": { "type": "string", "description": "build: the setup file." },
+    "setup_arm64": { "type": "string", "description": "build: the ARM64 setup file, when bach.toml has [arch.arm64]." },
+    "msi": { "type": "string", "description": "build --msi: the Windows Installer package that was written." },
+    "msi_skipped": { "type": "array", "items": { "type": "string" }, "description": "build --msi: what bach.toml asks for that an MSI doesn't carry." },
     "online_setup": { "type": "string", "description": "build: the online installer, when there is one." },
     "patch": { "type": "string", "description": "build: the update patch, when --patch-from was given." },
     "feed": { "type": "string", "description": "build, feed: the update feed (latest.json), when one was written." },
@@ -44,7 +47,8 @@
           "name": { "type": "string", "description": "What [layout] preset calls it." },
           "description": { "type": "string" },
           "suits": { "type": "string" },
-          "picture": { "type": ["string", "null"], "description": "The setting whose picture it shows best (panel_image or background_image), or null." }
+          "picture": { "type": ["string", "null"], "description": "The setting whose picture it shows best (panel_image or background_image), or null." },
+          "settings": { "type": ["object", "null"], "description": "What the preset sets, as [layout] writes it (width, panel, header, align, ...)." }
         }
       }
     },
@@ -57,10 +61,113 @@
           "name": { "type": "string", "description": "What installer.style calls it." },
           "description": { "type": "string" },
           "suits": { "type": "string", "description": "The kind of app it suits." },
-          "theme": { "type": "string", "enum": ["system", "light", "dark"], "description": "The theme it uses when installer.theme isn't set." }
+          "theme": { "type": "string", "enum": ["system", "light", "dark"], "description": "The theme it uses when installer.theme isn't set." },
+          "fonts": { "type": "array", "items": { "type": "string" }, "description": "Families tried for the text, in order." },
+          "heading_fonts": { "type": "array", "items": { "type": "string" }, "description": "Families tried for headings." },
+          "heading_weight": { "type": "integer" },
+          "accent_mark": { "type": "boolean", "description": "Whether the Bach mark takes the accent colour." },
+          "radius": { "type": "integer", "description": "Cards and boxes, in points." },
+          "control_radius": { "type": "integer", "description": "Buttons and boxes, in points (16 makes pill buttons)." },
+          "light": { "type": "object", "description": "The colours the style sets for light, as #rrggbb (or #rrggbbaa): background, text, accent, ... The window derives the rest.", "additionalProperties": { "type": "string" } },
+          "dark": { "type": "object", "description": "The same for dark.", "additionalProperties": { "type": "string" } }
         }
       }
     },
+    "old_version": { "type": "string", "description": "diff: the older setup file's version." },
+    "new_version": { "type": "string", "description": "diff: the newer setup file's version." },
+    "unchanged": { "type": "integer", "description": "diff: how many files are the same in both." },
+    "installed_growth": { "type": "integer", "description": "diff: how many bytes the installed app grew by (negative: it shrank)." },
+    "setup_size_old": { "type": "integer", "description": "diff: the older setup file's size in bytes." },
+    "setup_size_new": { "type": "integer", "description": "diff: the newer setup file's size in bytes." },
+    "changed_files": {
+      "type": "array",
+      "description": "diff: every file that was added, removed or changed.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "change": { "type": "string", "enum": ["added", "removed", "changed"] },
+          "old_size": { "type": ["integer", "null"] },
+          "new_size": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    "changes": {
+      "type": "array",
+      "description": "diff: what the new setup file does besides files (registry values, variables, right-click entries, shortcuts, steps) that the old one didn't, or no longer does.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "change": { "type": "string", "enum": ["added", "removed", "changed"] },
+          "what": { "type": "string" }
+        }
+      }
+    },
+    "passed": { "type": "boolean", "description": "test: whether every check passed in the sandbox." },
+    "sandbox_file": { "type": "string", "description": "test --dry-run: the .wsb file that describes the sandbox." },
+    "steps": {
+      "type": "array",
+      "description": "test: the checks the sandbox ran, in order.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "ok": { "type": "boolean" },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "left_behind": {
+      "type": "object",
+      "description": "test: what the app's removal left on the sandbox's Windows.",
+      "properties": {
+        "files": { "type": "array", "items": { "type": "string" } },
+        "registry": { "type": "array", "items": { "type": "string" } },
+        "other": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "profile": { "type": "string", "description": "check --profile: the profile that was read." },
+    "profiles": {
+      "type": "array",
+      "description": "profiles: the profiles of bach.toml.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "kind": { "type": "string", "enum": ["setup", "zip"] },
+          "description": { "type": ["string", "null"] },
+          "output": { "type": ["string", "null"], "description": "The file a build of it writes, relative to bach.toml." },
+          "problem": { "type": ["string", "null"], "description": "Why it can't be built yet, when it can't." }
+        }
+      }
+    },
+    "builds": {
+      "type": "array",
+      "description": "build: every file written, when more than the main setup file was (profiles).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": ["string", "null"], "description": "null for the main build." },
+          "kind": { "type": "string", "enum": ["setup", "zip"] },
+          "file": { "type": "string" },
+          "size": { "type": "integer" }
+        }
+      }
+    },
+    "packs": {
+      "type": "array",
+      "description": "build: the archives of components that are downloaded when ticked, next to the setup file (packs_arm64 for the ARM64 setup file).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "component": { "type": "string" },
+          "file": { "type": "string" },
+          "sha256": { "type": "string" },
+          "size": { "type": "integer" }
+        }
+      }
+    },
+    "packs_arm64": { "type": "array", "description": "build: like packs, for the ARM64 setup file.", "items": { "type": "object" } },
     "verified": { "type": "boolean", "description": "verify: whether the setup file is intact (a damaged file is an error instead)." },
     "signature": { "type": "string", "enum": ["signed", "unsigned"], "description": "verify: whether the file carries a signature (Windows decides whether it is valid)." },
     "install_command": { "type": "string", "description": "intune: the command that installs the setup file silently." },

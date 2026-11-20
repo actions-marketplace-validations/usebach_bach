@@ -345,8 +345,8 @@ mod tests {
         let mut new = sample();
         let title = |text: &str| [(crate::i18n::ANY_LANGUAGE.to_string(), text.to_string())].into();
         new.components.retain(|component| component.id != "samples");
-        new.components.push(Component { id: "extras".into(), title: title("Extras"), description: None, default: true });
-        new.components.push(Component { id: "beta".into(), title: title("Beta"), description: None, default: false });
+        new.components.push(Component { id: "extras".into(), title: title("Extras"), description: None, default: true, download: None });
+        new.components.push(Component { id: "beta".into(), title: title("Beta"), description: None, default: false, download: None });
         let mut mine = Choices::defaults(&old);
         mine.components = vec!["samples".into()];
         let carried = mine.carry_over(&old, &new);

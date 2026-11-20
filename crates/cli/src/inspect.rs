@@ -101,7 +101,9 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
         let count = manifest.files.iter().filter(|file| file.component.as_ref() == Some(&component.id)).count();
         let ticked = if component.default { ", ticked" } else { "" };
         let files = if count == 1 { "file" } else { "files" };
-        field("Component", format!("{} \"{title}\" ({count} {files}{ticked})", component.id));
+        let downloaded =
+            component.download.as_ref().map(|download| format!(", downloaded: {}", output::size(download.size))).unwrap_or_default();
+        field("Component", format!("{} \"{title}\" ({count} {files}{ticked}{downloaded})", component.id));
     }
     for protocol in &manifest.protocols {
         field("Opens links", format!("{}://", protocol.scheme));

@@ -282,7 +282,32 @@ pub struct FeedEntry {
     /// `[updates] max_age_days` refuse an old entry a taken-over host keeps serving.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub published: Option<String>,
+    /// Setup files for other processor architectures, by name (`arm64`). The
+    /// entry's own link, SHA-256 and size are the x64 setup file; a computer
+    /// that runs another architecture takes its own file from here, so one
+    /// feed (and one online installer) serves them all. Each has its own
+    /// signature, so an app that checks signatures still can't be handed a
+    /// file the publisher didn't sign.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub arch: std::collections::BTreeMap<String, ArchEntry>,
 }
+
+/// The setup file a [`FeedEntry`] offers to computers of another architecture.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchEntry {
+    /// The setup file (https).
+    pub url: String,
+    /// Its SHA-256, lowercase hex.
+    pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    /// The publisher's signature over this file's entry (hex), see `feedsig`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+}
+
+/// The architectures a feed can list besides x64.
+pub const OTHER_ARCHES: &[&str] = &["arm64"];
 
 /// The patch a [`FeedEntry`] offers to computers that have one version.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

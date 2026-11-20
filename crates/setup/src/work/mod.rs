@@ -3,9 +3,11 @@
 //! block) and reports progress as it goes; the view only draws what it
 //! hears. A silent run calls the same jobs without a window.
 
+mod components;
 mod conflicts;
 mod install;
 mod migrate;
+pub mod msi;
 mod online;
 mod patch;
 mod place;
@@ -21,6 +23,7 @@ use std::time::Duration;
 
 use bach_pack::i18n::Key;
 
+pub use components::is_downloading;
 pub use conflicts::{describe as describe_files, foreign_files};
 pub use install::{install, is_running, previous_install, recover_interrupted, InstallPlan};
 pub use preview::pretend;

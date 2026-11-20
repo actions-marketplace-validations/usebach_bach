@@ -464,9 +464,11 @@ What the installed app does with it:
 
 Things to know:
 
-- A patch works on whole files. A file that changed by one byte is in the patch
-  in full, so it pays off when most of your app's size is files that don't
-  change (a runtime, assets, libraries), not when it is one big program.
+- A file that changed goes into the patch as **what differs from its earlier
+  version** (a binary delta), when that is clearly smaller than the file: a
+  program that changed in a few places costs kilobytes, not the whole program.
+  See [Binary deltas](#binary-deltas). A file that changed completely, or one
+  under 64 KB, goes in whole.
 - A patch is a setup file itself, so it carries the setup runtime (about
   10 MB). `bach build` only puts a patch in the feed when it's at least a fifth
   smaller than the full file, and says so when it leaves it out. Force it with
@@ -485,6 +487,44 @@ Things to know:
   release next to the setup file and gives its path as the `patch` output.
 - An app with `[access]` gets a patch that is encrypted with the same key.
 - The online installer and a first install always use the full file.
+
+### Binary deltas
+
+When `bach build --patch-from` finds a file that is in both versions and
+changed, and the file is at least 64 KB, it makes a delta of it: the new file
+stored relative to the old one, using zstd's patch mode with a window as large
+as both files and long-distance matching, so a block of code that moved a few
+kilobytes along still matches. A 6 MB program that changed by one byte and 900
+inserted bytes:
+
+| | Archive inside the setup file |
+| --- | --- |
+| Full setup file | 6,001,092 bytes |
+| Update patch | 1,075 bytes |
+
+(The patch is a setup file, so on disk it is the setup runtime, about 10 MB,
+plus that archive. A patch that only needs to replace one big program is
+about the runtime's size, whatever the program's.)
+
+- **It is exact.** A delta is made from one file and records that file's
+  SHA-256. At update time setup reads the installed file, refuses the delta
+  unless it is exactly that file, and checks the result against the new file's
+  SHA-256 in the manifest like any other file. A program the user changed
+  doesn't get a patched copy: nothing is touched, the update says it was made
+  for another version, and the app takes the full file instead.
+- **A delta is used only if it is under four fifths of the file.** Otherwise the
+  whole file goes in, so a patch is never bigger than it would have been.
+- **Memory.** Both files are held in memory while a delta is made or applied:
+  a file over 512 MiB (or an earlier file of that size) goes in whole, and a
+  build holds at most 2 GiB of earlier files at a time.
+- **The earlier setup file has to be readable.** An earlier setup file that is
+  locked with `[access]`, or is itself a patch, has no files to make deltas from
+  (a note says so), and the patch holds whole files, as before.
+- `bach verify` checks a patch's archive and every whole file in it, and steps
+  over the deltas, which only the earlier files can turn into a file.
+- Setup files in the wild keep working: a delta is a new kind of entry that only
+  patches have, read by the runtime inside the patch itself, so an installed
+  app needs no update to take one.
 
 ## Private updates
 
@@ -526,3 +566,39 @@ download_url = "https://example.com/hello/{file}"   # {file}: the setup file's n
 it again with `bach feed SETUP.exe` (it reads the link from `bach.toml`, or
 pass `--url`; `--notes` or `--notes-file` says what's new; `--rollout N` is
 a [staged rollout](#staged-rollouts)). Upload both files.
+
+## One feed for x64 and ARM64
+
+With [`[arch.arm64]`](config.md#archarm64) in `bach.toml`, `bach build` writes
+an x64 and an ARM64 setup file and one `latest.json` that lists both:
+
+```json
+{
+  "version": "1.4.0",
+  "url": "https://example.com/Hello-Setup-1.4.0.exe",
+  "sha256": "…",
+  "size": 11743232,
+  "arch": {
+    "arm64": {
+      "url": "https://example.com/Hello-Setup-1.4.0-arm64.exe",
+      "sha256": "…",
+      "size": 11324416,
+      "signature": "…"
+    }
+  }
+}
+```
+
+The top-level link, SHA-256 and size are the x64 file, as before. A computer
+takes the entry for its architecture: the online installer asks Windows what
+the computer is, and an installed app updates with the architecture it was
+installed with. If the listing for that architecture is missing, isn't an https
+link or (with `[updates] public_key`) isn't signed by the publisher, the x64
+file is taken, which also runs on Windows on ARM.
+
+The `arm64` entry has its own signature, over the app id, the version, the
+architecture, the link, the SHA-256 and the size, so a host that swaps the
+link can't hand an ARM64 computer a file you didn't sign. The main entry's
+signature is the same as before, so apps built before `arch` existed keep
+verifying and updating.
+

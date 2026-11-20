@@ -45,7 +45,40 @@ pub fn missing_requirements(manifest: &Manifest) -> Vec<usize> {
         .collect()
 }
 
+/// The start of a `.msi` package's window: the install Windows Installer knows about
+/// (it keeps its own record, not the setup file's), with the options it was installed with.
+fn install_from_package(manifest: &Manifest, link: &system::msi::Link) -> Start {
+    let existing = system::msi::installed(link, manifest);
+    let dir = existing.as_ref().map(|installed| installed.dir.clone()).unwrap_or_else(|| system::default_install_dir(manifest));
+    let mut choices = Choices::defaults(manifest);
+    if let Some(product) = system::msi::installed_product(link).filter(|_| existing.is_some()) {
+        let on = |id: &str| system::msi::feature_is_on(&product, id);
+        let install = &manifest.install;
+        if install.desktop_shortcut.offered() {
+            choices.desktop_shortcut = on("desktop_shortcut");
+        }
+        if install.start_menu_shortcut.offered() {
+            choices.start_menu_shortcut = on("start_menu");
+        }
+        if install.start_with_windows.offered() {
+            choices.start_with_windows = on("autostart");
+        }
+        if install.add_to_path.offered() {
+            choices.add_to_path = on("path");
+        }
+        choices.components =
+            manifest.components.iter().filter(|component| on(&system::msi::feature_id(&component.id))).map(|c| c.id.clone()).collect();
+    }
+    let downgrade = existing.as_ref().is_some_and(|installed| {
+        bach_pack::version::compare(&installed.version, &manifest.app.version) == Some(std::cmp::Ordering::Greater)
+    });
+    Start { existing, previous: None, dir, choices, downgrade }
+}
+
 pub fn install(manifest: &Manifest) -> Start {
+    if let Some(link) = system::msi::link() {
+        return install_from_package(manifest, link);
+    }
     let existing = system::installed(manifest);
     let dir = existing.as_ref().map(|installed| installed.dir.clone()).unwrap_or_else(|| system::default_install_dir(manifest));
     let previous = existing.as_ref().and_then(|_| work::previous_install(&dir, manifest));

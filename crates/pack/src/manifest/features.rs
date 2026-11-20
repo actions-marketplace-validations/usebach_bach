@@ -14,6 +14,24 @@ pub struct Component {
     pub description: Option<Localized>,
     /// Whether the box starts ticked on a first install.
     pub default: bool,
+    /// Where the component's files are fetched from, when they aren't in the
+    /// setup file: the setup file stays small, and the files are downloaded
+    /// only when somebody ticks the box.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download: Option<ComponentDownload>,
+}
+
+/// The download that holds an optional component's files: an archive in the
+/// same format as a setup file's own, with just those files. Its SHA-256 is
+/// in the (signed) setup file, so the link can be any host.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComponentDownload {
+    /// The archive (https).
+    pub url: String,
+    /// Its SHA-256, lowercase hex; a download that doesn't match is refused.
+    pub sha256: String,
+    /// Its size in bytes, to say how much is downloaded and to check the disk.
+    pub size: u64,
 }
 
 /// A link scheme like `hello://` that starts the app with the link as its

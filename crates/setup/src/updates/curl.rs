@@ -193,6 +193,12 @@ fn run(url: &str, to: &Path, how: Fetch, key: Option<&str>, follow: bool, progre
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
+            Ok(None) if crate::work::cancel::requested() => {
+                // The window's Cancel: stop now, keep what came in so a later try can resume.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("cancelled".to_string());
+            }
             Ok(None) => {
                 progress(std::fs::metadata(to).map_or(0, |meta| meta.len()));
                 std::thread::sleep(std::time::Duration::from_millis(120));

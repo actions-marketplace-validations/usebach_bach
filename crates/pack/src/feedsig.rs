@@ -15,7 +15,7 @@
 use anyhow::{bail, Context, Result};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
-use crate::manifest::{DeltaEntry, FeedEntry};
+use crate::manifest::{ArchEntry, DeltaEntry, FeedEntry};
 
 /// The environment variable that holds the private key (hex) for signing.
 pub const KEY_ENV: &str = "BACH_FEED_KEY";
@@ -69,6 +69,43 @@ fn message(app_id: &str, entry: &FeedEntry) -> Vec<u8> {
         entry.delta.as_ref().map_or(String::new(), delta),
     )
     .into_bytes()
+}
+
+/// The bytes that are signed for the setup file `arch` of version `version`
+/// of the app `app_id`. It is its own message, not part of the entry's: an
+/// older app that checks the entry's signature sees the same bytes it always
+/// did, and ignores the `arch` list it doesn't know.
+fn arch_message(app_id: &str, version: &str, arch: &str, entry: &ArchEntry) -> Vec<u8> {
+    format!(
+        "bach-feed-arch-v1
+{app_id}
+{version}
+{arch}
+{}
+{}
+{}",
+        entry.url,
+        entry.sha256.to_ascii_lowercase(),
+        entry.size.map_or(String::new(), |size| size.to_string()),
+    )
+    .into_bytes()
+}
+
+/// Signs the `arch` file of the feed entry for `version` and gives the signature (hex).
+pub fn sign_arch(private: &str, app_id: &str, version: &str, arch: &str, entry: &ArchEntry) -> Result<String> {
+    let key = signing_key(private)?;
+    Ok(crate::protect::hex(&key.sign(&arch_message(app_id, version, arch, entry)).to_bytes()))
+}
+
+/// Checks the signature of the `arch` file offered for `version`.
+pub fn verify_arch(public: &str, app_id: &str, version: &str, arch: &str, entry: &ArchEntry) -> Result<(), String> {
+    let key = verifying_key(public).map_err(|err| format!("{err:#}"))?;
+    let Some(signature) = entry.signature.as_deref() else {
+        return Err(format!("the {arch} download in the update feed isn't signed by the publisher"));
+    };
+    let bytes = unhex::<64>(signature).ok_or_else(|| format!("the {arch} download's signature isn't valid"))?;
+    key.verify(&arch_message(app_id, version, arch, entry), &Signature::from_bytes(&bytes))
+        .map_err(|_| format!("the {arch} download's signature doesn't match the publisher's key"))
 }
 
 /// Seconds since 1970-01-01 as `2026-11-17T06:30:00Z`.
@@ -214,6 +251,7 @@ mod tests {
             }),
             signature: None,
             published: None,
+            arch: Default::default(),
         }
     }
 
@@ -337,5 +375,49 @@ mod tests {
         assert!(check_fresh(&entry, Some(30), now).is_ok(), "a little clock skew is fine");
         entry.published = Some("garbage".into());
         assert!(check_fresh(&entry, Some(30), now).is_err());
+    }
+
+    fn arm() -> ArchEntry {
+        ArchEntry { url: "https://example.com/Setup-arm64.exe".into(), sha256: "cd".repeat(32), size: Some(700), signature: None }
+    }
+
+    #[test]
+    fn a_listing_for_another_architecture_is_signed_on_its_own() {
+        let (private, public) = generate().unwrap();
+        let mut listed = arm();
+        listed.signature = Some(sign_arch(&private, "Hello", "2.0.0", "arm64", &listed).unwrap());
+        assert!(verify_arch(&public, "Hello", "2.0.0", "arm64", &listed).is_ok());
+
+        type Tamper = (&'static str, Box<dyn Fn(&mut ArchEntry)>);
+        let tampered: [Tamper; 3] = [
+            ("the link", Box::new(|e| e.url = "https://evil.example/a.exe".into())),
+            ("the hash", Box::new(|e| e.sha256 = "00".repeat(32))),
+            ("the size", Box::new(|e| e.size = Some(1))),
+        ];
+        for (what, change) in tampered {
+            let mut copy = listed.clone();
+            change(&mut copy);
+            assert!(verify_arch(&public, "Hello", "2.0.0", "arm64", &copy).is_err(), "changing {what} must break it");
+        }
+        // It belongs to one app, one version and one architecture.
+        assert!(verify_arch(&public, "Other", "2.0.0", "arm64", &listed).is_err());
+        assert!(verify_arch(&public, "Hello", "2.0.1", "arm64", &listed).is_err(), "an old signature can't vouch for a new version");
+        assert!(verify_arch(&public, "Hello", "2.0.0", "x64", &listed).is_err());
+        // Without a signature, or with one from another key, it is refused.
+        assert!(verify_arch(&public, "Hello", "2.0.0", "arm64", &arm()).unwrap_err().contains("isn't signed"));
+        let (other, _) = generate().unwrap();
+        let forged = ArchEntry { signature: Some(sign_arch(&other, "Hello", "2.0.0", "arm64", &arm()).unwrap()), ..arm() };
+        assert!(verify_arch(&public, "Hello", "2.0.0", "arm64", &forged).is_err());
+    }
+
+    #[test]
+    fn listing_other_architectures_does_not_change_what_the_entry_signs() {
+        // An app built before `arch` existed checks the entry as it always did: the list is no part of it.
+        let (private, public) = generate().unwrap();
+        let mut plain = entry();
+        plain.signature = Some(sign(&private, "Hello", &plain).unwrap());
+        let mut with_arm = plain.clone();
+        with_arm.arch.insert("arm64".into(), arm());
+        assert!(verify(&public, "Hello", &with_arm).is_ok());
     }
 }
