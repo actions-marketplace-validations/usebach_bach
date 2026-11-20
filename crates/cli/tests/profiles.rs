@@ -68,7 +68,7 @@ fn a_zip_profile_and_a_setup_profile_build_from_one_config() {
 
     // The ZIP holds the files of the components its profile ticks, and unpacks to the same bytes.
     let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip).unwrap()).unwrap();
-    let mut names: Vec<String> = archive.file_names().map(str::to_string).collect();
+    let mut names: Vec<String> = archive.file_names().map(|name| name.unwrap().to_string()).collect();
     names.sort();
     assert_eq!(names, ["data.bin", "hello.exe", "samples/one.txt"]);
     let mut data = Vec::new();

@@ -129,13 +129,16 @@ fn a_version_windows_installer_cant_hold_and_a_locked_app_are_refused() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[cfg(windows)]
 fn msiexec(args: &[&str]) -> i32 {
     std::process::Command::new("msiexec").args(args).arg("/qn").status().unwrap().code().unwrap_or(-1)
 }
 
 /// Removes the throwaway app whatever happens in the test.
+#[cfg(windows)]
 struct Cleanup(PathBuf);
 
+#[cfg(windows)]
 impl Drop for Cleanup {
     fn drop(&mut self) {
         let package: PathBuf = self.0.components().collect();
@@ -195,6 +198,7 @@ files = [\"extras/**\"]
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[cfg(windows)]
 fn read_log(path: &Path) -> String {
     let log = std::fs::read(path)
         .map(|bytes| {

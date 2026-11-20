@@ -8,7 +8,9 @@
 
 mod common;
 use common::{config, project, run, text};
-use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::path::Path;
+use std::path::PathBuf;
 
 const COMPONENT: &str = r#"
 [[components]]
@@ -117,11 +119,13 @@ fn a_component_that_cant_be_downloaded_is_refused_when_it_cant_be_checked() {
 }
 
 /// Removes the throwaway app whatever happens in the test.
+#[cfg(windows)]
 struct Cleanup {
     uninstaller: PathBuf,
     folders: Vec<PathBuf>,
 }
 
+#[cfg(windows)]
 impl Drop for Cleanup {
     fn drop(&mut self) {
         if self.uninstaller.is_file() {
@@ -134,6 +138,7 @@ impl Drop for Cleanup {
     }
 }
 
+#[cfg(windows)]
 fn silent(setup: &Path, args: &[&str]) -> std::process::Output {
     std::process::Command::new(setup).args(["--silent", "--lang", "en"]).args(args).output().unwrap()
 }

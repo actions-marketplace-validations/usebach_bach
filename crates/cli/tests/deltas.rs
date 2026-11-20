@@ -79,11 +79,13 @@ fn a_file_that_changed_completely_goes_in_whole() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[cfg(windows)]
 struct Cleanup {
     uninstaller: PathBuf,
     folders: Vec<PathBuf>,
 }
 
+#[cfg(windows)]
 impl Drop for Cleanup {
     fn drop(&mut self) {
         if self.uninstaller.is_file() {
@@ -96,6 +98,7 @@ impl Drop for Cleanup {
     }
 }
 
+#[cfg(windows)]
 fn silent(setup: &Path, args: &[&str]) -> std::process::Output {
     std::process::Command::new(setup).args(["--silent", "--lang", "en"]).args(args).output().unwrap()
 }
