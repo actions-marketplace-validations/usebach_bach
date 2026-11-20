@@ -144,17 +144,43 @@ pub fn compare(old: &Manifest, new: &Manifest) -> Diff {
 /// are shown as `\u{..}` escapes. A setup file is untrusted input, and `bach
 /// diff` is what people run on one they are about to trust.
 pub fn clean(text: &str) -> String {
-    text.chars()
-        .flat_map(|c| {
-            let hidden =
-                c.is_control() || matches!(c, '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{2069}' | '\u{feff}');
-            if hidden {
-                c.escape_unicode().collect::<Vec<char>>()
-            } else {
-                vec![c]
-            }
-        })
-        .collect()
+    text.chars().flat_map(|c| if is_invisible(c) { c.escape_unicode().collect::<Vec<char>>() } else { vec![c] }).collect()
+}
+
+/// Whether `c` draws nothing, or changes how the text around it is drawn:
+/// control characters, the format characters (Unicode category Cf: bidi
+/// overrides, zero-width marks, soft hyphens, tags), line and paragraph
+/// separators, the fillers that look like blanks, and variation selectors.
+/// An explicit table, so Bach needs no Unicode data crate for it.
+fn is_invisible(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{00ad}'
+                | '\u{034f}'
+                | '\u{0600}'..='\u{0605}'
+                | '\u{061c}'
+                | '\u{06dd}'
+                | '\u{070f}'
+                | '\u{08e2}'
+                | '\u{115f}'..='\u{1160}'
+                | '\u{17b4}'..='\u{17b5}'
+                | '\u{180b}'..='\u{180f}'
+                | '\u{200b}'..='\u{200f}'
+                | '\u{2028}'..='\u{202e}'
+                | '\u{2060}'..='\u{206f}'
+                | '\u{2800}'
+                | '\u{3164}'
+                | '\u{fe00}'..='\u{fe0f}'
+                | '\u{feff}'
+                | '\u{ffa0}'
+                | '\u{fff9}'..='\u{fffb}'
+                | '\u{110bd}'
+                | '\u{1bca0}'..='\u{1bca3}'
+                | '\u{1d173}'..='\u{1d17a}'
+                | '\u{e0000}'..='\u{e007f}'
+                | '\u{e0100}'..='\u{e01ef}'
+        )
 }
 
 /// One thing the install does outside its files.
@@ -228,18 +254,29 @@ fn items(manifest: &Manifest) -> Vec<Item> {
     items
 }
 
-/// The items by identity. Two entries that read the same (a registry value
-/// listed twice, say) stay two: the second is numbered, so neither hides the other.
-fn keyed(items: Vec<Item>) -> BTreeMap<String, Item> {
+/// The items by identity and by how many of the same identity came before:
+/// two entries that read the same (a registry value listed twice, say) stay
+/// two, and nothing a setup file writes can make one look like another.
+type Key = (String, usize);
+
+fn keyed(items: Vec<Item>) -> BTreeMap<Key, Item> {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     let mut keyed = BTreeMap::new();
     for item in items {
         let count = seen.entry(item.what.clone()).or_insert(0);
+        keyed.insert((item.what.clone(), *count), item);
         *count += 1;
-        let key = if *count == 1 { item.what.clone() } else { format!("{} (#{count})", item.what) };
-        keyed.insert(key, item);
     }
     keyed
+}
+
+/// How a key reads: the second of two equal entries says so.
+fn shown((what, index): &Key) -> String {
+    if *index == 0 {
+        what.clone()
+    } else {
+        format!("{what} (#{})", index + 1)
+    }
 }
 
 fn system_changes(old: &Manifest, new: &Manifest) -> Vec<(Change, String)> {
@@ -248,15 +285,15 @@ fn system_changes(old: &Manifest, new: &Manifest) -> Vec<(Change, String)> {
     let mut changes = Vec::new();
     for (key, now) in &after {
         match before.get(key) {
-            None => changes.push((Change::Added, line(key, &now.how))),
+            None => changes.push((Change::Added, line(&shown(key), &now.how))),
             Some(was) if was.exact == now.exact => {}
-            Some(was) if was.how != now.how => changes.push((Change::Changed, format!("{key}: {} → {}", was.how, now.how))),
-            Some(_) => changes.push((Change::Changed, format!("{key} (details changed)"))),
+            Some(was) if was.how != now.how => changes.push((Change::Changed, format!("{}: {} → {}", shown(key), was.how, now.how))),
+            Some(_) => changes.push((Change::Changed, format!("{} (details changed)", shown(key)))),
         }
     }
     for (key, was) in &before {
         if !after.contains_key(key) {
-            changes.push((Change::Removed, line(key, &was.how)));
+            changes.push((Change::Removed, line(&shown(key), &was.how)));
         }
     }
     changes
@@ -486,6 +523,10 @@ mod tests {
         assert_eq!(clean("a\u{1b}[2Jb"), r"a\u{1b}[2Jb");
         assert_eq!(clean("x\ny\u{2028}z\u{202e}"), r"x\u{a}y\u{2028}z\u{202e}");
         assert_eq!(clean("plain ünïcode 日本"), "plain ünïcode 日本");
+        // Format characters, blank fillers and tag characters are shown, not drawn.
+        for hidden in ["\u{200b}", "\u{00ad}", "\u{2066}", "\u{3164}", "\u{2800}", "\u{e0041}", "\u{feff}"] {
+            assert!(clean(&format!("a{hidden}b")).contains(r"\u{"), "{hidden:?} should be escaped");
+        }
         let old = manifest("1", &[]);
         let mut new = manifest("2", &[]);
         new.system.environment.push(EnvVar { name: "X".into(), value: "\u{1b}]0;hacked\u{7}\nPASS".into() });
