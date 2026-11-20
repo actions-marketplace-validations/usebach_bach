@@ -149,7 +149,14 @@ impl Drop for Cleanup {
 fn windows_installer_installs_upgrades_refuses_a_downgrade_and_removes() {
     need_runtime!();
     let id = "BachMsiLifecycle";
-    let dir = msi_project("msi-lifecycle", id, "");
+    let extras = "[[components]]
+id = \"extras\"
+title = \"Extras\"
+files = [\"extras/**\"]
+";
+    let dir = msi_project("msi-lifecycle", id, extras);
+    std::fs::create_dir_all(dir.join("app/extras")).unwrap();
+    std::fs::write(dir.join("app/extras/more.txt"), "more").unwrap();
     let build = |version: &str, text_in_file: &str| -> PathBuf {
         std::fs::write(dir.join("app/data/readme.txt"), text_in_file).unwrap();
         let out = format!("v{version}/Setup.exe");
@@ -177,6 +184,11 @@ fn windows_installer_installs_upgrades_refuses_a_downgrade_and_removes() {
     assert!(refused == 1603 || refused == 1638, "the downgrade ended with {refused}");
     assert_eq!(std::fs::read_to_string(installed("data/readme.txt")).unwrap(), "new");
 
+    // The optional component is a feature of the same name: left out by default, installed with ADDLOCAL.
+    assert!(!installed("extras/more.txt").exists(), "an unticked component isn't installed");
+    assert_eq!(msiexec(&["/i", &path(&new), "/l*v", &log("addlocal.log"), "ADDLOCAL=ALL"]), 0, "{}", read_log(&dir.join("addlocal.log")));
+    assert_eq!(std::fs::read_to_string(installed("extras/more.txt")).unwrap(), "more");
+
     // Removing leaves nothing of it.
     assert_eq!(msiexec(&["/x", &path(&new), "/l*v", &log("remove.log")]), 0, "{}", read_log(&dir.join("remove.log")));
     assert!(!installed("hello.exe").exists() && !installed("").exists(), "the files and the folder are gone");
@@ -192,4 +204,24 @@ fn read_log(path: &Path) -> String {
         })
         .unwrap_or_default();
     log.lines().filter(|line| line.contains("Return value 3") || line.contains("Error ")).take(3).collect::<Vec<_>>().join("\n")
+}
+
+#[test]
+fn the_apps_icon_goes_into_the_package_for_settings_apps_and_the_shortcuts() {
+    need_runtime!();
+    let toml = config("")
+        .replace("executable = \"hello.exe\"", "executable = \"hello.exe\"\nicon = \"bach.ico\"")
+        .replace("BachIntegrationTest-Hello", "BachMsiIcon");
+    let dir = project("msi-icon", &toml);
+    let icon = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../setup/icon/bach.ico")).unwrap();
+    std::fs::write(dir.join("bach.ico"), &icon).unwrap();
+    assert!(run(&dir, &["build", "--fast", "--msi"]).status.success());
+    let mut package = msi::open(dir.join("dist/Hello-Setup-1.0.0.msi")).unwrap();
+    assert_eq!(rows(&mut package, "Icon").len(), 1);
+    assert!(rows(&mut package, "Property").iter().any(|row| row[0] == "ARPPRODUCTICON" && row[1] == "AppIcon.ico"));
+    assert!(rows(&mut package, "Shortcut").iter().all(|row| row[8] == "AppIcon.ico"));
+    let mut stored = Vec::new();
+    package.read_stream("Icon.AppIcon.ico").unwrap().read_to_end(&mut stored).unwrap();
+    assert_eq!(stored, icon, "the icon comes out as it went in");
+    std::fs::remove_dir_all(&dir).unwrap();
 }

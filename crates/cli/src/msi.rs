@@ -149,6 +149,12 @@ fn short_name(index: usize, name: &str) -> String {
     }
 }
 
+/// The feature of a component is named like it, so `ADDLOCAL=samples` works. A feature's name
+/// can't hold a dash, which a component's id may.
+fn feature_id(component: &str) -> String {
+    component.replace('-', "_")
+}
+
 fn is_user_scope(manifest: &Manifest) -> bool {
     !manifest.install.scope.is_machine()
 }
@@ -202,7 +208,7 @@ pub fn plan(project: &Project) -> Result<Plan> {
         };
         let name = entry.path.rsplit('/').next().unwrap_or(&entry.path).to_string();
         let feature = match &entry.component {
-            Some(id) => format!("F_{id}"),
+            Some(id) => feature_id(id),
             None => "Main".to_string(),
         };
         files.push(PlannedFile {
@@ -223,7 +229,7 @@ pub fn plan(project: &Project) -> Result<Plan> {
         let title = bach_pack::i18n::resolve(&component.title, "en", &manifest.locale.languages).unwrap_or(&component.id).to_string();
         // Level 1 is installed by default, 4 only when asked for (ADDLOCAL=id), like an unticked box.
         features.push(PlannedFeature {
-            id: format!("F_{}", component.id),
+            id: feature_id(&component.id),
             parent: Some("Main".into()),
             title,
             level: if component.default { 1 } else { 4 },
@@ -563,6 +569,11 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
         ],
     )?;
     create(&mut package, "CreateFolder", vec![id("Directory_", 72), id("Component_", 72)])?;
+    // The app's icon (app.icon), for Settings > Apps and the shortcuts, as the setup file gives them.
+    let icon = project.icon.as_ref().and_then(|path| std::fs::read(path).ok().map(|bytes| (path, bytes)));
+    if icon.is_some() {
+        create(&mut package, "Icon", vec![id("Name", 72), Column::build("Data").binary()])?;
+    }
 
     // Properties.
     let mut properties = vec![
@@ -575,6 +586,9 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
         ("SecureCustomProperties", "PREVIOUSVERSIONSINSTALLED;NEWERPRODUCTFOUND".into()),
         ("ARPNOMODIFY", "1".into()),
     ];
+    if icon.is_some() {
+        properties.push(("ARPPRODUCTICON", "AppIcon.ico".into()));
+    }
     if plan.per_machine {
         properties.push(("ALLUSERS", "1".into()));
     } else {
@@ -716,7 +730,7 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
                     optional(shortcut.arguments.clone()),
                     optional(app.description.clone()),
                     Value::Null,
-                    Value::Null,
+                    if icon.is_some() { text("AppIcon.ico") } else { Value::Null },
                     Value::Null,
                     Value::Int(1),
                     text("INSTALLFOLDER"),
@@ -724,6 +738,13 @@ fn write_package(project: &Project, plan: &Plan, path: &Path, cabinet: &Path) ->
             })
             .collect(),
     )?;
+
+    if let Some((_, bytes)) = &icon {
+        insert(&mut package, "Icon", vec![vec![text("AppIcon.ico"), Value::Binary]])?;
+        let mut stream = package.write_stream("Icon.AppIcon.ico").context("couldn't store the icon")?;
+        stream.write_all(bytes).context("couldn't store the icon")?;
+        stream.flush()?;
+    }
 
     // Registry values: -1 is HKLM for a per-machine package and HKCU for a per-user one.
     insert(

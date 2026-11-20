@@ -1549,7 +1549,7 @@ repairs, upgrades and removes it itself, so deployment tools can track it.
 | Files and folders | Every file is its own component, with an id made from the app id and the file's path, so it stays the same from one version to the next. |
 | Shortcuts | A Start menu shortcut and, if `installer.desktop_shortcut` is on, a desktop one, plus `[[shortcuts]]`. |
 | Registry values | `[[registry]]`, with `{app}` as the install folder. |
-| Optional components | One feature each. Ticked ones (`default = true`) install by default; the others with `ADDLOCAL=id`. |
+| Optional components | One feature each, named like the component (a `-` in the id is written `_`). Ticked ones (`default = true`) install by default; the others with `ADDLOCAL=id`. |
 | Upgrades | A package of a higher version replaces older ones (a major upgrade; the upgrade code comes from `app.id`). An older package refuses to replace a newer one (error 1603, with "A newer version of Hello is already installed."). |
 | Scope | `installer.scope = "machine"`: per machine, in `Program Files`, for all users. The default `"user"`: per user, in `%LOCALAPPDATA%\Programs`, and installing needs no administrator rights. |
 
