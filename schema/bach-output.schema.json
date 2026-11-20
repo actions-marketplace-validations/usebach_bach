@@ -91,6 +91,29 @@
         }
       }
     },
+    "passed": { "type": "boolean", "description": "test: whether every check passed in the sandbox." },
+    "sandbox_file": { "type": "string", "description": "test --dry-run: the .wsb file that describes the sandbox." },
+    "steps": {
+      "type": "array",
+      "description": "test: the checks the sandbox ran, in order.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "ok": { "type": "boolean" },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "left_behind": {
+      "type": "object",
+      "description": "test: what the app's removal left on the sandbox's Windows.",
+      "properties": {
+        "files": { "type": "array", "items": { "type": "string" } },
+        "registry": { "type": "array", "items": { "type": "string" } },
+        "other": { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "verified": { "type": "boolean", "description": "verify: whether the setup file is intact (a damaged file is an error instead)." },
     "signature": { "type": "string", "enum": ["signed", "unsigned"], "description": "verify: whether the file carries a signature (Windows decides whether it is valid)." },
     "install_command": { "type": "string", "description": "intune: the command that installs the setup file silently." },

@@ -1486,6 +1486,82 @@ Made the app bigger:
 `setup_size_old`, `setup_size_new`, `changed_files` (`path`, `change`,
 `old_size`, `new_size`) and `changes` (`change`, `what`).
 
+## Testing a setup file in Windows Sandbox
+
+`bach test` installs your setup file on a clean Windows, starts the app, removes
+it and tells you what went wrong and what was left behind. The sandbox is a
+fresh copy of Windows every time and is thrown away when the test ends, so
+nothing is installed on your computer.
+
+```bash
+bach build
+bach test                          # the file bach.toml builds
+bach test dist/Hello-Setup-1.4.0.exe --with samples
+```
+
+```console
+Testing Hello 1.4.0 in Windows Sandbox
+  Sandbox      starting; a fresh Windows takes about a minute
+  ok    Installed      exit code 0 in 0.7 s
+  ok    Registered     Settings > Apps lists Hello 1.4.0
+  ok    Files          12 of 12 files are in C:\Users\WDAGUtilityAccount\AppData\Local\Programs\Hello
+  ok    Uninstaller    uninstall.exe is in the install folder
+  ok    Started        still running after 5 s
+  ok    Removed        exit code 0 in 0.7 s
+  FAIL  Left behind    1 files and folders, 0 registry keys, 0 other changes
+
+Files and folders left behind:
+  C:\Users\WDAGUtilityAccount\AppData\Local\Hello
+```
+
+What it checks, in order:
+
+1. **Installed**: the setup file's silent install (`--silent`) ends with exit code 0.
+2. **Registered**: Settings › Apps lists the app with the setup file's version.
+3. **Files**: every file the install should have written is there, with the size
+   the manifest records.
+4. **Uninstaller**: `uninstall.exe` is in the install folder.
+5. **Started**: the app starts and, in 5 seconds (`--launch SECONDS`; `0` skips
+   this), does not end with an error. An app that is still running counts as
+   good; one that ends with exit code 0 does too. The test closes it afterwards.
+6. **Removed**: the silent removal (`uninstall.exe --silent --delete-data`) ends
+   with exit code 0 and takes the Settings › Apps entry away.
+7. **Left behind**: it compares the folders an install writes to (your profile,
+   Program Files, ProgramData, the desktop and the Start menu, two levels deep),
+   the registry (`Software`, the uninstall entries), user environment variables,
+   the Run key and scheduled tasks with how they were before the install. What is
+   new afterwards is listed, and the check fails. Windows' own folders
+   (`Temp`, `Microsoft`, `Packages`, ...) are left out because an app doesn't
+   write there.
+
+The report ends with a summary line and exit code `0` when every check passed,
+`1` otherwise.
+
+| Option | Meaning |
+| --- | --- |
+| `FILE` | The setup file to test. Without it, the file `bach.toml` builds (`bach build` first). |
+| `--with IDS`, `--without IDS` | Options to install with, like the setup file's own `--with` (`samples`, `desktop-shortcut`, ...). A component's files are only expected when it is on. |
+| `--launch SECONDS` | How long to leave the app running (default 5; `0` doesn't start it). |
+| `--network` | Give the sandbox the network. It is off by default, so the test needs nothing from outside; an online installer needs it (and says so). |
+| `--timeout MINUTES` | How long to wait for the report (default 20). |
+| `--keep` | Leave the sandbox open when the test ends, to look around in it. |
+| `--dry-run` | Write the files the test would use and stop. It works without Windows Sandbox and prints where the `.wsb` file is. |
+
+`--json` prints `passed`, `steps` (`name`, `ok`, `detail`) and `left_behind`
+(`files`, `registry`, `other`).
+
+- **Windows Sandbox** comes with Windows 10 and 11 **Pro, Enterprise and
+  Education** (not Home). Turn it on under "Turn Windows features on or off",
+  restart, and `bach test` finds it. Only one sandbox runs at a time.
+- A setup file that asks for **administrator rights** (`installer.scope =
+  "machine"`, or an elevated run step) shows Windows' prompt inside the sandbox
+  window; accept it there. A setup file with **[`[access]`](#access)** asks
+  for a key a silent test can't type: test a build without it.
+- The files in the sandbox's folders are the setup file, a script that Bach
+  writes (`run.ps1`), and `params.json` with what the script checks against.
+  The script reads that file as data and never builds commands from what a
+  setup file says. The setup file's folder is mapped read-only.
+
 ## A download page
 
 ```bash

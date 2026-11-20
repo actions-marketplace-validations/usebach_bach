@@ -141,6 +141,7 @@ Every setting is in the [config reference](docs/config.md).
 | `bach sign FILE` | Signs a setup file with the program `[signing]` names; `bach build --sign` does it for the files it writes. Optional. |
 | `bach key` | Makes random access keys for an app with `[access]` (`--count N`). |
 | `bach inspect FILE` | Shows what a setup file or an installed `uninstall.exe` carries. |
+| `bach test [FILE]` | Installs a setup file on a clean Windows in Windows Sandbox, starts the app, removes it and reports what failed and what was left behind (`--with`, `--launch`, `--network`, `--dry-run`). See [Testing a setup file](docs/config.md#testing-a-setup-file-in-windows-sandbox). |
 | `bach verify FILE` | Checks a setup file for damage without installing it: the archive and every file against the checksums recorded at build, and whether it carries a signature. `--key-file` opens an encrypted one. See [Checking a setup file](docs/config.md#checking-a-setup-file). |
 | `bach diff OLD NEW` | Shows what changed between two setup files of an app: files added, removed and changed, new registry values and variables, and which files made the app bigger. See [Comparing two setup files](docs/config.md#comparing-two-setup-files). |
 | `bach page FILE --url URL` | Writes a download page for a setup file: one HTML file with the name, version, size, a download button and the SHA-256 (`--notes-file`, `--winget ID`). See [A download page](docs/config.md#a-download-page). |

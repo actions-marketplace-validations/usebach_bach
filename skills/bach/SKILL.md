@@ -314,6 +314,9 @@ window speaks several).
   (`detect.ps1`); use `installer.scope = "machine"` for devices.
 - To have each release also open the winget update PR: `bach workflow --winget Publisher.App`
   (needs a `WINGET_TOKEN` repository secret; the first winget submission is still by hand).
+- To try a setup file on a clean Windows: `bach test [SETUP.exe]` runs install, start and
+  uninstall in Windows Sandbox (Pro/Enterprise/Education only) and reports failures and
+  leftovers; `--dry-run` only writes the sandbox files.
 - To check a setup file without installing it: `bach verify SETUP.exe` (add
   `--key-file FILE` for an encrypted one; `--json` gives `verified` and `signature`).
 - For a portable ZIP or a company (machine-wide) version of the same app: add `[profiles.NAME]`
