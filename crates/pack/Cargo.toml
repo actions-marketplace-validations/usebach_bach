@@ -16,5 +16,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11"
 toml = "1.2"
-zeroize = "1"
+# `derive` is what the zip crate (bach-cli) asks for. Asking for it here too keeps bach-setup the same
+# program whether it is built alone or together with bach, which build-release.ps1 checks.
+zeroize = { version = "1", features = ["derive"] }
 zstd = { version = "0.14", features = ["zstdmt"] }
