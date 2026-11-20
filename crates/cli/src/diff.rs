@@ -14,7 +14,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use bach_pack::container;
-use bach_pack::manifest::{Manifest, RegistryData};
+use bach_pack::manifest::{Manifest, RegistryData, RegistryView};
 use serde_json::{json, Value};
 
 use crate::output::{self, field};
@@ -139,79 +139,124 @@ pub fn compare(old: &Manifest, new: &Manifest) -> Diff {
     diff
 }
 
-/// One thing the install does outside its files, as `(what it is, how it reads)`.
-/// The first part identifies the thing; the second is what a change is about.
-type Item = (String, String);
-
-fn registry_items(manifest: &Manifest) -> Vec<Item> {
-    manifest
-        .system
-        .registry
-        .iter()
-        .map(|value| {
-            let name = if value.name.is_empty() { "(default)" } else { value.name.as_str() };
-            let data = match &value.data {
-                RegistryData::String(text) | RegistryData::Expand(text) => format!("\"{text}\""),
-                RegistryData::Dword(number) => number.to_string(),
-            };
-            (format!("registry {}\\{name}", value.key), data)
+/// Makes text from a setup file safe to print: control characters (a terminal
+/// obeys them), line separators and the characters that reorder or hide text
+/// are shown as `\u{..}` escapes. A setup file is untrusted input, and `bach
+/// diff` is what people run on one they are about to trust.
+pub fn clean(text: &str) -> String {
+    text.chars()
+        .flat_map(|c| {
+            let hidden =
+                c.is_control() || matches!(c, '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{2069}' | '\u{feff}');
+            if hidden {
+                c.escape_unicode().collect::<Vec<char>>()
+            } else {
+                vec![c]
+            }
         })
         .collect()
 }
 
+/// One thing the install does outside its files.
+struct Item {
+    /// What it is. The same thing in both versions has the same identity.
+    what: String,
+    /// How it reads, for people.
+    how: String,
+    /// Every field of the entry, so a change in any of them is found even
+    /// when the readable line doesn't show it.
+    exact: String,
+}
+
+fn item(what: String, how: String, entry: serde_json::Result<String>) -> Item {
+    Item { what: clean(&what), how: clean(how.trim()), exact: entry.unwrap_or_default() }
+}
+
 fn items(manifest: &Manifest) -> Vec<Item> {
-    let mut items = registry_items(manifest);
-    items
-        .extend(manifest.system.environment.iter().map(|var| (format!("environment variable {}", var.name), format!("\"{}\"", var.value))));
-    items.extend(manifest.system.context_menu.iter().map(|entry| {
+    let mut items = Vec::new();
+    for value in &manifest.system.registry {
+        let name = if value.name.is_empty() { "(default)" } else { value.name.as_str() };
+        let data = match &value.data {
+            RegistryData::String(text) => format!("\"{text}\""),
+            RegistryData::Expand(text) => format!("expandable \"{text}\""),
+            RegistryData::Dword(number) => number.to_string(),
+        };
+        let view = match value.view {
+            RegistryView::Native => "",
+            RegistryView::Wow32 => " (32-bit view)",
+            RegistryView::Both => " (both views)",
+        };
+        items.push(item(format!("registry {}\\{name}{view}", value.key), data, serde_json::to_string(value)));
+    }
+    for var in &manifest.system.environment {
+        items.push(item(format!("environment variable {}", var.name), format!("\"{}\"", var.value), serde_json::to_string(var)));
+    }
+    for entry in &manifest.system.context_menu {
         let on: Vec<String> = entry.on.iter().map(|target| String::from(target.clone())).collect();
-        (
-            format!("right-click entry \"{}\"", entry.name),
-            format!("on {} {}", on.join(", "), entry.arguments.as_deref().unwrap_or("")).trim().to_string(),
-        )
-    }));
-    items.extend(manifest.system.migrate.iter().map(|migrate| (format!("migrates {}", migrate.uninstall_key), String::new())));
-    items.extend(manifest.protocols.iter().map(|protocol| (format!("link scheme {}://", protocol.scheme), String::new())));
-    items.extend(
-        manifest.file_types.iter().map(|kind| (format!("file type {}", kind.extension), kind.description.clone().unwrap_or_default())),
-    );
-    items.extend(manifest.shortcuts.iter().map(|shortcut| {
-        (
-            format!("Start menu shortcut \"{}\"", shortcut.name),
-            format!("{} {}", shortcut.target, shortcut.arguments.as_deref().unwrap_or("")).trim().to_string(),
-        )
-    }));
-    items.extend(manifest.run.iter().map(|step| {
-        (
-            format!("program run at {:?} \"{}\"", step.when, step.name),
-            format!("{} {}", step.file, step.arguments.as_deref().unwrap_or("")).trim().to_string(),
-        )
-    }));
-    items
-        .extend(manifest.requirements.iter().map(|requirement| (format!("requirement \"{}\"", requirement.name), requirement.url.clone())));
-    items.extend(
-        manifest
-            .components
-            .iter()
-            .map(|component| (format!("component {}", component.id), format!("ticked by default: {}", component.default))),
-    );
+        let how = format!("on {} {}", on.join(", "), entry.arguments.as_deref().unwrap_or(""));
+        items.push(item(format!("right-click entry \"{}\"", entry.name), how, serde_json::to_string(entry)));
+    }
+    for migrate in &manifest.system.migrate {
+        let admin = if migrate.elevated { " (as administrator)" } else { "" };
+        let how = format!("{}{admin}", migrate.arguments.as_deref().unwrap_or(""));
+        items.push(item(format!("migrates {}", migrate.uninstall_key), how, serde_json::to_string(migrate)));
+    }
+    for protocol in &manifest.protocols {
+        let how = protocol.description.clone().unwrap_or_default();
+        items.push(item(format!("link scheme {}://", protocol.scheme), how, serde_json::to_string(protocol)));
+    }
+    for kind in &manifest.file_types {
+        let how = kind.description.clone().unwrap_or_default();
+        items.push(item(format!("file type {}", kind.extension), how, serde_json::to_string(kind)));
+    }
+    for shortcut in &manifest.shortcuts {
+        let how = format!("{} {}", shortcut.target, shortcut.arguments.as_deref().unwrap_or(""));
+        items.push(item(format!("Start menu shortcut \"{}\"", shortcut.name), how, serde_json::to_string(shortcut)));
+    }
+    for step in &manifest.run {
+        let admin = if step.elevated { " (as administrator)" } else { "" };
+        let how = format!("{} {}{admin}", step.file, step.arguments.as_deref().unwrap_or(""));
+        items.push(item(format!("program run at {:?} \"{}\"", step.when, step.name), how, serde_json::to_string(step)));
+    }
+    for requirement in &manifest.requirements {
+        items.push(item(format!("requirement \"{}\"", requirement.name), requirement.url.clone(), serde_json::to_string(requirement)));
+    }
+    for component in &manifest.components {
+        let how = format!("ticked by default: {}", component.default);
+        items.push(item(format!("component {}", component.id), how, serde_json::to_string(component)));
+    }
     items
 }
 
+/// The items by identity. Two entries that read the same (a registry value
+/// listed twice, say) stay two: the second is numbered, so neither hides the other.
+fn keyed(items: Vec<Item>) -> BTreeMap<String, Item> {
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    let mut keyed = BTreeMap::new();
+    for item in items {
+        let count = seen.entry(item.what.clone()).or_insert(0);
+        *count += 1;
+        let key = if *count == 1 { item.what.clone() } else { format!("{} (#{count})", item.what) };
+        keyed.insert(key, item);
+    }
+    keyed
+}
+
 fn system_changes(old: &Manifest, new: &Manifest) -> Vec<(Change, String)> {
-    let before: BTreeMap<String, String> = items(old).into_iter().collect();
-    let after: BTreeMap<String, String> = items(new).into_iter().collect();
+    let before = keyed(items(old));
+    let after = keyed(items(new));
     let mut changes = Vec::new();
-    for (what, how) in &after {
-        match before.get(what) {
-            None => changes.push((Change::Added, line(what, how))),
-            Some(was) if was != how => changes.push((Change::Changed, format!("{what}: {was} → {how}"))),
-            Some(_) => {}
+    for (key, now) in &after {
+        match before.get(key) {
+            None => changes.push((Change::Added, line(key, &now.how))),
+            Some(was) if was.exact == now.exact => {}
+            Some(was) if was.how != now.how => changes.push((Change::Changed, format!("{key}: {} → {}", was.how, now.how))),
+            Some(_) => changes.push((Change::Changed, format!("{key} (details changed)"))),
         }
     }
-    for (what, how) in &before {
-        if !after.contains_key(what) {
-            changes.push((Change::Removed, line(what, how)));
+    for (key, was) in &before {
+        if !after.contains_key(key) {
+            changes.push((Change::Removed, line(key, &was.how)));
         }
     }
     changes
@@ -248,7 +293,7 @@ pub fn command(options: Options) -> Result<()> {
     }
     let diff = compare(&old.manifest, &new.manifest);
     let (old_app, new_app) = (&old.manifest.app, &new.manifest.app);
-    say!("{} {} → {}", new_app.name, old_app.version, new_app.version);
+    say!("{} {} → {}", clean(&new_app.name), clean(&old_app.version), clean(&new_app.version));
     field(
         "Files",
         format!(
@@ -277,10 +322,16 @@ pub fn command(options: Options) -> Result<()> {
         say!("Files:");
         for (path, change) in &diff.files {
             let text = match change {
-                FileChange::Added { size } => format!("+ {path}  ({})", output::size(*size)),
-                FileChange::Removed { size } => format!("- {path}  ({})", output::size(*size)),
+                FileChange::Added { size } => format!("+ {}  ({})", clean(path), output::size(*size)),
+                FileChange::Removed { size } => format!("- {}  ({})", clean(path), output::size(*size)),
                 FileChange::Changed { old, new } => {
-                    format!("~ {path}  ({} → {}, {})", output::size(*old), output::size(*new), signed(i128::from(*new) - i128::from(*old)))
+                    format!(
+                        "~ {}  ({} → {}, {})",
+                        clean(path),
+                        output::size(*old),
+                        output::size(*new),
+                        signed(i128::from(*new) - i128::from(*old))
+                    )
                 }
             };
             say!("  {text}");
@@ -291,7 +342,7 @@ pub fn command(options: Options) -> Result<()> {
         say!();
         say!("Made the app bigger:");
         for (path, growth) in &grew {
-            say!("  {:>12}  {path}", signed(*growth));
+            say!("  {:>12}  {}", signed(*growth), clean(path));
         }
     }
     if !diff.system.is_empty() {
@@ -429,5 +480,42 @@ mod tests {
         let diff = compare(&new, &newer);
         assert!(diff.system.contains(&(Change::Changed, r"registry Software\Vendor\App\Mode: 1 → 2".to_string())));
         assert!(diff.system.contains(&(Change::Removed, "environment variable APP_HOME = \"{app}\"".to_string())));
+    }
+    #[test]
+    fn text_from_a_setup_file_cannot_drive_the_terminal() {
+        assert_eq!(clean("a\u{1b}[2Jb"), r"a\u{1b}[2Jb");
+        assert_eq!(clean("x\ny\u{2028}z\u{202e}"), r"x\u{a}y\u{2028}z\u{202e}");
+        assert_eq!(clean("plain ünïcode 日本"), "plain ünïcode 日本");
+        let old = manifest("1", &[]);
+        let mut new = manifest("2", &[]);
+        new.system.environment.push(EnvVar { name: "X".into(), value: "\u{1b}]0;hacked\u{7}\nPASS".into() });
+        let text = &compare(&old, &new).system[0].1;
+        assert!(!text.chars().any(char::is_control), "{text:?}");
+    }
+
+    #[test]
+    fn every_field_of_an_entry_counts_and_duplicates_stay_two() {
+        let mut old = manifest("1", &[]);
+        let value = |view| RegistryValue { key: r"Software\V\A".into(), name: "N".into(), data: RegistryData::Dword(1), view };
+        old.system.registry.push(value(RegistryView::Native));
+        // The same value in the 32-bit view is another value, not the same one.
+        let mut new = old.clone();
+        new.system.registry.push(value(RegistryView::Wow32));
+        let diff = compare(&old, &new);
+        assert_eq!(diff.system, vec![(Change::Added, r"registry Software\V\A\N (32-bit view) = 1".to_string())]);
+
+        // A value listed twice is two entries: dropping one is seen.
+        let mut twice = old.clone();
+        twice.system.registry.push(value(RegistryView::Native));
+        let diff = compare(&twice, &old);
+        assert_eq!(diff.system.len(), 1);
+        assert_eq!(diff.system[0].0, Change::Removed);
+
+        // A field the readable line leaves out still shows as a change.
+        let mut before = manifest("1", &[]);
+        before.protocols.push(bach_pack::manifest::Protocol { scheme: "hello".into(), description: None });
+        let mut after = before.clone();
+        after.protocols[0].description = Some("Opens Hello".into());
+        assert_eq!(compare(&before, &after).system.len(), 1);
     }
 }
