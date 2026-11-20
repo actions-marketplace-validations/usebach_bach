@@ -6025,6 +6025,42 @@
           "layout": {
             "type": "object",
             "description": "Replaces the settings of [layout] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "arch": {
+            "type": "object",
+            "description": "Replaces the settings of [arch] it names (a table is merged key by key)."
+          }
+        }
+      }
+    },
+    "arch": {
+      "type": "object",
+      "description": "Optional. The app's files for another processor architecture. [arch.arm64] makes bach build an ARM64 setup file next to the x64 one and list both in the update feed.",
+      "additionalProperties": false,
+      "properties": {
+        "arm64": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source"
+          ],
+          "description": "The ARM64 build of the app.",
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "The folder with the ARM64 files, relative to bach.toml. It is packed instead of files.source."
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "files.exclude for this folder. The main files.exclude when left out."
+            },
+            "runtime": {
+              "type": "string",
+              "description": "The ARM64 bach-setup.exe to build the ARM64 setup file on, relative to bach.toml. Left out, --runtime-arm64 or BACH_RUNTIME_ARM64 names it."
+            }
           }
         }
       }

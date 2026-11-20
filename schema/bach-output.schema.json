@@ -20,6 +20,7 @@
     "files": { "type": ["integer", "array"], "items": { "type": "string" }, "description": "check, inspect: how many files are installed. version: the files that carry the version." },
     "size": { "type": "integer", "description": "Bytes. check, inspect: what is installed; build: the setup file; feed: the setup file." },
     "setup": { "type": "string", "description": "build: the setup file." },
+    "setup_arm64": { "type": "string", "description": "build: the ARM64 setup file, when bach.toml has [arch.arm64]." },
     "online_setup": { "type": "string", "description": "build: the online installer, when there is one." },
     "patch": { "type": "string", "description": "build: the update patch, when --patch-from was given." },
     "feed": { "type": "string", "description": "build, feed: the update feed (latest.json), when one was written." },

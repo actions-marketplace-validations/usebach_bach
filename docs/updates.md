@@ -526,3 +526,39 @@ download_url = "https://example.com/hello/{file}"   # {file}: the setup file's n
 it again with `bach feed SETUP.exe` (it reads the link from `bach.toml`, or
 pass `--url`; `--notes` or `--notes-file` says what's new; `--rollout N` is
 a [staged rollout](#staged-rollouts)). Upload both files.
+
+## One feed for x64 and ARM64
+
+With [`[arch.arm64]`](config.md#archarm64) in `bach.toml`, `bach build` writes
+an x64 and an ARM64 setup file and one `latest.json` that lists both:
+
+```json
+{
+  "version": "1.4.0",
+  "url": "https://example.com/Hello-Setup-1.4.0.exe",
+  "sha256": "…",
+  "size": 11743232,
+  "arch": {
+    "arm64": {
+      "url": "https://example.com/Hello-Setup-1.4.0-arm64.exe",
+      "sha256": "…",
+      "size": 11324416,
+      "signature": "…"
+    }
+  }
+}
+```
+
+The top-level link, SHA-256 and size are the x64 file, as before. A computer
+takes the entry for its architecture: the online installer asks Windows what
+the computer is, and an installed app updates with the architecture it was
+installed with. If the listing for that architecture is missing, isn't an https
+link or (with `[updates] public_key`) isn't signed by the publisher, the x64
+file is taken, which also runs on Windows on ARM.
+
+The `arm64` entry has its own signature, over the app id, the version, the
+architecture, the link, the SHA-256 and the size, so a host that swaps the
+link can't hand an ARM64 computer a file you didn't sign. The main entry's
+signature is the same as before, so apps built before `arch` existed keep
+verifying and updating.
+

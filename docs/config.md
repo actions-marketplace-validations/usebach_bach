@@ -24,6 +24,7 @@ default, so a five-line config already builds a complete installer.
 - [`[text]`](#text): any text in the window, in any language
 - [`[uninstall]`](#uninstall): the user's data
 - [`[profiles]`](#profiles): other builds of the app: a company version, a portable ZIP
+- [`[arch.arm64]`](#archarm64): one download for x64 and ARM64
 - [`[signing]`](#signing): sign the setup files while building (optional)
 - [A complete example](#a-complete-example)
 - [Silent installs](#silent-installs) and [updating from the app](#updating-from-the-app)
@@ -1098,6 +1099,73 @@ window to preview. A single file of 4 GiB or more is stored in ZIP64.
 `--json` adds `builds`: one object per build with `profile` (null for the main
 one), `kind`, `file` and `size`. `bach profiles --json` prints `profiles`
 (`name`, `kind`, `description`, `output`, `problem`).
+
+## [arch.arm64]
+
+One download for x64 and ARM64. The main build packs `files.source` with the
+x64 setup runtime. `[arch.arm64]` names the ARM64 build of the same app, and
+`bach build` then also writes an ARM64 setup file, built on the ARM64 runtime,
+and lists both in the update feed.
+
+```toml
+[files]
+source = "build/x64"
+
+[arch.arm64]
+source = "build/arm64"                   # the ARM64 build of the app's files
+exclude = ["*.pdb"]                      # optional: files.exclude for this folder
+runtime = "tools/arm64/bach-setup.exe"   # optional: or --runtime-arm64 / BACH_RUNTIME_ARM64
+```
+
+```bash
+bach build --runtime-arm64 path/to/arm64/bach-setup.exe
+```
+
+```console
+Building Hello 1.4.0
+...
+Wrote dist/Hello-Setup-1.4.0.exe (11.2 MB)
+
+Building Hello 1.4.0 for arm64
+...
+Wrote dist/Hello-Setup-1.4.0-arm64.exe (10.8 MB)
+  Update feed  dist/latest.json
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `source` | The folder with the ARM64 files, relative to `bach.toml`. Required. |
+| `exclude` | `files.exclude` for this folder. The main `files.exclude` applies when left out. |
+| `runtime` | The ARM64 `bach-setup.exe`, relative to `bach.toml`. Left out, `--runtime-arm64 FILE` (or `BACH_RUNTIME_ARM64`) names it. |
+
+- **The ARM64 runtime** comes from the ARM64 release: every Bach release has a
+  `bach-<version>-windows-arm64.zip` with an ARM64 `bach.exe` and
+  `bach-setup.exe`. It ends up inside the ARM64 setup file, so Bach checks
+  that the file is an ARM64 program and refuses an x64 one. Without it the
+  build stops and says so; `--x64-only` builds only the x64 file.
+- **Same app, same version.** Both setup files carry the same `app.id` and
+  version, so an update of either replaces the other, and `bach check` tells
+  you when `arch.arm64.source` isn't a folder.
+- **The file is named** like the x64 one with the architecture before the
+  extension: `Hello-Setup-1.4.0-arm64.exe`. It is signed with `--sign`
+  like the others.
+- **The update feed** (`latest.json`) keeps the x64 setup file as its main entry
+  and adds the ARM64 one under `arch.arm64` with its own link, SHA-256, size
+  and, with `[updates] public_key`, its own signature. An older app that doesn't
+  know `arch` ignores it and keeps taking the x64 file. See
+  [Updates](updates.md#one-feed-for-x64-and-arm64).
+- **The online installer** is built once, from the x64 runtime, and runs on
+  both. It asks Windows what the computer is, not what it is itself, so on
+  Windows on ARM it downloads the ARM64 setup file.
+- **Updates** of an installed app use the architecture the app was installed
+  with: an ARM64 install takes the ARM64 file, and an x64 install on an ARM
+  computer stays x64.
+- `bach feed SETUP.exe --arm64 SETUP-arm64.exe [--arm64-url URL]` writes the
+  feed with the ARM64 listing when you build the files separately, and checks
+  that it is a full ARM64 setup file of the same app and version.
+- Profiles: a profile build also writes its ARM64 file.
+
+`--json` adds `setup_arm64`, the ARM64 setup file's path.
 
 ## [signing]
 
