@@ -78,6 +78,8 @@ pub struct BuildOptions<'a> {
     pub runtime_arm64: Option<&'a Path>,
     /// Build only the main (x64) setup file, even when bach.toml has `[arch.arm64]`.
     pub x64_only: bool,
+    /// Also write a Windows Installer package of the app.
+    pub msi: bool,
     /// Build the setup file of this architecture (set when the main build asks for it).
     pub arch: Option<&'a str>,
     /// Build this profile of the config (`[profiles.NAME]`) instead of the main file.
@@ -209,6 +211,7 @@ pub fn build(options: BuildOptions) -> Result<Built> {
         config: config_path,
         runtime_arm64,
         x64_only,
+        msi,
         arch,
         profile,
         out,
@@ -261,6 +264,8 @@ pub fn build(options: BuildOptions) -> Result<Built> {
     let output = tidy(&output);
     // Components that are downloaded when ticked go into archives of their own, first: the
     // setup file records each one's SHA-256 and size, and doesn't carry the files.
+    // An MSI holds every file, so it is made from the project as it was before the downloads were split off.
+    let for_msi = (msi && !is_arch).then(|| project.clone());
     let packs = write_packs(&mut project, &output)?;
     // The checksums come out of the packing pass itself: each file is read once.
     let written = write_setup(&project, &runtime, &output, sealing.as_ref())?;
@@ -325,6 +330,19 @@ pub fn build(options: BuildOptions) -> Result<Built> {
         say!("Not signed: bach.toml has [signing], but signing runs only with --sign (or BACH_SIGN=1).");
     } else if sign && project.signing.is_none() {
         bail!("--sign was given, but bach.toml has no [signing] section that says how to sign");
+    }
+    if let Some(whole) = &for_msi {
+        let msi_output = output.with_extension("msi");
+        let plan = crate::msi::write(whole, &msi_output)?;
+        let size = fs::metadata(&msi_output).map(|meta| meta.len()).unwrap_or(0);
+        say!("Wrote {} ({}), the Windows Installer package", msi_output.display(), output::size(size));
+        for what in &plan.skipped {
+            say!("  not in the MSI: {what}");
+        }
+        output::result("msi", msi_output.display().to_string());
+        if !plan.skipped.is_empty() {
+            output::result("msi_skipped", plan.skipped.clone());
+        }
     }
     // The setup files for the other architectures, before the feed that lists them.
     let mut arch_files: Vec<(String, PathBuf)> = Vec::new();

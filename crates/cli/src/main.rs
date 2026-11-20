@@ -44,6 +44,7 @@ mod github;
 mod inspect;
 mod intune;
 mod key;
+mod msi;
 mod output;
 mod page;
 mod preview;
@@ -176,6 +177,10 @@ enum Command {
         /// Build only the x64 setup file, even when bach.toml has [arch.arm64].
         #[arg(long)]
         x64_only: bool,
+        /// Also write a Windows Installer package (.msi) of the app, for
+        /// Group Policy, Configuration Manager and Intune.
+        #[arg(long)]
+        msi: bool,
         /// Write the setup file here instead of installer.output.
         #[arg(long, short)]
         out: Option<PathBuf>,
@@ -478,6 +483,7 @@ fn main() -> ExitCode {
             all_profiles,
             runtime_arm64,
             x64_only,
+            msi,
             out,
             runtime,
             fast,
@@ -492,6 +498,7 @@ fn main() -> ExitCode {
                 config: &config,
                 runtime_arm64: runtime_arm64.as_deref(),
                 x64_only,
+                msi,
                 arch: None,
                 profile: None,
                 out: out.as_deref(),
