@@ -141,6 +141,7 @@ Every setting is in the [config reference](docs/config.md).
 | `bach key` | Makes random access keys for an app with `[access]` (`--count N`). |
 | `bach inspect FILE` | Shows what a setup file or an installed `uninstall.exe` carries. |
 | `bach verify FILE` | Checks a setup file for damage without installing it: the archive and every file against the checksums recorded at build, and whether it carries a signature. `--key-file` opens an encrypted one. See [Checking a setup file](docs/config.md#checking-a-setup-file). |
+| `bach diff OLD NEW` | Shows what changed between two setup files of an app: files added, removed and changed, new registry values and variables, and which files made the app bigger. See [Comparing two setup files](docs/config.md#comparing-two-setup-files). |
 | `bach page FILE --url URL` | Writes a download page for a setup file: one HTML file with the name, version, size, a download button and the SHA-256 (`--notes-file`, `--winget ID`). See [A download page](docs/config.md#a-download-page). |
 | `bach styles` | Lists the 14 built-in styles of the window (`installer.style`): what each looks like and what kind of app it suits. See [`[style]`](docs/config.md#style). |
 | `bach layouts` | Lists the 10 built-in layouts (`[layout] preset`). See [`[layout]`](docs/config.md#layout). |

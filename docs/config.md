@@ -1360,6 +1360,52 @@ sentence that names the first few files that are wrong.
 `--json` prints `verified`, `signature`, `files`, `name` and `version`; a
 damaged file is the usual `{"ok": false, "error": "…"}`.
 
+## Comparing two setup files
+
+`bach diff` reads two setup files of one app and says what changed, without
+unpacking anything. Use it to see what a release really ships, or why it got
+bigger.
+
+```bash
+bach diff dist/Hello-Setup-1.0.0.exe dist/Hello-Setup-1.1.0.exe
+```
+
+```console
+Hello 1.0.0 → 1.1.0
+  Files        1 added, 1 removed, 1 changed, 0 unchanged
+  Installed    585.9 KB → 195.3 KB (-390.6 KB)
+  Packed       586.0 KB → 195.4 KB (-390.6 KB)
+
+Files:
+  - data.bin  (585.9 KB)
+  + extra.dat  (195.3 KB)
+  ~ hello.exe  (2 bytes → 4 bytes, +2 bytes)
+
+Made the app bigger:
+     +195.3 KB  extra.dat
+      +2 bytes  hello.exe
+```
+
+- A file counts as **changed** when its SHA-256 differs (a setup file built
+  before checksums were recorded is compared by size, and the output says so).
+  Names are matched the way Windows matches them, so `Data.bin` and `data.bin`
+  are one file.
+- **Besides files** lists what the new setup file does to Windows that the old
+  one didn't (`+`), no longer does (`-`) or does differently (`~`):
+  `[[registry]]` values, `[[env]]` variables, `[[context_menu]]` entries,
+  `[[shortcuts]]`, link schemes, file types, `[[run]]` steps, requirements,
+  components and `[[migrate]]` entries.
+- **Made the app bigger** ranks the files by how many bytes they added to the
+  installed app, biggest first (`--top N`, default 5). The archive is one
+  compressed stream, so Bach can't say how much each file added to the
+  *setup file*; the installed size and the packed total are shown instead.
+- Both files must be for the same app id. An installed `uninstall.exe` works
+  as either side too.
+
+`--json` prints `old_version`, `new_version`, `unchanged`, `installed_growth`,
+`setup_size_old`, `setup_size_new`, `changed_files` (`path`, `change`,
+`old_size`, `new_size`) and `changes` (`change`, `what`).
+
 ## A download page
 
 ```bash

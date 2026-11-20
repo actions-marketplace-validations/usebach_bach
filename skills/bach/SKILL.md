@@ -314,6 +314,8 @@ window speaks several).
   (`detect.ps1`); use `installer.scope = "machine"` for devices.
 - To check a setup file without installing it: `bach verify SETUP.exe` (add
   `--key-file FILE` for an encrypted one; `--json` gives `verified` and `signature`).
+- To see what changed between two releases: `bach diff OLD.exe NEW.exe` (files added,
+  removed and changed, new registry values, which files grew the app; `--json` too).
 - For a download page: `bach page SETUP.exe --url URL` writes `download/index.html`.
 - In CI, `bach check --strict` (or `BACH_STRICT=1`) fails on any warning.
 

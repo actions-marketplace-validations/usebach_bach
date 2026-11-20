@@ -8,6 +8,7 @@
 //! bach watch             keep the preview open and reopen it when bach.toml changes
 //! bach inspect FILE      show what a setup file installs
 //! bach verify FILE       check a setup file for damage without installing it
+//! bach diff OLD NEW      show what changed between two setup files of an app
 //! bach doctor            check that everything a build needs is in place
 //! bach feed FILE         write the update feed for a (signed) setup file
 //! bach sign FILE         sign a setup file the way [signing] in bach.toml says
@@ -34,6 +35,7 @@ macro_rules! say {
 mod builder;
 mod choco;
 mod detect;
+mod diff;
 mod doctor;
 mod feed;
 mod github;
@@ -279,6 +281,18 @@ enum Command {
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
+    /// Show what changed between two setup files of one app: the files added,
+    /// removed and changed, what the new one writes to the registry and the
+    /// environment, and which files made the installer bigger.
+    Diff {
+        /// The older setup file.
+        old: PathBuf,
+        /// The newer setup file.
+        new: PathBuf,
+        /// How many of the files that grew the most to list.
+        #[arg(long, default_value_t = 5)]
+        top: usize,
+    },
     /// Check a setup file for damage, without installing it: the archive and
     /// every file against the checksums recorded when it was built.
     Verify {
@@ -420,6 +434,7 @@ fn main() -> ExitCode {
         Command::Choco { file, url, license, out } => {
             choco::command(choco::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
         }
+        Command::Diff { old, new, top } => diff::command(diff::Options { old: &old, new: &new, top }),
         Command::Verify { file, key_file } => verify::command(verify::Options { file: &file, key_file: key_file.as_deref() }),
         Command::Page { file, url, out, notes_file, winget } => page::command(page::Options {
             setup: &file,

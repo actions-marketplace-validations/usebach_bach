@@ -9,7 +9,7 @@
     "error": { "type": "string", "description": "The first sentence of the error." },
     "causes": { "type": "array", "items": { "type": "string" }, "description": "The sentences underneath it." },
     "warnings": { "type": "array", "items": { "type": "string" } },
-    "name": { "type": "string", "description": "check, inspect: the app's name." },
+    "name": { "type": "string", "description": "check, inspect, diff: the app's name." },
     "app_id": { "type": "string", "description": "inspect: the app id." },
     "version": { "type": "string", "description": "check, build, feed, inspect, version: the app's version (version: the one everything says, or the new one)." },
     "dry_run": { "type": "boolean", "description": "version TARGET: whether --dry-run was given, so nothing was written." },
@@ -58,6 +58,36 @@
           "description": { "type": "string" },
           "suits": { "type": "string", "description": "The kind of app it suits." },
           "theme": { "type": "string", "enum": ["system", "light", "dark"], "description": "The theme it uses when installer.theme isn't set." }
+        }
+      }
+    },
+    "old_version": { "type": "string", "description": "diff: the older setup file's version." },
+    "new_version": { "type": "string", "description": "diff: the newer setup file's version." },
+    "unchanged": { "type": "integer", "description": "diff: how many files are the same in both." },
+    "installed_growth": { "type": "integer", "description": "diff: how many bytes the installed app grew by (negative: it shrank)." },
+    "setup_size_old": { "type": "integer", "description": "diff: the older setup file's size in bytes." },
+    "setup_size_new": { "type": "integer", "description": "diff: the newer setup file's size in bytes." },
+    "changed_files": {
+      "type": "array",
+      "description": "diff: every file that was added, removed or changed.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "change": { "type": "string", "enum": ["added", "removed", "changed"] },
+          "old_size": { "type": ["integer", "null"] },
+          "new_size": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    "changes": {
+      "type": "array",
+      "description": "diff: what the new setup file does besides files (registry values, variables, right-click entries, shortcuts, steps) that the old one didn't, or no longer does.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "change": { "type": "string", "enum": ["added", "removed", "changed"] },
+          "what": { "type": "string" }
         }
       }
     },
