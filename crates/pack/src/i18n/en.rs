@@ -88,6 +88,7 @@ pub const EN: Strings = Strings {
     error_delete_data: "Couldn't delete your data in {path}.",
     error_not_found: "Couldn't find {name} in {path}. It may already be removed.",
     error_open_failed: "{name} is installed, but it didn't start: {error}",
+    error_msi: "Windows Installer couldn't finish (error {code}) and undid what it had changed. Try again.",
     problem_title: "Nothing to install",
     problem_damaged: "This setup file is damaged: {error}. Download it again.",
     downgrade_title: "Install an older {name}?",

@@ -82,7 +82,7 @@ texts! {
     error_still_open, error_in_use, error_busy, error_disk_full, error_no_access,
     error_create, error_write, error_delete, error_read_setup, error_damaged,
     error_uninstaller, error_shortcut, error_register, error_unregister, error_system,
-    error_delete_data, error_not_found, error_open_failed,
+    error_delete_data, error_not_found, error_open_failed, error_msi,
     problem_title, problem_damaged,
     downgrade_title, downgrade_subtitle, downgrade_button, close_app, error_close_app,
     support_save, support_saved, support_failed,
