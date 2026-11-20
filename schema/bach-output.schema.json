@@ -47,7 +47,8 @@
           "name": { "type": "string", "description": "What [layout] preset calls it." },
           "description": { "type": "string" },
           "suits": { "type": "string" },
-          "picture": { "type": ["string", "null"], "description": "The setting whose picture it shows best (panel_image or background_image), or null." }
+          "picture": { "type": ["string", "null"], "description": "The setting whose picture it shows best (panel_image or background_image), or null." },
+          "settings": { "type": ["object", "null"], "description": "What the preset sets, as [layout] writes it (width, panel, header, align, ...)." }
         }
       }
     },
@@ -60,7 +61,15 @@
           "name": { "type": "string", "description": "What installer.style calls it." },
           "description": { "type": "string" },
           "suits": { "type": "string", "description": "The kind of app it suits." },
-          "theme": { "type": "string", "enum": ["system", "light", "dark"], "description": "The theme it uses when installer.theme isn't set." }
+          "theme": { "type": "string", "enum": ["system", "light", "dark"], "description": "The theme it uses when installer.theme isn't set." },
+          "fonts": { "type": "array", "items": { "type": "string" }, "description": "Families tried for the text, in order." },
+          "heading_fonts": { "type": "array", "items": { "type": "string" }, "description": "Families tried for headings." },
+          "heading_weight": { "type": "integer" },
+          "accent_mark": { "type": "boolean", "description": "Whether the Bach mark takes the accent colour." },
+          "radius": { "type": "integer", "description": "Cards and boxes, in points." },
+          "control_radius": { "type": "integer", "description": "Buttons and boxes, in points (16 makes pill buttons)." },
+          "light": { "type": "object", "description": "The colours the style sets for light, as #rrggbb (or #rrggbbaa): background, text, accent, ... The window derives the rest.", "additionalProperties": { "type": "string" } },
+          "dark": { "type": "object", "description": "The same for dark.", "additionalProperties": { "type": "string" } }
         }
       }
     },
