@@ -8,6 +8,7 @@
 //! bach preview           open the installer window without installing anything
 //! bach watch             keep the preview open and reopen it when bach.toml changes
 //! bach inspect FILE      show what a setup file installs
+//! bach test [FILE]       install, start and remove a setup file in Windows Sandbox
 //! bach verify FILE       check a setup file for damage without installing it
 //! bach diff OLD NEW      show what changed between two setup files of an app
 //! bach doctor            check that everything a build needs is in place
@@ -50,6 +51,7 @@ mod profiles;
 #[cfg(windows)]
 mod resources;
 mod runtime;
+mod sandbox;
 mod sign;
 mod styles;
 mod template;
@@ -305,6 +307,37 @@ enum Command {
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
+    /// Try a setup file on a clean Windows in Windows Sandbox: install it
+    /// silently, start the app, remove it, and report what failed and what
+    /// was left behind.
+    Test {
+        /// The setup file (default: the one bach.toml builds).
+        file: Option<PathBuf>,
+        /// The config file, to find the setup file.
+        #[arg(long, default_value = "bach.toml")]
+        config: PathBuf,
+        /// Install with these options on (ids as for the setup file's --with).
+        #[arg(long, value_delimiter = ',')]
+        with: Vec<String>,
+        /// Install with these options off.
+        #[arg(long, value_delimiter = ',')]
+        without: Vec<String>,
+        /// How many seconds to leave the app running after it starts; 0 doesn't start it.
+        #[arg(long, default_value_t = 5)]
+        launch: u32,
+        /// Give the sandbox the network (off by default, so the test needs nothing from outside).
+        #[arg(long)]
+        network: bool,
+        /// Give up waiting for the sandbox after this many minutes.
+        #[arg(long, default_value_t = 20)]
+        timeout: u32,
+        /// Leave the sandbox open when the test ends, to look around in it.
+        #[arg(long)]
+        keep: bool,
+        /// Write the files the test would use and stop (works without Windows Sandbox).
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Show what changed between two setup files of one app: the files added,
     /// removed and changed, what the new one writes to the registry and the
     /// environment, and which files made the installer bigger.
@@ -470,6 +503,17 @@ fn main() -> ExitCode {
         Command::Choco { file, url, license, out } => {
             choco::command(choco::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
         }
+        Command::Test { file, config, with, without, launch, network, timeout, keep, dry_run } => sandbox::command(sandbox::Options {
+            file: file.as_deref(),
+            config: &config,
+            with: &with,
+            without: &without,
+            launch_seconds: launch,
+            network,
+            timeout_minutes: timeout,
+            keep,
+            dry_run,
+        }),
         Command::Diff { old, new, top } => diff::command(diff::Options { old: &old, new: &new, top }),
         Command::Verify { file, key_file } => verify::command(verify::Options { file: &file, key_file: key_file.as_deref() }),
         Command::Page { file, url, out, notes_file, winget } => page::command(page::Options {
