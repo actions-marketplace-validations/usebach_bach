@@ -267,6 +267,20 @@ const POWERSHELL_FETCH: &str = "$ProgressPreference='SilentlyContinue'; \
      $final = if ($r.BaseResponse.ResponseUri) { $r.BaseResponse.ResponseUri } else { $r.BaseResponse.RequestMessage.RequestUri }; \
      if ($final.Scheme -ne 'https') { Remove-Item -Force $env:BACH_FETCH_TO; exit 3 }";
 
+/// Keeps a helper program from opening a console window on Windows. A
+/// console program started by one that has no console (the background update
+/// check, a build run from an editor) gets a window of its own, which flashes
+/// on screen. The helpers this is for print nothing a person needs to see.
+pub fn without_window(command: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW
+        command.creation_flags(0x0800_0000);
+    }
+    command
+}
+
 /// Fetches `url` into `to` with curl (built into Windows 10+, macOS and
 /// most Linux), or PowerShell on a Windows without it.
 pub fn fetch(url: &str, to: &Path) -> Result<()> {
@@ -279,18 +293,20 @@ pub fn fetch_within(url: &str, to: &Path, seconds: Option<u32>) -> Result<()> {
     if !url.to_ascii_lowercase().starts_with("https://") {
         bail!("{url} isn't an https address");
     }
-    match Command::new("curl").args(curl_args(url, to, seconds)).status() {
+    match without_window(Command::new("curl").args(curl_args(url, to, seconds))).status() {
         Ok(status) if status.success() => return Ok(()),
         Ok(status) => bail!("curl couldn't download {url} ({status})"),
         Err(_) if cfg!(windows) => {}
         Err(_) => bail!("downloading needs curl, which isn't installed"),
     }
-    let status = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", POWERSHELL_FETCH])
-        .env("BACH_FETCH_URL", url)
-        .env("BACH_FETCH_TO", to)
-        .env("BACH_FETCH_TIMEOUT", seconds.unwrap_or(0).to_string())
-        .status()?;
+    let status = without_window(
+        Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", POWERSHELL_FETCH])
+            .env("BACH_FETCH_URL", url)
+            .env("BACH_FETCH_TO", to)
+            .env("BACH_FETCH_TIMEOUT", seconds.unwrap_or(0).to_string()),
+    )
+    .status()?;
     if !status.success() {
         bail!("PowerShell couldn't download {url} over https");
     }

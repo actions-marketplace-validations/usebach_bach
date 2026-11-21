@@ -69,7 +69,7 @@ installed apps update from.
 ## Update and remove
 
 ```bash
-npm update --global @usebach/cli
+npm install --global @usebach/cli@latest --loglevel=error
 npm uninstall --global @usebach/cli
 ```
 

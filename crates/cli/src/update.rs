@@ -76,7 +76,9 @@ impl Method {
     pub fn command(self) -> String {
         match self {
             Method::Standalone => "bach update".into(),
-            Method::Npm => "npm update --global @usebach/cli".into(),
+            // `@latest` always moves to the newest version, and the quiet level
+            // keeps npm's warnings about other global packages out of the way.
+            Method::Npm => "npm install --global @usebach/cli@latest --loglevel=error".into(),
             Method::Scoop => "scoop update bach".into(),
             Method::Winget => "winget upgrade bach".into(),
             Method::Cargo => "cargo install --git https://github.com/usebach/bach bach-cli --locked --force".into(),
@@ -133,13 +135,19 @@ pub fn command(options: Options) -> Result<()> {
     // For tests, as for the install scripts: a folder of release files.
     let from = std::env::var_os("BACH_UPDATE_FROM").map(PathBuf::from);
 
-    let release = match (&from, &wanted) {
-        (Some(dir), Some(version)) => Release::from_folder(dir, version)?,
-        (Some(_), None) => bail!("BACH_UPDATE_FROM needs a version: bach update VERSION"),
-        (None, Some(version)) => Release::tagged(version)?,
-        (None, None) => Release::latest(None)?,
+    // npm hands out releases on its own schedule, so for a copy npm manages
+    // the newest version is the one npm has, not the one GitHub shows first.
+    let (target, release) = if method == Method::Npm && wanted.is_none() && from.is_none() {
+        (release::npm_latest(None)?, None)
+    } else {
+        let release = match (&from, &wanted) {
+            (Some(dir), Some(version)) => Release::from_folder(dir, version)?,
+            (Some(_), None) => bail!("BACH_UPDATE_FROM needs a version: bach update VERSION"),
+            (None, Some(version)) => Release::tagged(version)?,
+            (None, None) => Release::latest(None)?,
+        };
+        (release.version.clone(), Some(release))
     };
-    let target = release.version.clone();
     let newer = target > current;
     output::result("current", current.to_string());
     output::result("latest", target.to_string());
@@ -171,6 +179,8 @@ pub fn command(options: Options) -> Result<()> {
         bail!("this bach is managed by {}, so {} updates it: {}", method.manager(), method.manager(), method.command());
     }
 
+    // Only a standalone copy gets here, and it always asked GitHub (above).
+    let release = release.context("there's no release to install from")?;
     say!("Updating Bach {current} to {target}");
     swap::apply(&release, &exe, from.as_deref())?;
     output::result("updated", true);

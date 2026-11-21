@@ -12,7 +12,9 @@ Node.js 18 or newer, on Windows, macOS or Linux:
 npm install --global @usebach/cli
 ```
 
-Update it with `npm update --global @usebach/cli` and remove it with
+Update it with `npm install --global @usebach/cli@latest --loglevel=error` (the
+quiet level keeps npm's warnings about your other global packages out of it)
+and remove it with
 `npm uninstall --global @usebach/cli`. (If npm's global folder isn't yours,
 give npm one that is with `npm config set prefix ~/.npm-global` rather than
 using `sudo`.)
