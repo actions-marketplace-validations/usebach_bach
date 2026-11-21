@@ -456,8 +456,6 @@ mod tests {
         let guard = GUEST.find("if ($Local -and (Find-Install))").expect("the guard is in the script");
         let install = GUEST.find("# 1. Install.").expect("the install step is in the script");
         assert!(guard < install, "the guard comes before the first step");
-        assert!(GUEST.contains("Write-Report
-    exit 0") || GUEST.contains("Write-Report
-    exit 0"), "and it ends the run");
+        assert!(GUEST.replace("\r\n", "\n").contains("Write-Report\n    exit 0"), "and it ends the run");
     }
 }
