@@ -1,0 +1,120 @@
+﻿{
+    "tool":  "nsis",
+    "started":  "2026-11-21T18:14:56",
+    "notes":  [
+
+              ],
+    "build":  {
+                  "default":  {
+                                  "seconds":  35.4,
+                                  "exit":  0,
+                                  "peak_mb":  6,
+                                  "size_mb":  129.9
+                              },
+                  "max":  {
+                              "seconds":  135.7,
+                              "exit":  0,
+                              "peak_mb":  6,
+                              "size_mb":  90
+                          },
+                  "v1_1_0":  {
+                                 "seconds":  35.1,
+                                 "exit":  0,
+                                 "peak_mb":  6,
+                                 "size_mb":  130
+                             }
+              },
+    "tiny":  {
+                 "installer_kb":  142,
+                 "app_kb":  200,
+                 "overhead_kb":  -58
+             },
+    "install":  [
+                    {
+                        "seconds":  13.9,
+                        "exit":  0,
+                        "timed_out":  false
+                    },
+                    {
+                        "seconds":  13.7,
+                        "exit":  0,
+                        "timed_out":  false
+                    },
+                    {
+                        "seconds":  13.7,
+                        "exit":  0,
+                        "timed_out":  false
+                    }
+                ],
+    "uninstall":  [
+                      {
+                          "seconds":  0.3,
+                          "until_gone_seconds":  2.2,
+                          "exit":  0
+                      },
+                      {
+                          "seconds":  0.3,
+                          "until_gone_seconds":  2.7,
+                          "exit":  0
+                      },
+                      {
+                          "seconds":  0.3,
+                          "until_gone_seconds":  2.5,
+                          "exit":  0
+                      }
+                  ],
+    "verify":  {
+                   "Expected":  10107,
+                   "Found":  10107,
+                   "Missing":  0,
+                   "Extra":  0,
+                   "WrongSize":  0,
+                   "WrongContent":  0,
+                   "Identical":  true
+               },
+    "after_remove":  null,
+    "entry_written":  true,
+    "leftovers_after_remove":  [
+
+                               ],
+    "update":  {
+                   "seconds":  12.5,
+                   "exit":  0,
+                   "timed_out":  false,
+                   "identical_to_new":  false,
+                   "stale_files":  40,
+                   "missing":  0,
+                   "wrong_size":  0,
+                   "wrong_content":  0
+               },
+    "locked_update":  {
+                          "seconds":  12.2,
+                          "exit":  0,
+                          "timed_out":  false,
+                          "changed_files_still_old":  1,
+                          "changed_files_new":  299,
+                          "new_files_present":  60,
+                          "state":  "mixed: some files new, some old"
+                      },
+    "damaged":  {
+                    "seconds":  0.7,
+                    "exit":  2,
+                    "timed_out":  false,
+                    "files_written":  0,
+                    "entry_written":  false,
+                    "refused":  true
+                },
+    "killed":  {
+                   "killed_while_running":  true,
+                   "files_when_killed":  6469,
+                   "of":  10107,
+                   "entry_after_kill":  false,
+                   "rerun_exit":  0,
+                   "rerun_seconds":  12.9,
+                   "rerun_identical":  true
+               },
+    "user_files":  {
+                       "kept_after_removal":  false
+                   },
+    "finished":  "2026-11-21T18:21:06"
+}
