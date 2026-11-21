@@ -33,7 +33,8 @@ native-looking install window, a built-in updater and a clean uninstaller.
   fault. No script language, no compiler, nothing to learn first.
 - **Calm for the end user.** One window, few choices, honest progress,
   readable errors with "Try again", light and dark mode. No administrator
-  prompt: installs are per user.
+  prompt by default: installs are per user. A machine-wide install
+  (`installer.scope = "machine"`) or an `elevated` run step asks Windows once.
 - **Safe by construction.** Packaged paths can't leave the install folder.
   The uninstaller removes only what it installed, deletes data only when the
   user asks, and only inside the user's profile.
@@ -86,6 +87,8 @@ schema/         bach.schema.json for editors (a test keeps it complete)
 scoop/          Bach's own Scoop manifest (the release updates it)
 action.yml      the GitHub Action
 docs/           getting started, config reference, how it works, signing
+                (Markdown in the repo; the full docs site is a Mintlify
+                project, see "Documentation" below)
 scripts/        build-release.ps1, build-example.ps1, release and asset scripts
 install.ps1/.sh one-line installs of bach without Rust (never into a
                 folder they didn't make: Programs\Bach may be another app)
@@ -143,8 +146,86 @@ user or host environment; this file cannot and should not change it.
 5. **Verify evidence, not confidence.** Run targeted tests, then the full
    checks. For UI, run `--preview` and look at the changed page in light and
    dark. If something can't be verified, say exactly what.
-6. **Communicate usefully.** Finish with what changed, why, which checks
-   passed, and any honest limitations.
+6. **Keep the docs true.** If a feature is new or changed, update the docs
+   in the same piece of work (see "Documentation").
+7. **Communicate usefully.** Finish with what changed, why, which checks
+   passed, which docs pages you updated, and any honest limitations.
+
+## Documentation
+
+The docs are part of the product. A feature is not done until a developer
+can find how to use it, and nobody reads a page that is no longer true.
+
+**When to update the docs.** In the same piece of work, whenever you add,
+change, rename or remove any of these:
+
+- a `bach.toml` setting, its default, its accepted values or its rules;
+- a `bach` command, flag, argument, output line or exit code;
+- a flag or exit code of a setup file or `uninstall.exe`;
+- a window text (`Key`), a page or state of the installer window;
+- an environment variable, a file, folder or registry location Bach uses;
+- install, update, removal or safety behaviour (`paths.rs`, `work/`,
+  `launch.rs`, `updater.rs`);
+- install scripts, the GitHub Action, Scoop, winget output, or the update
+  feed format;
+- a release (changelog), or anything a user would be surprised by.
+
+**Where the docs live.** There are two places, and both stay in sync:
+
+1. **The docs site**, a Mintlify project (subdomain `bach`, served under
+   `/docs`). Edit it with the Mintlify Admin MCP tools (`list_nodes`,
+   `read`, `edit_page`, `write_page`, `create_node`, `update_config`, ...)
+   on the deploy branch `main`, which keeps edits unpublished. Read the
+   Mintlify skill (`mintlify:mintlify`) first. **Never publish** without the
+   user's explicit go-ahead; say which pages are waiting to be published.
+2. **The Markdown in the repo**: `docs/*.md`, `README.md`,
+   `schema/bach.schema.json` (a test keeps it complete) and
+   `skills/bach/SKILL.md` (if agents need to know).
+
+**Which page covers what.**
+
+| Change | Site pages | Repo files |
+| --- | --- | --- |
+| `bach.toml` setting | `reference/config/*` (one page per section), `guides/*` that mention it | `docs/config.md`, `schema/bach.schema.json`, `SKILL.md` |
+| Window text | `reference/config/text`, `concepts/installer-window` | `docs/config.md` |
+| `bach` command or flag | `reference/cli/*`, `reference/cli/overview` | README commands table, `SKILL.md` |
+| Setup or uninstaller flag, exit code | `reference/setup/command-line`, `reference/setup/exit-codes`, `guides/silent-installs` | `docs/config.md` |
+| Env variable, file or registry location | `reference/setup/environment-variables`, `reference/setup/files-and-locations` | |
+| Install, update, remove, safety behaviour | `concepts/how-it-works`, `concepts/safety`, `guides/updates`, `guides/uninstall-and-user-data` | `docs/how-it-works.md` |
+| Signing, CI, winget | `guides/signing`, `guides/ci`, `guides/winget` | `docs/signing.md` |
+| New release | `resources/changelog` | `CHANGELOG.md` (the release workflow writes it) |
+| New page | Add it to the navigation, link it from a related page | |
+
+**How to write docs here.**
+
+- Write only what is true. Every setting, flag, default, message and example
+  must come from the code or a command you ran. If you cannot verify
+  something, leave it out or say so; never invent a plausible detail.
+- English, second person, sentence-case headings, active voice, no marketing
+  words. Every page opens with a plain paragraph that says what it covers,
+  and has a `title`, a `description` of 130 to 160 characters and, for long
+  titles, a short `sidebarTitle`.
+- Show a working example for every setting or command, with the expected
+  output where there is one. Code blocks have a language tag; TOML examples
+  are titled `bach.toml`.
+- Link internal pages with root-relative paths and no extension
+  (`/guides/updates`). Describe the user's goal first, then the settings.
+- Use the site's components (`Steps`, `Tabs`, `Card`, `Accordion`, `Note`,
+  `Warning`) instead of raw HTML.
+- Screenshots of the window are real, in English, and come from
+  `bach preview --lang en` (light and dark; `BACH_PREVIEW_DIR` hides the
+  real install path). Keep the raw capture in `docs/images/raw/` and make
+  the published image with `python scripts/polish-screenshot.py RAW OUT
+  --edge light|dark`: it removes the desktop ring and corners, neutralises
+  the title bar and adds a shadow. Never publish a raw capture.
+- Theme and look live in the Mintlify project's `docs.json` (Maple theme,
+  Inter, blue accent `#2563EB`, dark surface `#181818` to match
+  `crates/setup/src/theme.rs`). Change the look there, not page by page.
+- Never put secrets, personal paths or machine names in the docs.
+
+**Before you finish.** List the docs pages you changed, or say "no docs
+needed" and why. A change to settings, flags or behaviour with no docs
+change is not done.
 
 ### Subagents: use rarely, and never Opus
 
@@ -164,6 +245,8 @@ a precise brief and verify the result yourself. No agent swarms.
 - **Maintainable:** clear names, cohesive modules, focused tests, comments
   that explain why.
 - **Verified:** tests and clippy pass; changed UI was looked at.
+- **Documented:** new and changed features are in the docs, and the pages
+  you touched are named in your summary.
 
 ## UI and interaction quality
 
@@ -232,7 +315,11 @@ bottom. Pages rise in as they replace each other; nothing jumps.
 - The uninstaller must only delete files listed in its manifest, inside a
   folder that is verifiably the app's install, plus data folders the user
   opted into, which must sit inside the user's profile.
-- Setup never asks for administrator rights and never writes outside the
-  user's own folders and `HKCU`.
+- Setup asks for administrator rights only when the app says so
+  (`installer.scope = "machine"`, an `elevated` run step, or `elevated` on a
+  `[[migrate]]`), and without that never writes outside the user's own
+  folders and `HKCU`. Anything it runs elevated comes from a place only
+  administrators can write, and Windows' folders come from Windows, not from
+  environment variables.
 - Do not weaken these rules for convenience, and test them when touching
   `paths.rs`, `work/` or `launch.rs`.
