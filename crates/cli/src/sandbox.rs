@@ -43,6 +43,9 @@ pub struct Options<'a> {
     pub keep: bool,
     /// Write the folder and the `.wsb` and stop.
     pub dry_run: bool,
+    /// Run the test on this computer instead of in Windows Sandbox (`--here`):
+    /// for a CI runner or a virtual machine that is thrown away anyway.
+    pub here: bool,
 }
 
 /// Everything the guest script is told, as `params.json`.
@@ -221,7 +224,7 @@ pub fn command(options: Options) -> Result<()> {
             }
         }
     }
-    if manifest.online && !options.network {
+    if manifest.online && !options.network && !options.here {
         bail!("an online installer downloads the newest version, so the sandbox needs the network: add --network");
     }
 
@@ -238,7 +241,8 @@ pub fn command(options: Options) -> Result<()> {
     fs::write(&wsb_file, wsb(&input, &output_dir, options.network))?;
 
     let app = &manifest.app;
-    say!("Testing {} {} in Windows Sandbox", crate::diff::clean(&app.name), crate::diff::clean(&app.version));
+    let place = if options.here { "on this computer" } else { "in Windows Sandbox" };
+    say!("Testing {} {} {place}", crate::diff::clean(&app.name), crate::diff::clean(&app.version));
     output::result("name", app.name.clone());
     output::result("version", app.version.clone());
     if options.dry_run {
@@ -246,7 +250,11 @@ pub fn command(options: Options) -> Result<()> {
         output::result("sandbox_file", wsb_file.display().to_string());
         return Ok(());
     }
-    let result = run_sandbox(&wsb_file, &output_dir, options.timeout_minutes);
+    let result = if options.here {
+        run_here(&input, &work, &output_dir, options.timeout_minutes)
+    } else {
+        run_sandbox(&wsb_file, &output_dir, options.timeout_minutes)
+    };
     let report = match result {
         Ok(report) => report,
         Err(err) => {
@@ -264,11 +272,58 @@ pub fn command(options: Options) -> Result<()> {
     output::result("left_behind", json!({"files": report.files, "registry": report.registry, "other": report.other}));
     if report.passed() {
         say!();
-        say!("{} installs, starts and removes cleanly on a fresh Windows.", crate::diff::clean(&app.name));
+        if options.here {
+            say!("{} installs, starts and removes cleanly on this computer.", crate::diff::clean(&app.name));
+        } else {
+            say!("{} installs, starts and removes cleanly on a fresh Windows.", crate::diff::clean(&app.name));
+        }
         Ok(())
     } else {
         let failed = report.lines.iter().filter(|line| !line.ok).count();
         bail!("{failed} of {} checks failed", report.lines.len())
+    }
+}
+
+/// Runs the guest script on this computer (`--here`), where it installs the app
+/// for real and removes it again, and waits for the script's report. It refuses
+/// on a computer that already has the app (the script checks), so the person's
+/// own copy is never the one that gets removed.
+fn run_here(input: &Path, work: &Path, output_dir: &Path, timeout_minutes: u32) -> Result<Report> {
+    if !cfg!(windows) {
+        bail!("bach test --here needs Windows: it installs the setup file on this computer (`--dry-run` writes the files it would use on any computer)");
+    }
+    let mut child = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(input.join("run.ps1"))
+        .arg("-Work")
+        .arg(work)
+        .arg("-Local")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("couldn't start powershell.exe to run the test")?;
+    field("Test", "installing, starting and removing the app on this computer");
+    let report = output_dir.join("report.json");
+    let started = Instant::now();
+    let limit = Duration::from_secs(u64::from(timeout_minutes.max(1)) * 60);
+    loop {
+        // The script writes the report as its last act, so a report means it is done.
+        if report.is_file() {
+            let _ = child.wait();
+            let text = bach_pack::textfile::read(&report).context("couldn't read the test's report")?;
+            return parse_report(&text);
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            if !report.is_file() {
+                bail!("the test script ended with {status} and left no report");
+            }
+        }
+        if started.elapsed() > limit {
+            let _ = child.kill();
+            bail!("the test didn't finish within {timeout_minutes} minutes (a setup that asks for administrator rights waits for a prompt nobody can answer in a CI job)");
+        }
+        std::thread::sleep(Duration::from_millis(500));
     }
 }
 
@@ -325,6 +380,7 @@ mod tests {
             timeout_minutes: 20,
             keep: false,
             dry_run: false,
+            here: false,
         }
     }
 
@@ -391,5 +447,17 @@ mod tests {
     fn the_guest_script_is_plain_ascii_and_reads_its_facts_from_data() {
         assert!(GUEST.is_ascii(), "Windows PowerShell 5.1 reads a script without a byte order mark as ANSI");
         assert!(GUEST.contains("params.json") && !GUEST.contains("@NAME@"));
+    }
+
+    #[test]
+    fn a_local_run_refuses_to_replace_the_persons_own_install() {
+        // `bach test --here` installs for real and removes the app again, so the
+        // script must stop before it touches anything when the app is already there.
+        let guard = GUEST.find("if ($Local -and (Find-Install))").expect("the guard is in the script");
+        let install = GUEST.find("# 1. Install.").expect("the install step is in the script");
+        assert!(guard < install, "the guard comes before the first step");
+        assert!(GUEST.contains("Write-Report
+    exit 0") || GUEST.contains("Write-Report
+    exit 0"), "and it ends the run");
     }
 }
