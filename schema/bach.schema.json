@@ -1198,6 +1198,121 @@
         }
       }
     },
+    "services": {
+      "type": "array",
+      "description": "Windows services the app installs. Needs installer.scope = \"machine\". Setup creates each service, starts it, stops it while files are replaced and deletes it when the app is removed; it only ever changes a service whose program is in the install folder.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The service's name, as `sc query NAME` knows it: letters, digits, `.`, `-` and `_`, up to 64 characters."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "The name Services lists. The service's name by default."
+          },
+          "description": {
+            "type": "string",
+            "description": "One line shown in Services."
+          },
+          "file": {
+            "type": "string",
+            "description": "The service's program, a packaged .exe relative to [files] source. The app's own program by default."
+          },
+          "arguments": {
+            "type": "string",
+            "description": "The command line after the program."
+          },
+          "start": {
+            "enum": [
+              "auto",
+              "delayed",
+              "manual",
+              "disabled"
+            ],
+            "description": "When it starts: with Windows (auto, the default), a little after it (delayed), when something asks (manual) or never (disabled)."
+          },
+          "account": {
+            "enum": [
+              "local_service",
+              "network_service",
+              "local_system"
+            ],
+            "description": "Who it runs as. local_service (the default) has few rights on this computer and none on the network; local_system has full rights."
+          },
+          "restart_on_failure": {
+            "type": "boolean",
+            "description": "Let Windows start it again a minute after it stops by itself, three times. true by default."
+          }
+        }
+      }
+    },
+    "firewall": {
+      "type": "array",
+      "description": "Windows Firewall rules that let the app's traffic through. Needs installer.scope = \"machine\". Setup adds each rule and deletes it when the app is removed.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The rule's name in Windows Defender Firewall."
+          },
+          "file": {
+            "type": "string",
+            "description": "A packaged .exe the rule is for, relative to [files] source."
+          },
+          "direction": {
+            "enum": [
+              "in",
+              "out"
+            ],
+            "description": "in (the default) lets other computers connect to the app; out lets the app connect out."
+          },
+          "protocol": {
+            "enum": [
+              "any",
+              "tcp",
+              "udp"
+            ],
+            "description": "any by default; ports need tcp or udp."
+          },
+          "ports": {
+            "description": "Local ports: 8080 or \"8080,9000-9010\". A rule needs a file or ports.",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "networks": {
+            "description": "Where it applies: domain, private, public, or a list of them. Every network by default.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
     "migrate": {
       "type": "array",
       "description": "Older installs of this app that another installer made (Inno Setup, NSIS, MSI). A first install removes them before placing files, using the uninstall command listed under Settings > Apps.",
@@ -6088,6 +6203,14 @@
           "context_menu": {
             "type": "array",
             "description": "Replaces the settings of [context_menu] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "services": {
+            "type": "array",
+            "description": "Replaces the settings of [services] it names (a table is merged key by key, an array is replaced as a whole)."
+          },
+          "firewall": {
+            "type": "array",
+            "description": "Replaces the settings of [firewall] it names (a table is merged key by key, an array is replaced as a whole)."
           },
           "migrate": {
             "type": "array",

@@ -161,6 +161,13 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
         let places: Vec<String> = entry.on.iter().cloned().map(String::from).collect();
         field("Right-click", format!("{} ({})", entry.name, places.join(", ")));
     }
+    for service in &manifest.system.services {
+        field("Service", format!("{} ({}, runs {})", service.name, service.display_name, service.file));
+    }
+    for rule in &manifest.system.firewall {
+        let what = rule.file.clone().or_else(|| rule.ports.clone()).unwrap_or_default();
+        field("Firewall", format!("{} ({what})", rule.name));
+    }
     if let Some(updates) = &manifest.updates {
         field("Updates", &updates.feed);
     }

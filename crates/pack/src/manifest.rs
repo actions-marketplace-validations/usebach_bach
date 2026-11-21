@@ -21,6 +21,7 @@ pub mod extras;
 pub(crate) mod features;
 mod look_files;
 mod scope;
+pub mod services;
 pub mod system;
 mod validate;
 
@@ -33,6 +34,7 @@ pub use extras::{ArchEntry, Check, DeltaEntry, FeedEntry, Requirement, RunStep, 
 pub use features::{Component, ComponentDownload, FileType, Protocol};
 pub use look_files::{LookBytes, LookFile, LookFileKind};
 pub use scope::Scope;
+pub use services::{Direction, FirewallProtocol, FirewallRule, Network, ServiceAccount, ServiceEntry, ServiceStart};
 pub use system::{ContextMenuEntry, ContextTarget, EnvVar, Migrate, RegistryData, RegistryValue, RegistryView, SystemChanges};
 pub use validate::MAX_LICENSE;
 

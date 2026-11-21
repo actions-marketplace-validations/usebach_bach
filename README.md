@@ -100,21 +100,21 @@ case, an app that installs for one user, with settings instead of code:
   locked, everything is put back. Files the new version no longer ships are
   removed.
 - **A window people can read.** 19 languages built in, following the Windows
-  display language; light and dark mode; every text replaceable.
+  display language; light and dark mode (and Windows contrast themes); every
+  text replaceable; every choice reachable with Tab.
 - **Builds anywhere.** `bach` runs on Windows, macOS and Linux, so installers
   can come out of any CI. Setup files need no .NET and no Visual C++ runtime.
 
-**Use something else when** you need Windows services or drivers built in,
-custom install-time scripts, or a small stub: a Bach setup file adds about
-10 MB to your app. For Group Policy and Intune, `bach build --msi` also writes
-a Windows Installer package.
+**Use something else when** you need drivers, custom install-time scripts, or
+a small stub: a Bach setup file adds about 10 MB to your app. For Group Policy
+and Intune, `bach build --msi` also writes a Windows Installer package.
 
 ## What setup files can do
 
 | | |
 | --- | --- |
 | **Choices** | Desktop and Start menu shortcuts, start with Windows, add to `PATH`, each offered ticked, unticked, always or never; optional components, even ones downloaded when ticked |
-| **Integration** | `myapp://` link schemes, file types and right-click entries, never taking over another app's |
+| **Integration** | `myapp://` link schemes, file types and right-click entries, never taking over another app's; Windows services and firewall rules for machine-wide installs |
 | **Look and words** | 14 built-in styles (soft gradients, terminal, game looks, ...) and 10 layouts, or your own fonts, colours, corners, pictures, logo and icon; light, dark or system theme; any text, per language; a license page |
 | **Safety** | Free-space check, archive checksum, one setup per app at a time, "close and continue" when the app is open, data deleted only on request |
 | **Updates** | Over older installs always; by themselves in the background from GitHub releases (or any https feed, optionally signed), installed when the app is closed, undone cleanly if a power cut interrupts them; patches with only the changed files. See [updates](docs/updates.md) |
@@ -127,6 +127,7 @@ Every setting is in the [config reference](docs/config.md).
 
 | Command | What it does |
 | --- | --- |
+| `bach import` | Writes a first `bach.toml` from an Inno Setup or NSIS script, and lists what it couldn't convert |
 | `bach init` | Writes a starter `bach.toml`, filled in for Rust, Tauri, Electron, .NET, Godot and Unity projects, plus a release workflow in a GitHub checkout |
 | `bach check` | Validates the config and lists every file and option; `--strict` turns a warning into an error |
 | `bach preview` | Opens the real window without installing; try `--theme dark`, `--lang de`, `--style arcade`, `--layout showcase` |
@@ -134,7 +135,7 @@ Every setting is in the [config reference](docs/config.md).
 | `bach build` | Writes the setup file; `--online`, `--msi`, `--patch-from OLD.exe`, `--profile NAME`, `--sign` and more |
 | `bach styles`, `bach layouts` | List the built-in styles and layouts |
 | `bach inspect`, `bach verify`, `bach diff` | Show what a setup file carries, check it for damage, compare two versions |
-| `bach test` | Installs, starts and removes a setup file in Windows Sandbox and reports what failed or was left behind |
+| `bach test` | Installs, starts and removes a setup file in Windows Sandbox (or, with `--here`, on a CI runner) and reports what failed or was left behind |
 | `bach sign`, `bach key`, `bach feed-key` | Sign a setup file, make access keys, make the key that signs update feeds |
 | `bach feed`, `bach page`, `bach winget`, `bach choco`, `bach intune` | Write the update feed, a download page, and the winget, Chocolatey and Intune packages |
 | `bach version`, `bach workflow` | Raise the version in every file at once; add the one-click release workflow |

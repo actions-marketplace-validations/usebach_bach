@@ -231,6 +231,11 @@ pub fn plan(project: &Project) -> Result<Plan> {
     if manifest.access.as_ref().is_some_and(|access| access.encryption.is_some()) || project.encrypt {
         bail!("an app locked with [access] can't be an MSI: the files in the package would be readable by anybody");
     }
+    if !manifest.system.services.is_empty() || !manifest.system.firewall.is_empty() {
+        bail!(
+            "an MSI doesn't carry [[services]] or [[firewall]] yet: Bach's own setup file installs them, so ship that for an app with a service"
+        );
+    }
     let version = product_version(&app.version)?;
     if manifest.files.len() > MAX_FILES {
         bail!("an MSI holds at most {MAX_FILES} files here; this app has {}", manifest.files.len());
