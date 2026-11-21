@@ -144,7 +144,8 @@ fn setup_section(draft: &mut Draft, setup: &HashMap<String, String>) {
     }
     draft.folder = value("defaultdirname").and_then(|dir| last_folder(&dir));
     if let Some(dir) = value("defaultdirname") {
-        let own_folder = !dir.starts_with("{autopf}") && !dir.starts_with("{pf}") && !dir.starts_with("{commonpf}") && !dir.starts_with("{userpf}");
+        let own_folder =
+            !dir.starts_with("{autopf}") && !dir.starts_with("{pf}") && !dir.starts_with("{commonpf}") && !dir.starts_with("{userpf}");
         let custom = own_folder && !dir.starts_with("{localappdata}") && !dir.starts_with("{app}");
         if custom {
             draft.skip(format!("The install folder \"{dir}\" isn't Program Files or the user's programs folder: Bach picks its own"));
@@ -190,7 +191,10 @@ fn files_section(draft: &mut Draft, files: &[Entry]) {
         draft.source = Some(if folder.is_empty() { ".".to_string() } else { folder.clone() });
         if !others.is_empty() {
             let list: Vec<&str> = others.iter().map(|other| other.as_str()).collect();
-            draft.skip(format!("Files from {} come from other folders: copy them into the source folder, keeping their layout", list.join(", ")));
+            draft.skip(format!(
+                "Files from {} come from other folders: copy them into the source folder, keeping their layout",
+                list.join(", ")
+            ));
         }
     }
     if !elsewhere.is_empty() {
@@ -356,7 +360,10 @@ end;
         let draft = parse(SCRIPT);
         assert_eq!(draft.source.as_deref(), Some("build/Release"));
         assert_eq!(draft.exclude, ["*.pdb", "*.ilk"]);
-        assert_eq!(draft.shortcuts, [Shortcut { name: "Hello Docs".into(), target: "docs/viewer.exe".into(), arguments: Some("--welcome".into()) }]);
+        assert_eq!(
+            draft.shortcuts,
+            [Shortcut { name: "Hello Docs".into(), target: "docs/viewer.exe".into(), arguments: Some("--welcome".into()) }]
+        );
         assert_eq!(draft.runs, [Run { file: "redist/helper.exe".into(), arguments: Some("/quiet".into()), when: "install" }]);
         assert!(draft.missing().is_empty(), "{:?}", draft.missing());
     }
@@ -399,7 +406,9 @@ end;
 
     #[test]
     fn odd_scripts_never_panic() {
-        for text in ["", "[", "[]", "[Files]\nSource", "[Setup]\n=\n", "#define", "[Icons]\nName: ; Filename:", "\u{feff}[Setup]\nAppName=Ä"] {
+        for text in
+            ["", "[", "[]", "[Files]\nSource", "[Setup]\n=\n", "#define", "[Icons]\nName: ; Filename:", "\u{feff}[Setup]\nAppName=Ä"]
+        {
             let _ = parse(text);
         }
     }

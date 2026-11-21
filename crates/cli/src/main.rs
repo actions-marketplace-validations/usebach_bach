@@ -560,18 +560,20 @@ fn main() -> ExitCode {
         Command::Choco { file, url, license, out } => {
             choco::command(choco::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
         }
-        Command::Test { file, config, with, without, launch, network, timeout, keep, dry_run, here } => sandbox::command(sandbox::Options {
-            file: file.as_deref(),
-            config: &config,
-            with: &with,
-            without: &without,
-            launch_seconds: launch,
-            network,
-            timeout_minutes: timeout,
-            keep,
-            dry_run,
-            here,
-        }),
+        Command::Test { file, config, with, without, launch, network, timeout, keep, dry_run, here } => {
+            sandbox::command(sandbox::Options {
+                file: file.as_deref(),
+                config: &config,
+                with: &with,
+                without: &without,
+                launch_seconds: launch,
+                network,
+                timeout_minutes: timeout,
+                keep,
+                dry_run,
+                here,
+            })
+        }
         Command::Import { script, force, dry_run } => import::command(import::Options { script: &script, force, dry_run }),
         Command::Diff { old, new, top } => diff::command(diff::Options { old: &old, new: &new, top }),
         Command::Verify { file, key_file } => verify::command(verify::Options { file: &file, key_file: key_file.as_deref() }),

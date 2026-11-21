@@ -169,7 +169,10 @@ pub fn parse(text: &str) -> Draft {
         draft.source = Some(if folder.is_empty() { ".".to_string() } else { folder.clone() });
         let others: Vec<&str> = sources.iter().map(|(other, _)| other.as_str()).filter(|other| other != folder).collect();
         if !others.is_empty() {
-            draft.skip(format!("Files from {} come from other folders: copy them into the source folder, keeping their layout", others.join(", ")));
+            draft.skip(format!(
+                "Files from {} come from other folders: copy them into the source folder, keeping their layout",
+                others.join(", ")
+            ));
         }
     }
     shortcuts(&mut draft, &shortcut_targets);
@@ -211,7 +214,11 @@ fn shortcuts(draft: &mut Draft, found: &[(String, String, Option<String>)]) {
             if draft.executable.is_none() {
                 draft.executable = Some(relative);
             } else if draft.executable.as_deref() != Some(relative.as_str()) {
-                draft.shortcuts.push(Shortcut { name: label, target: relative, arguments: arguments.clone().filter(|text| !text.is_empty()) });
+                draft.shortcuts.push(Shortcut {
+                    name: label,
+                    target: relative,
+                    arguments: arguments.clone().filter(|text| !text.is_empty()),
+                });
             }
         }
     }
@@ -272,7 +279,10 @@ FunctionEnd
         assert_eq!(draft.source.as_deref(), Some("build"));
         assert_eq!(draft.exclude, ["*.pdb"]);
         assert_eq!(draft.executable.as_deref(), Some("Hello.exe"));
-        assert_eq!(draft.shortcuts, [Shortcut { name: "Hello Docs".into(), target: "docs/viewer.exe".into(), arguments: Some("--welcome".into()) }]);
+        assert_eq!(
+            draft.shortcuts,
+            [Shortcut { name: "Hello Docs".into(), target: "docs/viewer.exe".into(), arguments: Some("--welcome".into()) }]
+        );
         assert_eq!(draft.runs, [Run { file: "redist/helper.exe".into(), arguments: Some("/quiet".into()), when: "install" }]);
         assert!(draft.missing().is_empty(), "{:?}", draft.missing());
     }
@@ -304,7 +314,9 @@ FunctionEnd
 
     #[test]
     fn odd_scripts_never_panic() {
-        for text in ["", "\"", "File", "File /r", "!define", "!define A", "CreateShortCut", "ExecWait", "Name", "InstallDir", "\u{feff}Name \"Ä\""] {
+        for text in
+            ["", "\"", "File", "File /r", "!define", "!define A", "CreateShortCut", "ExecWait", "Name", "InstallDir", "\u{feff}Name \"Ä\""]
+        {
             let _ = parse(text);
         }
     }

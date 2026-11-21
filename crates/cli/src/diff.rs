@@ -223,11 +223,18 @@ fn items(manifest: &Manifest) -> Vec<Item> {
         items.push(item(format!("right-click entry \"{}\"", entry.name), how, serde_json::to_string(entry)));
     }
     for service in &manifest.system.services {
-        let how = format!("{} as {:?}, start {:?}, {}", service.file, service.account, service.start, service.arguments.as_deref().unwrap_or(""));
+        let how =
+            format!("{} as {:?}, start {:?}, {}", service.file, service.account, service.start, service.arguments.as_deref().unwrap_or(""));
         items.push(item(format!("service {}", service.name), how, serde_json::to_string(service)));
     }
     for rule in &manifest.system.firewall {
-        let how = format!("{:?} {:?} {} {}", rule.direction, rule.protocol, rule.file.as_deref().unwrap_or(""), rule.ports.as_deref().unwrap_or(""));
+        let how = format!(
+            "{:?} {:?} {} {}",
+            rule.direction,
+            rule.protocol,
+            rule.file.as_deref().unwrap_or(""),
+            rule.ports.as_deref().unwrap_or("")
+        );
         items.push(item(format!("firewall rule \"{}\"", rule.name), how, serde_json::to_string(rule)));
     }
     for migrate in &manifest.system.migrate {

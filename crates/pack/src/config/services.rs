@@ -171,17 +171,27 @@ mod tests {
     fn a_service_takes_its_defaults() {
         let changes = run("[[services]]\nname = \"HelloAgent\"\n", true).unwrap();
         let service = &changes.services[0];
-        assert_eq!((service.name.as_str(), service.display_name.as_str(), service.file.as_str()), ("HelloAgent", "HelloAgent", "agent.exe"));
+        assert_eq!(
+            (service.name.as_str(), service.display_name.as_str(), service.file.as_str()),
+            ("HelloAgent", "HelloAgent", "agent.exe")
+        );
         assert_eq!((service.start, service.account, service.restart_on_failure), (ServiceStart::Auto, ServiceAccount::LocalService, true));
     }
 
     #[test]
     fn everything_a_service_can_set() {
-        let toml = "[[services]]\nname = \"HelloAgent\"\ndisplay_name = \"Hello Agent\"\ndescription = \"Syncs\"\nfile = \"bin/tool.exe\"\n\
+        let toml =
+            "[[services]]\nname = \"HelloAgent\"\ndisplay_name = \"Hello Agent\"\ndescription = \"Syncs\"\nfile = \"bin/tool.exe\"\n\
                     arguments = \"--service\"\nstart = \"delayed\"\naccount = \"network_service\"\nrestart_on_failure = false\n";
         let service = &run(toml, true).unwrap().services[0];
-        assert_eq!((service.file.as_str(), service.arguments.as_deref(), service.description.as_deref()), ("bin/tool.exe", Some("--service"), Some("Syncs")));
-        assert_eq!((service.start, service.account, service.restart_on_failure), (ServiceStart::Delayed, ServiceAccount::NetworkService, false));
+        assert_eq!(
+            (service.file.as_str(), service.arguments.as_deref(), service.description.as_deref()),
+            ("bin/tool.exe", Some("--service"), Some("Syncs"))
+        );
+        assert_eq!(
+            (service.start, service.account, service.restart_on_failure),
+            (ServiceStart::Delayed, ServiceAccount::NetworkService, false)
+        );
     }
 
     #[test]

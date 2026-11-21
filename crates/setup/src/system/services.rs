@@ -16,9 +16,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use bach_pack::manifest::{
-    Direction, FirewallProtocol, FirewallRule, Manifest, Network, ServiceAccount, ServiceEntry, ServiceStart,
-};
+use bach_pack::manifest::{Direction, FirewallProtocol, FirewallRule, Manifest, Network, ServiceAccount, ServiceEntry, ServiceStart};
 use bach_pack::paths;
 
 use super::folders;
@@ -291,12 +289,7 @@ fn stop(entry: &ServiceEntry) -> bool {
 
 /// The services of `manifest` that exist and are ours.
 fn ours<'a>(manifest: &'a Manifest, dir: &Path) -> Vec<&'a ServiceEntry> {
-    manifest
-        .system
-        .services
-        .iter()
-        .filter(|entry| matches!(binary_of(&entry.name), Ok(Some(binary)) if belongs_to(&binary, dir)))
-        .collect()
+    manifest.system.services.iter().filter(|entry| matches!(binary_of(&entry.name), Ok(Some(binary)) if belongs_to(&binary, dir))).collect()
 }
 
 /// The services that were running when setup stopped them, so a failed
@@ -388,7 +381,11 @@ fn define(entry: &ServiceEntry, dir: &Path) -> Result<(), Failure> {
         None => "create",
         Some(existing) if belongs_to(&existing, dir) => "config",
         Some(existing) => {
-            return Err(fail(entry, "exists", &format!("a service of that name already exists and starts {existing}, which isn't in this app's folder")));
+            return Err(fail(
+                entry,
+                "exists",
+                &format!("a service of that name already exists and starts {existing}, which isn't in this app's folder"),
+            ));
         }
     };
     let (code, text) = tool("sc.exe", &define_args(verb, entry, &binary)).map_err(|message| fail(entry, "run", &message))?;
@@ -492,8 +489,16 @@ mod tests {
         assert_eq!(
             args,
             [
-                "create", "HelloAgent", "binPath=", r#""C:\x\agent.exe" --service"#, "start=", "delayed-auto", "DisplayName=", "Hello Agent",
-                "obj=", r"NT AUTHORITY\LocalService"
+                "create",
+                "HelloAgent",
+                "binPath=",
+                r#""C:\x\agent.exe" --service"#,
+                "start=",
+                "delayed-auto",
+                "DisplayName=",
+                "Hello Agent",
+                "obj=",
+                r"NT AUTHORITY\LocalService"
             ]
         );
         assert_eq!(define_args("config", &entry(), "x")[0], "config");
