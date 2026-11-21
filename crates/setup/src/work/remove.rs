@@ -18,7 +18,7 @@ use bach_pack::paths;
 
 use super::{delete_after_exit, describe, failed, plain, remove_empty_parents, remove_file_if_present, remove_waiting, same_file, Report};
 use crate::package::Package;
-use crate::system::{self, changes, env_path, host, integration, task};
+use crate::system::{self, changes, env_path, host, integration, services, task};
 use crate::texts::Texts;
 
 pub struct RemovePlan {
@@ -47,8 +47,13 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     // The app's own "before removal" steps run while its files are still there.
     super::steps::run_removal_steps(manifest, dir, texts, report, 0.05);
     report(0.1, &texts.get(Key::step_removing));
+    // A running service holds its program: stop them first. They start again if removal can't finish.
+    let stopped = services::stop_for_removal(manifest, dir);
     let program = manifest.executable_in(dir);
-    wait_until_closed(&program, texts)?;
+    if let Err(problem) = wait_until_closed(&program, texts) {
+        services::restart(manifest, &stopped, dir);
+        return Err(problem);
+    }
     // All or nothing: every file steps aside first (a rename, which is quick
     // and can be undone), and only when all of them have are they deleted. A
     // file that can't move leaves the app as it was, still working.
@@ -62,12 +67,16 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
         }
         wanted.push(path);
     }
-    let aside = set_aside(&wanted).map_err(|(path, err)| failed(texts, Key::error_delete, &path, &err))?;
+    let aside = set_aside(&wanted).map_err(|(path, err)| {
+        services::restart(manifest, &stopped, dir);
+        failed(texts, Key::error_delete, &path, &err)
+    })?;
     // Everything below can fail, and then the app has to be as it was: its files come back, and
     // so do the shortcuts, start with Windows, PATH, link schemes and file types that were taken
     // away on the way (put back the way an update that failed puts them back).
     let put_back = |problem: String| {
         restore(&aside);
+        services::restart(manifest, &stopped, dir);
         let before = manifest.chosen.clone().unwrap_or_default();
         let _ = super::install::shortcuts(manifest, None, &before, dir, &program, texts);
         let _ = super::install::integrate(manifest, None, &before, dir, &program, texts);
@@ -80,6 +89,9 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
 
     report(0.6, &texts.get(Key::step_unregistering));
     system::unregister(manifest).map_err(|err| put_back(format!("{} {}", texts.get(Key::error_unregister), plain(&err))))?;
+
+    // Windows no longer lists the app: its services and firewall rules go too (they never stop a removal).
+    services::remove(manifest, dir);
 
     report(0.65, &texts.get(Key::step_removing_shortcuts));
     let extra = system::extra_shortcuts(manifest).into_iter().map(|(link, _)| link);

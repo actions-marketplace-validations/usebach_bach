@@ -75,6 +75,8 @@ const SECTIONS: &[&str] = &[
     "registry",
     "env",
     "context_menu",
+    "services",
+    "firewall",
     "migrate",
     "updates",
     "access",

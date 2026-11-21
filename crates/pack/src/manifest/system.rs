@@ -21,6 +21,12 @@ pub struct SystemChanges {
     /// Entries in Explorer's right-click menu.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_menu: Vec<ContextMenuEntry>,
+    /// Windows services the app installs (machine-wide installs only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub services: Vec<super::services::ServiceEntry>,
+    /// Windows Firewall rules for the app (machine-wide installs only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub firewall: Vec<super::services::FirewallRule>,
     /// Older installs of the same app, made by another installer, that a
     /// first install removes before it puts the files in place.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -29,7 +35,12 @@ pub struct SystemChanges {
 
 impl SystemChanges {
     pub fn is_empty(&self) -> bool {
-        self.registry.is_empty() && self.environment.is_empty() && self.context_menu.is_empty() && self.migrate.is_empty()
+        self.registry.is_empty()
+            && self.environment.is_empty()
+            && self.context_menu.is_empty()
+            && self.services.is_empty()
+            && self.firewall.is_empty()
+            && self.migrate.is_empty()
     }
 }
 
@@ -437,6 +448,20 @@ pub fn check(changes: &SystemChanges) -> Result<()> {
     }
     for entry in &changes.migrate {
         check_migrate(entry)?;
+    }
+    let mut service_names = std::collections::HashSet::new();
+    for service in &changes.services {
+        super::services::check_service(service)?;
+        if !service_names.insert(service.name.to_ascii_lowercase()) {
+            bail!("the service name \"{}\" is used twice", service.name);
+        }
+    }
+    let mut rule_names = std::collections::HashSet::new();
+    for rule in &changes.firewall {
+        super::services::check_firewall(rule)?;
+        if !rule_names.insert(rule.name.to_ascii_lowercase()) {
+            bail!("the firewall rule \"{}\" is listed twice", rule.name);
+        }
     }
     let mut verbs = std::collections::HashSet::new();
     for entry in &changes.context_menu {
