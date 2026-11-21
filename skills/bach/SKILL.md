@@ -25,7 +25,7 @@ No Rust is needed, and none of these needs administrator rights (do not use
   (or `npm install --save-dev @usebach/cli` and `npx bach` for one project).
   If npm's global folder isn't writable, run
   `npm config set prefix ~/.npm-global` and add its `bin` to `PATH`; don't
-  use `sudo`. Update: `npm install --global @usebach/cli@latest --loglevel=error`; remove:
+  use `sudo`. Update: `npm update --global @usebach/cli`; remove:
   `npm uninstall --global @usebach/cli`.
 - **Windows (PowerShell):**
   `irm https://raw.githubusercontent.com/usebach/bach/main/install.ps1 | iex`

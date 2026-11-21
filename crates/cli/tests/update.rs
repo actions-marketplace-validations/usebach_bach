@@ -139,7 +139,7 @@ fn a_bach_that_a_package_manager_owns_is_left_to_it() {
 
     let out = update(&exe, &release, &[VERSION, "--force"]);
     assert!(!out.status.success());
-    assert!(text(&out.stderr).contains("npm install --global @usebach/cli@latest"), "{}", text(&out.stderr));
+    assert!(text(&out.stderr).contains("npm update --global @usebach/cli"), "{}", text(&out.stderr));
     assert_eq!(std::fs::read(&exe).unwrap(), before);
     std::fs::remove_dir_all(&dir).unwrap();
 }

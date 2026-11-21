@@ -76,9 +76,7 @@ impl Method {
     pub fn command(self) -> String {
         match self {
             Method::Standalone => "bach update".into(),
-            // `@latest` always moves to the newest version, and the quiet level
-            // keeps npm's warnings about other global packages out of the way.
-            Method::Npm => "npm install --global @usebach/cli@latest --loglevel=error".into(),
+            Method::Npm => "npm update --global @usebach/cli".into(),
             Method::Scoop => "scoop update bach".into(),
             Method::Winget => "winget upgrade bach".into(),
             Method::Cargo => "cargo install --git https://github.com/usebach/bach bach-cli --locked --force".into(),

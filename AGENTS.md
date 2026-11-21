@@ -175,9 +175,10 @@ change, rename or remove any of these:
 1. **The docs site**, a Mintlify project (subdomain `bach`, served under
    `/docs`). Edit it with the Mintlify Admin MCP tools (`list_nodes`,
    `read`, `edit_page`, `write_page`, `create_node`, `update_config`, ...)
-   on the deploy branch `main`, which keeps edits unpublished. Read the
-   Mintlify skill (`mintlify:mintlify`) first. **Never publish** without the
-   user's explicit go-ahead; say which pages are waiting to be published.
+   on the deploy branch `main`. Read the Mintlify skill
+   (`mintlify:mintlify`) first. **Always publish** the docs site yourself
+   once your edits are done, without asking, and check with
+   `deployment_status` that it is live.
 2. **The Markdown in the repo**: `docs/*.md`, `README.md`,
    `schema/bach.schema.json` (a test keeps it complete) and
    `skills/bach/SKILL.md` (if agents need to know).
