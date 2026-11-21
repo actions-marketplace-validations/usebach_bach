@@ -45,7 +45,9 @@ Line '| --- | ---: | ---: | ---: | :---: | ---: |'
 foreach ($t in $tools) {
     $d = $data[$t]
     $ins = Median ($d.install | ForEach-Object { $_.seconds })
-    $rem = Median ($d.uninstall | ForEach-Object { $_.until_gone_seconds })
+    # Removal is done when the folder and the entry are gone: the time the uninstaller ran
+    # plus the time it took afterwards (an uninstaller that hands over to a copy returns at once).
+    $rem = Median ($d.uninstall | ForEach-Object { if ($null -ne $_.until_gone_seconds) { [math]::Round($_.seconds + $_.until_gone_seconds, 1) } })
     $ok = $(if ($d.verify.Identical) { 'yes' } else { 'no' })
     Line ("| {0} | {1} | {2} | {3} | {4} | {5} |" -f $label[$t], (Num $ins ' s'), (Num $d.update.seconds ' s'), (Num $rem ' s'), $ok, $d.update.stale_files)
 }

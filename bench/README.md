@@ -1,8 +1,9 @@
 # Installer comparison
 
 A repeatable comparison of Bach with Inno Setup, NSIS and WiX on one real app.
-Numbers are in [RESULTS.md](RESULTS.md); this page says how they were made and
-what they do not say.
+The numbers are in [RESULTS.md](RESULTS.md), what they mean is in
+[FINDINGS.md](FINDINGS.md), and this page says how they were made and what they
+do not say.
 
 ## The app
 

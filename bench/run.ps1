@@ -42,7 +42,12 @@ $UNINSTALL_KEYS = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall', '
 function Run-Timed([string]$File, [string]$Arguments, [int]$TimeoutSec = $StepTimeout) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $env:DOTNET_ROOT = $DOTNET_ROOT
-    $p = Start-Process -FilePath $File -ArgumentList $Arguments -PassThru -WindowStyle Hidden
+    try {
+        $p = Start-Process -FilePath $File -ArgumentList $Arguments -PassThru -WindowStyle Hidden
+    } catch {
+        # A program that isn't there (an uninstaller that was never written) is a result, not a crash.
+        return [pscustomobject]@{ Seconds = 0; ExitCode = -1; TimedOut = $false; PeakMB = 0; NotStarted = $true }
+    }
     $peak = 0L
     $timedOut = $false
     while (-not $p.WaitForExit(200)) {
@@ -73,7 +78,8 @@ function Find-Entries {
 }
 
 function Dir-Files([string]$Dir) {
-    if (Test-Path $Dir) { @(Get-ChildItem $Dir -Recurse -File -Force -ErrorAction SilentlyContinue) } else { @() }
+    if (-not (Test-Path $Dir)) { return @() }
+    try { @(Get-ChildItem $Dir -Recurse -File -Force -ErrorAction SilentlyContinue) } catch { @() }
 }
 
 # What an installer is allowed to add next to the app's files.
@@ -111,8 +117,22 @@ function Compare-Tree([string]$Payload, [string]$Installed) {
     [pscustomobject]@{ Expected = $want.Count; Found = $have.Count; Missing = $missing; Extra = $extra; WrongSize = $wrong; WrongContent = $badHash; Identical = ($missing -eq 0 -and $extra -eq 0 -and $wrong -eq 0 -and $badHash -eq 0) }
 }
 
+# Windows Installer's service keeps working after its client is killed; wait until it is idle.
+function Wait-Msi([int]$TimeoutSec = 300) {
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec -and @(Get-Process msiexec -ErrorAction SilentlyContinue).Count -gt 0) { Start-Sleep -Seconds 2 }
+}
+
 function Force-Clean([string]$Dir) {
-    foreach ($e in @(Find-Entries)) { Remove-Item -LiteralPath $e.PSPath -Recurse -Force -ErrorAction SilentlyContinue }
+    Wait-Msi
+    foreach ($e in @(Find-Entries)) {
+        # An MSI product is removed through Windows Installer, which also clears its own records.
+        if ($e.PSChildName -match '^\{[0-9A-Fa-f-]+\}$') {
+            [void](Run-Timed "$env:SystemRoot\System32\msiexec.exe" "/x $($e.PSChildName) /qn" 300)
+            Wait-Msi
+        }
+        Remove-Item -LiteralPath $e.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
     if (Test-Path $Dir) {
         for ($i = 0; $i -lt 5; $i++) {
             Remove-Item -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue
@@ -277,7 +297,7 @@ SectionEnd
   </Fragment>
 </Wix>
 "@
-                    Run-Timed $WIX "build `"$wxs`" -o `"$Out`" -arch x64 -sice ICE38 -sice ICE64 -sice ICE91 -sice ICE03" 3600
+                    Run-Timed $WIX "build `"$wxs`" -o `"$Out`" -arch x64" 3600
                 }
                 Install = { param($Setup, $Dir) @{ File = "$env:SystemRoot\System32\msiexec.exe"; Args = "/i `"$Setup`" /qn INSTALLFOLDER=`"$Dir`" /l*v `"$Work\cfg\msi-install.log`"" } }
                 Uninstall = { param($Setup, $Dir) @{ File = "$env:SystemRoot\System32\msiexec.exe"; Args = "/x `"$Setup`" /qn /l*v `"$Work\cfg\msi-uninstall.log`"" } }
@@ -316,7 +336,9 @@ function Test-Tool([string]$Tool) {
     if (-not $SkipBuilds -or -not (Test-Path $v2)) {
         if (Test-Path $v2) { Remove-Item $v2 -Force }
         $res = & $def.Build $installProfile '1.1.0' (Join-Path $Work 'payload-1.1.0') $v2
-        $r.build['v1_1_0'] = [ordered]@{ seconds = $res.Seconds; exit = $res.ExitCode; peak_mb = $res.PeakMB; size_mb = [math]::Round((Get-Item $v2).Length / 1MB, 1) }
+        $v2size = $(if (Test-Path $v2) { [math]::Round((Get-Item $v2).Length / 1MB, 1) } else { $null })
+        $r.build['v1_1_0'] = [ordered]@{ seconds = $res.Seconds; exit = $res.ExitCode; peak_mb = $res.PeakMB; size_mb = $v2size }
+        if (-not (Test-Path $v2)) { throw "$Tool could not build version 1.1.0 (exit $($res.ExitCode))." }
     }
     $tiny = Join-Path $Work "out\$Tool-tiny.$ext"
     if (Test-Path $tiny) { Remove-Item $tiny -Force }
@@ -369,8 +391,10 @@ function Test-Tool([string]$Tool) {
     try {
         $lock = [IO.File]::Open($locked, 'Open', 'Read', 'None')
         $ins2 = & $def.Install $v2 $dir
-        $t = Run-Timed $ins2.File $ins2.Args 150
+        # Long enough for Windows Installer, which needs about 150 s for this update even unlocked.
+        $t = Run-Timed $ins2.File $ins2.Args 420
     } finally { if ($lock) { $lock.Close() } }
+    Wait-Msi
     $want1 = Tree $payload1; $want2 = Tree $payload2; $have = Tree $dir
     $nowV1 = 0; $nowV2 = 0; $other = 0
     foreach ($k in $want2.Keys) {
@@ -425,7 +449,7 @@ function Test-Tool([string]$Tool) {
         $entryAfterKill = (@(Find-Entries).Count -gt 0)
         $again = Run-Timed $ins.File $ins.Args $StepTimeout
         $cmp = Compare-Tree $payload1 $dir
-        $r.killed = [ordered]@{ killed_while_running = $wasRunning; files_when_killed = $partial; of = $expected; entry_after_kill = $entryAfterKill; rerun_exit = $again.ExitCode; rerun_seconds = $again.Seconds; rerun_identical = $cmp.Identical }
+        $r.killed = [ordered]@{ killed_while_running = $wasRunning; files_when_killed = $partial; of = $expected; entry_after_kill = $entryAfterKill; rerun_exit = $again.ExitCode; rerun_seconds = $again.Seconds; rerun_identical = $cmp.Identical; rerun_missing = $cmp.Missing; rerun_extra = $cmp.Extra; rerun_wrong_size = $cmp.WrongSize; rerun_wrong_content = $cmp.WrongContent }
         Write-Host ("   killed with {0}/{1} files, entry {2}; second run exit {3}, identical {4}" -f $partial, $expected, $entryAfterKill, $again.ExitCode, $cmp.Identical)
         $un = & $def.Uninstall $s1 $dir; [void](Run-Timed $un.File $un.Args 120); [void](Wait-Removed $dir 60)
         Force-Clean $dir
