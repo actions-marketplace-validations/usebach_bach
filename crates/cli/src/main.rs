@@ -41,6 +41,7 @@ mod diff;
 mod doctor;
 mod feed;
 mod github;
+mod import;
 mod inspect;
 mod intune;
 mod key;
@@ -327,6 +328,19 @@ enum Command {
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
+    /// Write a first bach.toml from an Inno Setup script (.iss) or an NSIS script
+    /// (.nsi): the app's name, files, shortcuts, license and steps. What has no
+    /// Bach setting is listed, not guessed.
+    Import {
+        /// The script to read.
+        script: PathBuf,
+        /// Replace a bach.toml that is already next to the script.
+        #[arg(long)]
+        force: bool,
+        /// Print the bach.toml instead of writing it.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Try a setup file on a clean Windows in Windows Sandbox: install it
     /// silently, start the app, remove it, and report what failed and what
     /// was left behind.
@@ -558,6 +572,7 @@ fn main() -> ExitCode {
             dry_run,
             here,
         }),
+        Command::Import { script, force, dry_run } => import::command(import::Options { script: &script, force, dry_run }),
         Command::Diff { old, new, top } => diff::command(diff::Options { old: &old, new: &new, top }),
         Command::Verify { file, key_file } => verify::command(verify::Options { file: &file, key_file: key_file.as_deref() }),
         Command::Page { file, url, out, notes_file, winget } => page::command(page::Options {
