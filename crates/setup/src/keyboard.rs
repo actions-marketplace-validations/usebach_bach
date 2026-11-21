@@ -88,6 +88,22 @@ pub fn page_targets(stage: &Stage, facts: &PageFacts) -> Vec<Target> {
     }
 }
 
+/// Where focus goes after `key` (`tab`, `down`, `up`, `home` or `end`) with
+/// `count` controls on the page. Tab and the arrows wrap around; Home and End
+/// jump to the first and last control. `count` is more than zero.
+fn next_focus(current: Option<usize>, count: usize, key: &str, shift: bool) -> usize {
+    let back = key == "up" || (key == "tab" && shift);
+    match (key, current, back) {
+        ("home", ..) => 0,
+        ("end", ..) => count - 1,
+        (_, None, false) => 0,
+        (_, None, true) => count - 1,
+        // A page can lose controls (a row hides) while an old index is held.
+        (_, Some(index), false) => (index.min(count - 1) + 1) % count,
+        (_, Some(index), true) => (index.min(count - 1) + count - 1) % count,
+    }
+}
+
 /// The buttons along the bottom, which `[layout] primary = "first"` shows
 /// in reverse order: Tab follows them as they are drawn.
 fn is_footer_button(target: &Target) -> bool {
@@ -181,14 +197,8 @@ impl SetupView {
         let key = event.keystroke.key.as_str();
         let count = self.targets().len();
         match key {
-            "tab" | "down" | "up" if count > 0 => {
-                let back = key == "up" || (key == "tab" && event.keystroke.modifiers.shift);
-                self.focused = Some(match (self.focused, back) {
-                    (None, false) => 0,
-                    (None, true) => count - 1,
-                    (Some(index), false) => (index + 1) % count,
-                    (Some(index), true) => (index + count - 1) % count,
-                });
+            "tab" | "down" | "up" | "home" | "end" if count > 0 => {
+                self.focused = Some(next_focus(self.focused, count, key, event.keystroke.modifiers.shift));
                 self.scroll_focused_into_view();
                 cx.notify();
             }
@@ -270,6 +280,31 @@ mod tests {
         let working = Stage::Working { progress: 0.5, label: "x".into() };
         assert!(page_targets(&working, &nothing).is_empty());
         assert_eq!(page_targets(&working, &PageFacts { cancellable: true, ..facts() }), [Target::Cancel]);
+    }
+
+    #[test]
+    fn tab_walks_the_controls_and_wraps_around() {
+        assert_eq!(next_focus(None, 4, "tab", false), 0, "the first Tab lands on the first control");
+        assert_eq!(next_focus(None, 4, "tab", true), 3, "Shift+Tab from nothing lands on the last");
+        assert_eq!(next_focus(Some(3), 4, "tab", false), 0, "past the last control comes the first");
+        assert_eq!(next_focus(Some(0), 4, "tab", true), 3, "before the first comes the last");
+        assert_eq!(next_focus(Some(1), 4, "down", false), 2);
+        assert_eq!(next_focus(Some(1), 4, "up", false), 0);
+        assert_eq!(next_focus(Some(2), 4, "up", true), 1);
+    }
+
+    #[test]
+    fn home_and_end_jump_to_the_ends() {
+        assert_eq!(next_focus(Some(2), 5, "home", false), 0);
+        assert_eq!(next_focus(None, 5, "end", false), 4);
+        assert_eq!(next_focus(Some(0), 1, "end", false), 0, "a page with one control has one place to be");
+    }
+
+    #[test]
+    fn an_old_index_beyond_the_page_does_not_panic() {
+        // The page lost controls since the last key press.
+        assert_eq!(next_focus(Some(9), 3, "tab", false), 0);
+        assert_eq!(next_focus(Some(9), 3, "tab", true), 1);
     }
 
     #[test]

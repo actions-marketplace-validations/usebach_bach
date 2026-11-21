@@ -17,6 +17,8 @@ use crate::ui::color::mix;
 pub struct Looks {
     light: Theme,
     dark: Theme,
+    /// Windows' High contrast theme is on: edges and focus rings turn solid.
+    high_contrast: bool,
 }
 
 /// The font families the style asked for that this PC has.
@@ -37,7 +39,7 @@ impl Faces {
 impl Looks {
     pub fn new(style: &Resolved, faces: &Faces, pictures: Pictures, layout: Arrangement) -> Self {
         let make = |mode| theme(mode, style, faces, &pictures, layout);
-        Self { light: make(Mode::Light), dark: make(Mode::Dark) }
+        Self { light: make(Mode::Light), dark: make(Mode::Dark), high_contrast: super::os::high_contrast_requested() }
     }
 
     /// Bach's own style.
@@ -52,9 +54,14 @@ impl Looks {
     }
 
     pub fn get(&self, mode: Mode) -> Theme {
-        match mode {
+        let theme = match mode {
             Mode::Light => self.light.clone(),
             Mode::Dark => self.dark.clone(),
+        };
+        if self.high_contrast {
+            theme.for_high_contrast()
+        } else {
+            theme
         }
     }
 }
@@ -186,6 +193,18 @@ mod tests {
         assert_eq!(dark.surface, hex(0x181818));
         assert_eq!(dark.muted, hex(0x303030));
         assert_eq!(dark.mark, dark.foreground);
+    }
+
+    #[test]
+    fn high_contrast_makes_edges_and_rings_solid() {
+        for mode in [Mode::Light, Mode::Dark] {
+            let theme = Looks::bach().get(mode).for_high_contrast();
+            assert_eq!(theme.border, theme.foreground);
+            assert_eq!(theme.ring, theme.foreground);
+            assert_eq!(theme.input, theme.foreground);
+            assert_eq!(theme.muted_foreground, theme.foreground, "no faint secondary text");
+            assert_eq!(theme.surface, Looks::bach().get(mode).surface, "the window keeps its colour");
+        }
     }
 
     #[test]
