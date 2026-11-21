@@ -2,6 +2,33 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.10.0 (2026-11-21)
+
+### New
+
+- Add the measured results and findings of the installer comparison ([51091b6](https://github.com/usebach/bach/commit/51091b6204ff21cbf825ad1508ee5a45efa2b09d))
+- Add a repeatable installer comparison: Bach, Inno Setup, NSIS and WiX on one real app ([16292a4](https://github.com/usebach/bach/commit/16292a439c4ed63aeb99c8d2ea41a1d11fd30be4))
+- Add [[services]] and [[firewall]]: Windows services and firewall rules for machine-wide installs, and document them with import, test --here and the new switches ([f6c4b77](https://github.com/usebach/bach/commit/f6c4b7735ac9082164a981c301c6afa1e3bdf877))
+- Add compare to the GitHub Action: bach diff against the latest release, in the job summary and one pull request comment ([7f2bb7e](https://github.com/usebach/bach/commit/7f2bb7ef02c8dc3864c7d5fb74e857be05054fb8))
+- Add bach import: a first bach.toml from an Inno Setup or NSIS script ([4d43933](https://github.com/usebach/bach/commit/4d43933d29a9599e40641c63b66d0515f44f53ac))
+- Add bach test --here: try a setup file on this computer, for CI runners and virtual machines ([0924468](https://github.com/usebach/bach/commit/0924468e67d4b7ca694bd1ea4e019f95de82f1e6))
+- Add Home and End to the keyboard, and solid edges and rings in Windows High contrast ([f97bcdc](https://github.com/usebach/bach/commit/f97bcdcd7c328114dc0543acde0a867f15a1fe96))
+- Show the install window in English in both themes, and add the screenshot polish script ([4cbb4c1](https://github.com/usebach/bach/commit/4cbb4c1c6a48ae6fcf98353b90b39121aa77b3ee))
+
+### Improvements
+
+- Format the new modules ([0546686](https://github.com/usebach/bach/commit/05466865064d83c7a153ebd573e898c8faa66cd5))
+- Mention services, import and test --here in the README and the agent skill ([bf4485c](https://github.com/usebach/bach/commit/bf4485c1191b6b0ef6071e8b83b92f0393333b84))
+- Document the compare input of the GitHub Action ([0eda795](https://github.com/usebach/bach/commit/0eda795eb164a59f6c851ed90ccd2f0b138086f2))
+- Make the --here guard test ignore line endings ([fa8f8bb](https://github.com/usebach/bach/commit/fa8f8bb21c1abcb4914e1c2d7f3d5a1ff81c8de4))
+- Accept Inno Setup, NSIS and Windows Installer silent switches in a setup file ([6e149a0](https://github.com/usebach/bach/commit/6e149a0251d7c7fc9adf6a26ead6b9bef133e1be))
+- Rewrite the README: shorter funnel, grouped commands, current features ([74aa381](https://github.com/usebach/bach/commit/74aa381afc3a8fe592be3ec5d54739330c91761a))
+- Teach AGENTS.md the docs-site workflow and the screenshot rules ([c8a6356](https://github.com/usebach/bach/commit/c8a63567181a5d7ba6d6d83f47448b57d119c5b3))
+- Update: Bump the cargo group with 6 updates ([2143af0](https://github.com/usebach/bach/commit/2143af0daee8c98ded4c492f543262d683a41bf4))
+- Update: Bump the actions group with 2 updates ([c21655d](https://github.com/usebach/bach/commit/c21655d5ed30d3ef262ca8140bd37308cffe2515))
+
+All changes: [v0.9...v0.10.0](https://github.com/usebach/bach/compare/v0.9...v0.10.0)
+
 ## 0.9.0 (2026-11-20)
 
 ### New
