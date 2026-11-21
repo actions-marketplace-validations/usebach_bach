@@ -545,7 +545,7 @@ dependencies = [
 
 [[package]]
 name = "bach-cli"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "bach-pack",
@@ -562,7 +562,7 @@ dependencies = [
 
 [[package]]
 name = "bach-pack"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -579,7 +579,7 @@ dependencies = [
 
 [[package]]
 name = "bach-setup"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "bach-pack",
@@ -594,6 +594,7 @@ dependencies = [
  "sha2 0.11.1",
  "windows 0.62.2",
  "windows-registry 0.100.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2739,7 +2740,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hello"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "windows 0.62.2",
 ]
@@ -7818,7 +7819,6 @@ dependencies = [
  "typed-path",
  "windows-sys 0.61.2",
  "zeroize",
- "zopfli",
 ]
 
 [[package]]
@@ -7832,18 +7832,6 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[package]]
-name = "zopfli"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aaf7fc5d30c28483d93805c4a5e12b05bbb52407fa67c5f8bd552374cd01fb11"
-dependencies = [
- "bumpalo",
- "crc32fast",
- "log",
- "simd-adler32",
-]
 
 [[package]]
 name = "zstd"
