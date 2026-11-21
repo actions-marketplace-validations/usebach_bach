@@ -10,6 +10,7 @@ use bach_pack::style::layout::Arrangement;
 use gpui::{px, App, FontWeight, Global, Hsla, Image, Pixels, SharedString, WindowAppearance};
 
 mod derive;
+mod os;
 
 pub use derive::{Faces, Looks, Pictures};
 
@@ -121,6 +122,21 @@ impl Theme {
     pub fn meta_text(&self) -> (Pixels, Pixels) {
         let size = self.layout.text_size - 2.;
         (px(size), px((size * 16. / 12.).round()))
+    }
+
+    /// This theme for someone who turned on a Windows contrast theme: every
+    /// edge, checkbox outline, focus ring and secondary text takes the full
+    /// text colour, so nothing depends on a faint tint.
+    pub fn for_high_contrast(mut self) -> Self {
+        let text = self.foreground;
+        self.border = text;
+        self.input = text;
+        self.ring = text;
+        self.muted_foreground = text;
+        self.header_muted = self.header_text;
+        self.well_outline = text;
+        self.hover = text.opacity(0.18);
+        self
     }
 
     /// A checkbox's corners: the controls' radius, kept small on a 16px box.

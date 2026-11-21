@@ -117,6 +117,28 @@ function Run-Program([string]$file, [string[]]$arguments) {
     return $process.ExitCode
 }
 
+function Write-Report {
+    $report = [ordered]@{
+        version = 1
+        seconds = (Seconds $started)
+        steps = @($steps)
+        left_behind = $left
+        facts = $facts
+    }
+    $temporary = Join-Path $out 'report.partial'
+    ($report | ConvertTo-Json -Depth 6) | Set-Content -Path $temporary -Encoding UTF8
+    Move-Item -Force -LiteralPath $temporary -Destination (Join-Path $out 'report.json')
+}
+
+# Run on this computer (-Local), the test would install the app for real and then
+# remove it: on a computer that already has the app, that would remove the
+# person's own copy. So it stops before it touches anything.
+if ($Local -and (Find-Install)) {
+    Step 'Clean computer' $false "$($params.name) is already installed on this computer, and this test would replace it and then remove it. Run it on a computer without the app (a CI runner, a virtual machine), or in Windows Sandbox."
+    Write-Report
+    exit 0
+}
+
 try {
     $beforeFiles = Snapshot-Files
     $beforeRegistry = Snapshot-Registry
@@ -202,16 +224,7 @@ try {
     Step 'Test script' $false $_.Exception.Message
 }
 
-$report = [ordered]@{
-    version = 1
-    seconds = (Seconds $started)
-    steps = @($steps)
-    left_behind = $left
-    facts = $facts
-}
-$temporary = Join-Path $out 'report.partial'
-($report | ConvertTo-Json -Depth 6) | Set-Content -Path $temporary -Encoding UTF8
-Move-Item -Force -LiteralPath $temporary -Destination (Join-Path $out 'report.json')
+Write-Report
 
 # The sandbox is thrown away when it ends; ending it is what "done" means,
 # unless the test was asked to keep it open.

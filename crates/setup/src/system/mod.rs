@@ -26,6 +26,7 @@ pub mod host;
 pub mod integration;
 pub mod msi;
 pub mod secret;
+pub mod services;
 pub mod task;
 
 use std::path::{Path, PathBuf};

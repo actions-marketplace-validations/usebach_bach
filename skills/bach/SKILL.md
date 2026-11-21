@@ -179,6 +179,16 @@ arguments = "/quiet /norestart"
 when = "first_install"                    # or "install" (default), "uninstall" (before removal)
 success_codes = [0, 3010]
 
+[[services]]                              # a Windows service (needs installer.scope = "machine")
+name = "MyAppAgent"                       # start = "auto" (default) | "delayed" | "manual" | "disabled"
+file = "agent/agent.exe"                  # account = "local_service" (default) | "network_service" | "local_system"
+arguments = "--service"
+
+[[firewall]]                              # a Windows Firewall rule (needs installer.scope = "machine")
+name = "My App server"
+ports = "8080"                            # or file = "agent/agent.exe"; ports need protocol = "tcp" or "udp"
+protocol = "tcp"
+
 [access]                                  # private app: asks for a key, encrypts the files with it
 # The key is never written here: `bach key --out key.txt`, then `bach build --key-file key.txt`
 # (a key file with many lines = one setup file that each key opens; remove a line to revoke on the next build)
@@ -319,7 +329,9 @@ window speaks several).
   (needs a `WINGET_TOKEN` repository secret; the first winget submission is still by hand).
 - To try a setup file on a clean Windows: `bach test [SETUP.exe]` runs install, start and
   uninstall in Windows Sandbox (Pro/Enterprise/Education only) and reports failures and
-  leftovers; `--dry-run` only writes the sandbox files.
+  leftovers; `--dry-run` only writes the sandbox files. `bach test --here` runs it on this
+  computer instead (for CI runners and virtual machines: it installs for real, and refuses
+  when the app is already installed).
 - To check a setup file without installing it: `bach verify SETUP.exe` (add
   `--key-file FILE` for an encrypted one; `--json` gives `verified` and `signature`).
 - For one download that serves x64 and ARM64: add `[arch.arm64] source = "<arm64 folder>"`; `bach build
@@ -331,6 +343,11 @@ window speaks several).
 - For a portable ZIP or a company (machine-wide) version of the same app: add `[profiles.NAME]`
   to `bach.toml` (`kind = "zip"`, or settings that differ), then `bach build --profile NAME` or
   `bach build --all-profiles`; `bach profiles` lists them.
+- To start from an existing Inno Setup or NSIS installer: `bach import installer.iss` (or `.nsi`)
+  writes a first `bach.toml` next to it and lists what it couldn't convert; `--dry-run` prints it.
+  Read it, then `bach check`.
+- In GitHub Actions, `compare: true` on the `usebach/bach` action writes `bach diff` against the
+  latest release to the job summary and one pull request comment (needs `pull-requests: write`).
 - To see what changed between two releases: `bach diff OLD.exe NEW.exe` (files added,
   removed and changed, new registry values, which files grew the app; `--json` too).
 - For a download page: `bach page SETUP.exe --url URL` writes `download/index.html`.

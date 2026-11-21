@@ -1,0 +1,111 @@
+﻿{
+    "tool":  "wix",
+    "started":  "2026-11-21T19:03:35",
+    "notes":  [
+
+              ],
+    "build":  {
+                  "default":  {
+                                  "seconds":  57.6,
+                                  "exit":  0,
+                                  "peak_mb":  407,
+                                  "size_mb":  110.4
+                              },
+                  "high":  {
+                               "seconds":  82.4,
+                               "exit":  0,
+                               "peak_mb":  425,
+                               "size_mb":  102.8
+                           },
+                  "v1_1_0":  {
+                                 "seconds":  54.6,
+                                 "exit":  0,
+                                 "peak_mb":  400,
+                                 "size_mb":  110.4
+                             }
+              },
+    "tiny":  {
+                 "installer_kb":  128,
+                 "app_kb":  200,
+                 "overhead_kb":  -72
+             },
+    "install":  [
+                    {
+                        "seconds":  20.8,
+                        "exit":  0,
+                        "timed_out":  false
+                    },
+                    {
+                        "seconds":  20.8,
+                        "exit":  0,
+                        "timed_out":  false
+                    },
+                    {
+                        "seconds":  21,
+                        "exit":  0,
+                        "timed_out":  false
+                    }
+                ],
+    "uninstall":  [
+                      {
+                          "seconds":  33.2,
+                          "until_gone_seconds":  0.1,
+                          "exit":  0
+                      },
+                      {
+                          "seconds":  33.2,
+                          "until_gone_seconds":  0.1,
+                          "exit":  0
+                      },
+                      {
+                          "seconds":  33.2,
+                          "until_gone_seconds":  0.1,
+                          "exit":  0
+                      }
+                  ],
+    "verify":  {
+                   "Expected":  10107,
+                   "Found":  10107,
+                   "Missing":  0,
+                   "Extra":  0,
+                   "WrongSize":  0,
+                   "WrongContent":  0,
+                   "Identical":  true
+               },
+    "after_remove":  null,
+    "entry_written":  true,
+    "leftovers_after_remove":  [
+
+                               ],
+    "update":  {
+                   "seconds":  135.9,
+                   "exit":  0,
+                   "timed_out":  false,
+                   "identical_to_new":  true,
+                   "stale_files":  0,
+                   "missing":  0,
+                   "wrong_size":  0,
+                   "wrong_content":  0
+               },
+    "locked_update":  {
+                          "seconds":  188.8,
+                          "exit":  1603,
+                          "timed_out":  false,
+                          "changed_files_still_old":  300,
+                          "changed_files_new":  0,
+                          "new_files_present":  0,
+                          "state":  "old version intact"
+                      },
+    "damaged":  {
+                    "seconds":  16.1,
+                    "exit":  1603,
+                    "timed_out":  false,
+                    "files_written":  0,
+                    "entry_written":  false,
+                    "refused":  true
+                },
+    "user_files":  {
+                       "kept_after_removal":  true
+                   },
+    "finished":  "2026-11-21T19:59:09"
+}

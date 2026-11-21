@@ -789,6 +789,102 @@ for apps with a packaged shell extension. Selecting several files starts one
 copy of your app per file. Setup only changes entries with its own mark, and
 leaves an entry of the same name that another program made.
 
+## [[services]]
+
+Windows services the app installs: an agent, a sync engine, a local server.
+A service runs without anyone signed in and starts with Windows, so this is for
+apps that have to keep working in the background.
+
+A service is installed with administrator rights, so `[[services]]` needs
+[`installer.scope = "machine"`](#machine-wide-installs). In a per-user config,
+`bach check` stops with a sentence that says so.
+
+```toml
+[installer]
+scope = "machine"
+
+[[services]]
+name = "HelloAgent"                  # what `sc query HelloAgent` knows it by
+display_name = "Hello Agent"         # what Services lists; the name by default
+description = "Syncs Hello in the background."
+file = "agent/agent.exe"             # a packaged .exe; the app's own program by default
+arguments = "--service"
+start = "auto"                       # auto (default), delayed, manual or disabled
+account = "local_service"            # local_service (default), network_service or local_system
+restart_on_failure = true            # the default
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `name` | required | The service's name: letters, digits, `.`, `-` and `_`, up to 64 characters, not starting with `.`. |
+| `display_name` | the name | The name Services lists, up to 256 characters. |
+| `description` | none | One line shown in Services, up to 1000 characters. |
+| `file` | `app.executable` | The service's program: a packaged `.exe`, relative to `[files] source`. |
+| `arguments` | none | The command line after the program, passed as written. |
+| `start` | `auto` | `auto` starts it with Windows, `delayed` a little after the rest (it doesn't slow the sign-in), `manual` when something asks for it, `disabled` never. |
+| `account` | `local_service` | `local_service` has few rights on the computer and none on the network. `network_service` has the computer's identity on the network. `local_system` has full rights: use it only for a service that has to manage the computer. Setup never takes a password, so no other account is possible. |
+| `restart_on_failure` | `true` | Windows starts the service again a minute after it stops by itself, up to three times; the count is forgotten after a day. `false` leaves it stopped. |
+
+What setup does:
+
+- **First install**: creates each service, then starts it when `start` is
+  `auto` or `delayed`. A service that doesn't reach the running state in 30
+  seconds fails the install, and the install is undone: the services setup
+  made are deleted again.
+- **Update**: a running service holds its program, so setup stops it (up to
+  30 seconds) before the files are swapped, brings its definition up to date and
+  starts it again, if it was running or `start` says so. A service the new
+  version no longer lists is stopped and deleted. If anything fails after the
+  files were placed, the earlier version's files and services come back.
+- **Removal**: setup stops each service, deletes it, and then deletes the files.
+  A service that won't stop or delete is logged; removal itself never stops for it.
+- **Repair** goes through the same steps as an update.
+
+Setup only changes a service it can prove is its own: one whose program is in
+the install folder. If a service with that name already exists and starts
+something else, the install stops with "{name} couldn't be set up (exit code
+exists)" and the log names the program. Services are never taken over, so
+pick a name that is yours.
+
+A setup file with `[[services]]` can't be an MSI: `bach build --msi` stops and
+says so. `bach inspect` lists each service (`Service`), and `bach diff` shows
+one that was added, removed or changed. `--preview` pretends, like everything
+else.
+
+## [[firewall]]
+
+Windows Firewall rules that let the app's traffic through: a server that other
+computers connect to, or a program that is blocked by default. It needs
+`installer.scope = "machine"`, like [`[[services]]`](#services).
+
+```toml
+[[firewall]]
+name = "Hello server"
+ports = "8080,9000-9010"             # or a single number: ports = 8080
+protocol = "tcp"                     # ports need tcp or udp
+networks = ["private", "domain"]     # not "public"; every network by default
+
+[[firewall]]
+name = "Hello agent"
+file = "agent/agent.exe"             # a packaged .exe: any traffic of that program
+direction = "in"                     # in (default) or out
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `name` | required | The rule's name in Windows Defender Firewall (up to 128 characters; no `"` or `\`, and not `all`). |
+| `file` | none | A packaged `.exe` the rule is for. The rule needs `file`, `ports` or both. |
+| `ports` | none | Local ports: `8080` or `"8080,9000-9010"`. |
+| `direction` | `in` | `in` lets other computers connect to the app, `out` lets the app connect out. |
+| `protocol` | `any` | `any`, `tcp` or `udp`. Rules with `ports` need `tcp` or `udp`. |
+| `networks` | every network | `domain`, `private`, `public`, or a list of them. |
+
+Every rule allows traffic; Bach doesn't write blocking rules. Setup adds the
+rule after the files are in place, deletes an older rule of the same name first
+(so an update never leaves two), and deletes it when the app is removed. The
+delete is narrowed by the rule's program, direction, protocol and ports, so a
+rule of the same name that another program made stays.
+
 ## [[migrate]]
 
 Moving an app from Inno Setup, NSIS or an MSI to Bach would leave it on every
@@ -1348,8 +1444,9 @@ the exit code. `--help` always works, whatever else is on the line.
 
 | Flag | Meaning |
 | --- | --- |
-| `--silent` (also `/S`, `/quiet`) | No window. Exit code 0 when done, 1 when it failed (the reason is printed in a terminal), 2 for a command-line mistake. |
-| `--dir PATH` | Install here instead of the default folder (a first install, when `change_folder` allows it). |
+| `--silent` (also `/S`, `/quiet`, `/qn`, `/qb`, `/VERYSILENT`) | No window. Exit code 0 when done, 1 when it failed (the reason is printed in a terminal), 2 for a command-line mistake. The Inno Setup and Windows Installer spellings are accepted so a deployment script that already uses them keeps working. |
+| `--dir PATH` (also `/DIR=PATH`, `/D=PATH`) | Install here instead of the default folder (a first install, when `change_folder` allows it). `/D=` is NSIS's: like NSIS, it takes the rest of the command line, so an unquoted path with spaces works when `/D=` comes last. |
+| `/NORESTART`, `/SP-`, `/SUPPRESSMSGBOXES`, `/NOCANCEL`, `/NCRC`, `/CLOSEAPPLICATIONS`, `/NOCLOSEAPPLICATIONS`, `/RESTARTAPPLICATIONS`, `/NORESTARTAPPLICATIONS` | Inno Setup and NSIS switches that ask for what a Bach setup does anyway (it never restarts Windows and shows no message boxes in a silent run). They are accepted and ignored, so a script that passes them doesn't fail with exit code 2. |
 | `--with a,b` / `--without a,b` | Tick or untick options: `desktop-shortcut`, `start-menu`, `autostart`, `path`, `auto-update`, and component ids. Only options the install page would offer. |
 | `--lang CODE` | The language for messages, instead of Windows' own. |
 | `--theme light\|dark\|system` | The window's theme for this run, instead of `installer.theme`. |
@@ -1368,8 +1465,12 @@ A silent run accepts the license on the user's behalf and stops when a
 requirement is missing. Settings › Apps runs `uninstall.exe --silent` for a
 quiet removal; add `--delete-data` to delete the user's data too.
 
-In the window, Tab and the arrow keys move between the choices and buttons,
-Space or Enter does what a click would, and Escape cancels. When the app is
+In the window, Tab and Shift+Tab (or the arrow keys) move between the choices
+and buttons, Home and End jump to the first and last one, Space or Enter does
+what a click would, and Escape cancels. A ring shows where the focus is, once
+the keyboard is used. In a Windows contrast theme (Settings > Accessibility >
+Contrast themes), edges, checkbox outlines, focus rings and secondary text
+turn to the full text colour. When the app is
 still open, the error page offers "Close and continue", which asks the app
 to close the way Windows Update does (it may ask to save first; nothing is
 killed).
@@ -1761,6 +1862,7 @@ The report ends with a summary line and exit code `0` when every check passed,
 | `--timeout MINUTES` | How long to wait for the report (default 20). |
 | `--keep` | Leave the sandbox open when the test ends, to look around in it. |
 | `--dry-run` | Write the files the test would use and stop. It works without Windows Sandbox and prints where the `.wsb` file is. |
+| `--here` | Run the test on this computer instead of in Windows Sandbox. See below. |
 
 `--json` prints `passed`, `steps` (`name`, `ok`, `detail`) and `left_behind`
 (`files`, `registry`, `other`).
@@ -1776,6 +1878,70 @@ The report ends with a summary line and exit code `0` when every check passed,
   writes (`run.ps1`), and `params.json` with what the script checks against.
   The script reads that file as data and never builds commands from what a
   setup file says. The setup file's folder is mapped read-only.
+
+### Testing without Windows Sandbox
+
+Windows Sandbox isn't on Windows Home, and it isn't on GitHub's Windows runners.
+`bach test --here` runs the same test, with the same checks and the same
+report, on the computer it is started on:
+
+```powershell
+bach test dist\Hello-Setup-1.4.0.exe --here
+```
+
+This installs the app for real and removes it again, so use it where that is
+harmless: a CI job, a virtual machine. It also keeps its hands off a computer
+that has the app: if the app is already installed, the test fails at once with
+"already installed on this computer", before it changes anything, so your own
+copy is never the one it removes. The **Left behind** check compares the
+folders and keys before and after, so run it where nothing else is installing
+things at the same time. `--here` can't be combined with `--keep`, and a setup
+file that asks for administrator rights needs a job that already has them (a
+GitHub runner does): there is nobody to accept Windows' prompt. In GitHub
+Actions:
+
+```yaml
+- run: bach build
+- run: bach test --here
+```
+
+## Importing an Inno Setup or NSIS script
+
+```bash
+bach import installer.iss
+bach import installer.nsi --dry-run
+```
+
+`bach import` reads an Inno Setup script (`.iss`) or an NSIS script (`.nsi`)
+and writes a first `bach.toml` next to it. Both are programming languages, so it
+reads only what has a setting in Bach and says what it left out:
+
+- the app's name, version, publisher, website and icon, the license file and
+  the install folder's name;
+- the folder the files come from (`[files] source`, the folder most `Source:`
+  or `File` lines take from) and what they exclude;
+- whether the install is machine-wide (`PrivilegesRequired`, `RequestExecutionLevel`,
+  a Program Files install folder), the desktop shortcut, extra Start menu
+  shortcuts, and programs the script runs from the install folder (`[[run]]`);
+- `#define` constants (`{#Name}`) and `!define` constants (`${NAME}`) are filled in.
+
+Everything else is listed under **Not converted**: registry writes, custom
+pages and code (`[Code]`, NSIS functions), components, `{tmp}` and system
+programs, files that go to other folders, and an `#include` file. Settings the
+script doesn't give are marked in the file (`# name = ""`), and `bach check`
+reports them. Paths stay relative to the script's folder.
+
+| Option | Meaning |
+| --- | --- |
+| `SCRIPT` | The `.iss` or `.nsi` file. |
+| `--dry-run` | Print the `bach.toml` instead of writing it. |
+| `--force` | Replace a `bach.toml` that is already next to the script. Without it the command stops. |
+
+Inno Setup's default is an installer that asks for administrator rights, so an
+`.iss` without `PrivilegesRequired=lowest` becomes `scope = "machine"` and
+the command says so; delete that line if the app can live in one user's folder.
+Read the file before you build: it is a starting point, not a copy of what the
+old installer did.
 
 ## A download page
 

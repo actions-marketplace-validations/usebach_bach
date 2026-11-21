@@ -41,6 +41,7 @@ mod diff;
 mod doctor;
 mod feed;
 mod github;
+mod import;
 mod inspect;
 mod intune;
 mod key;
@@ -327,6 +328,19 @@ enum Command {
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
+    /// Write a first bach.toml from an Inno Setup script (.iss) or an NSIS script
+    /// (.nsi): the app's name, files, shortcuts, license and steps. What has no
+    /// Bach setting is listed, not guessed.
+    Import {
+        /// The script to read.
+        script: PathBuf,
+        /// Replace a bach.toml that is already next to the script.
+        #[arg(long)]
+        force: bool,
+        /// Print the bach.toml instead of writing it.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Try a setup file on a clean Windows in Windows Sandbox: install it
     /// silently, start the app, remove it, and report what failed and what
     /// was left behind.
@@ -357,6 +371,11 @@ enum Command {
         /// Write the files the test would use and stop (works without Windows Sandbox).
         #[arg(long)]
         dry_run: bool,
+        /// Run the test on this computer instead of in Windows Sandbox: it installs the app
+        /// for real and removes it again. For a CI runner or a virtual machine; it refuses on a
+        /// computer that already has the app.
+        #[arg(long, conflicts_with = "keep")]
+        here: bool,
     },
     /// Show what changed between two setup files of one app: the files added,
     /// removed and changed, what the new one writes to the registry and the
@@ -541,17 +560,21 @@ fn main() -> ExitCode {
         Command::Choco { file, url, license, out } => {
             choco::command(choco::Options { setup: &file, url: &url, license: license.as_deref(), out: out.as_deref() })
         }
-        Command::Test { file, config, with, without, launch, network, timeout, keep, dry_run } => sandbox::command(sandbox::Options {
-            file: file.as_deref(),
-            config: &config,
-            with: &with,
-            without: &without,
-            launch_seconds: launch,
-            network,
-            timeout_minutes: timeout,
-            keep,
-            dry_run,
-        }),
+        Command::Test { file, config, with, without, launch, network, timeout, keep, dry_run, here } => {
+            sandbox::command(sandbox::Options {
+                file: file.as_deref(),
+                config: &config,
+                with: &with,
+                without: &without,
+                launch_seconds: launch,
+                network,
+                timeout_minutes: timeout,
+                keep,
+                dry_run,
+                here,
+            })
+        }
+        Command::Import { script, force, dry_run } => import::command(import::Options { script: &script, force, dry_run }),
         Command::Diff { old, new, top } => diff::command(diff::Options { old: &old, new: &new, top }),
         Command::Verify { file, key_file } => verify::command(verify::Options { file: &file, key_file: key_file.as_deref() }),
         Command::Page { file, url, out, notes_file, winget } => page::command(page::Options {

@@ -12,6 +12,7 @@ mod layout;
 mod options;
 mod profile;
 mod secrets;
+mod services;
 mod style;
 mod system;
 mod text;
@@ -77,6 +78,10 @@ struct File {
     context_menu: Vec<system::ContextMenuSection>,
     #[serde(default)]
     migrate: Vec<system::MigrateSection>,
+    #[serde(default)]
+    services: Vec<services::ServiceSection>,
+    #[serde(default)]
+    firewall: Vec<services::FirewallSection>,
     updates: Option<extras::UpdatesSection>,
     access: Option<extras::AccessSection>,
     signing: Option<SigningSection>,
@@ -571,7 +576,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
             encrypted: access.as_ref().is_some_and(|access| access.encrypt),
         },
     )?;
-    let system_changes = system::changes(
+    let mut system_changes = system::changes(
         &file.registry,
         &file.env,
         &file.context_menu,
@@ -579,6 +584,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         &system::Owner { id: &app.id, name: &app.name, publisher: &app.publisher },
         &mut warnings,
     )?;
+    services::add(&mut system_changes, &file.services, &file.firewall, &files, &app.executable, install.scope.is_machine())?;
     // A 32-bit program reads HKLM\Software\Vendor from WOW6432Node.
     if install.scope.is_machine() && system::registry_leaves_view_open(&file.registry) {
         let program = sources.iter().find(|source| source.packaged.eq_ignore_ascii_case(&app.executable));

@@ -30,7 +30,9 @@ use crate::system::{self, elevate};
 pub const HELP: &str = "Setup file and uninstall.exe options
 
   --silent, /S            Install or remove without a window. Exit code 0 done, 1 failed, 2 wrong options.
-  --dir FOLDER            Where a silent install goes (a first install only).
+                          /VERYSILENT, /qn and /qb mean the same; /NORESTART, /SP-, /SUPPRESSMSGBOXES and
+                          other Inno Setup and NSIS switches that ask for what setup does anyway are accepted.
+  --dir FOLDER            Where a silent install goes (a first install only). /DIR=FOLDER and NSIS's /D=FOLDER work too.
   --with IDS              Turn these options on (comma-separated ids: desktop-shortcut, start-menu,
                           autostart, path, auto-update, or a component id).
   --without IDS           Turn these options off.
@@ -192,6 +194,13 @@ impl Args {
             };
             let value = if flag.takes_value {
                 match attached {
+                    // NSIS reads `/D=` as the rest of the line, quotes or not, so
+                    // `/D=C:\Program Files\App` arrives as two words.
+                    Some(value) if name == "d" => {
+                        let rest = args[index..].join(" ");
+                        index = args.len();
+                        Some(if rest.is_empty() { value } else { format!("{value} {rest}") })
+                    }
                     Some(value) => Some(value),
                     None => match args.get(index) {
                         Some(next) if !next.starts_with("--") => {
@@ -299,7 +308,22 @@ const fn valued(names: &'static [&'static str]) -> Flag {
 /// Every option, matched without regard to case. `/S`, `/quiet` and friends
 /// are what IT tools try first.
 const FLAGS: &[Flag] = &[
-    flag(&["silent", "s", "quiet", "q"]),
+    // `/VERYSILENT` and `/SILENT` are Inno Setup's, `/qn` and `/qb` Windows Installer's.
+    flag(&["silent", "s", "quiet", "q", "verysilent", "qn", "qb"]),
+    // Inno Setup and NSIS switches that ask for what a Bach setup does anyway
+    // (no restart, no message boxes, no checksum prompt): accepted so an
+    // existing deployment script keeps working, and ignored.
+    flag(&[
+        "norestart",
+        "sp-",
+        "suppressmsgboxes",
+        "nocancel",
+        "ncrc",
+        "closeapplications",
+        "nocloseapplications",
+        "restartapplications",
+        "norestartapplications",
+    ]),
     flag(&["uninstall"]),
     flag(&["preview"]),
     flag(&["allow-downgrade"]),
@@ -315,7 +339,8 @@ const FLAGS: &[Flag] = &[
     flag(&["json"]),
     flag(&["launch"]),
     valued(&["install-dir"]),
-    valued(&["dir"]),
+    // `/D=` is NSIS's, and (see `parse_from`) takes the rest of the line.
+    valued(&["dir", "d"]),
     valued(&["with"]),
     valued(&["without"]),
     valued(&["log"]),
@@ -465,6 +490,25 @@ mod tests {
 
     fn mistake(line: &str) -> String {
         Args::parse_from(line.split_whitespace().map(String::from).collect()).unwrap_err()
+    }
+
+    #[test]
+    fn inno_setup_and_windows_installer_switches_mean_silent() {
+        for line in ["/VERYSILENT", "/verysilent /NORESTART /SP- /SUPPRESSMSGBOXES", "/qn", "/qb", "/S /NCRC"] {
+            assert!(args(line).silent, "{line}");
+        }
+        assert!(!args("/NORESTART /CLOSEAPPLICATIONS").silent, "the ignored switches do nothing on their own");
+    }
+
+    #[test]
+    fn nsis_d_takes_the_rest_of_the_line() {
+        assert_eq!(args(r"/S /D=C:\Apps\Hello").dir, Some(PathBuf::from(r"C:\Apps\Hello")));
+        assert_eq!(
+            args(r"/S /D=C:\Program Files\My App").dir,
+            Some(PathBuf::from(r"C:\Program Files\My App")),
+            "an unquoted folder with spaces arrives as several words"
+        );
+        assert_eq!(args(r#"/VERYSILENT /DIR=C:\Apps\Hello"#).dir, Some(PathBuf::from(r"C:\Apps\Hello")));
     }
 
     /// Whatever is on the command line, reading it ends in a value or a sentence.
@@ -622,8 +666,9 @@ mod tests {
         // And the other way round: every option the parser knows is in the help.
         for flag in FLAGS {
             let name = format!("--{}", flag.names[0]);
-            let internal =
-                ["json", "launch", "install-dir", "uninstall", "msi-package", "msi-product", "msi-upgrade"].contains(&flag.names[0]);
+            // "norestart" heads the accepted-and-ignored Inno and NSIS switches, which the help names together.
+            let internal = ["json", "launch", "install-dir", "uninstall", "msi-package", "msi-product", "msi-upgrade", "norestart"]
+                .contains(&flag.names[0]);
             assert!(HELP.contains(&name) || internal, "{name} is parsed but not in the help text");
         }
     }

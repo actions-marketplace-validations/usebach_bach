@@ -120,6 +120,7 @@ signing in.
 | `notes`, `notes-file` | What's new. Apps that offer the update can show it. |
 | `args` | More arguments for `bach build`, like `--fast` or `--patch-from OLD.exe`, written like a command line: spaces separate words and quotes keep a value with spaces in one piece (`--patch-from "dist/My App 1.0.exe"`). Nothing is expanded, and a word can't hold a line break. |
 | `sign-command` | A PowerShell command that signs `$env:BACH_SETUP_FILE`. It runs before the feed is written, so the feed has the signed file's SHA-256. |
+| `compare` | `true` compares the new setup file with the one of the latest release (`bach diff`): files added, removed and changed, and how much bigger or smaller it got. The report goes to the job summary and, on a pull request, into one comment that later pushes update. The release's file is found by name: `Hello-Setup-1.4.0.exe` is looked for as `Hello-Setup-*.exe`. Nothing is compared when there is no earlier release or it has no such file. The comment needs `pull-requests: write`; a pull request from a fork gets only the summary. |
 | `tag` | The release's tag (default `v` plus the version). |
 | `prerelease`, `draft`, `latest` | How the release is published. |
 | `version` | Which Bach builds: `0.2.1` exactly, `0.2` or `0` for the newest of that line, `latest`. Default: the tag you pinned the action with. |
@@ -222,7 +223,8 @@ Limits, so nobody is surprised:
 - The SHA-256 comes from the same place as the file. It guards against
   damage and a wrong file, not against someone who controls your release
   page. Sign your setup file so Windows shows your name ([signing](signing.md)).
-- The download is the whole setup file each time, no deltas.
+- Unless you offer an [update patch](#update-patches), the download is the
+  whole setup file each time.
 - A private GitHub repository can't serve the feed (the app has no GitHub
   token to send). Use a server that checks the access key instead: see
   [private updates](#private-updates).

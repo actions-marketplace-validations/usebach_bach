@@ -31,7 +31,7 @@ use super::patch::patch_base;
 use super::place::{self, Transaction};
 use super::{describe, failed, is_disk_full, is_in_use, is_in_use_at, plain, remove_empty_parents, remove_file_if_present, Report};
 use crate::package::Package;
-use crate::system::{self, changes, env_path, host, integration, task};
+use crate::system::{self, changes, env_path, host, integration, services, task};
 use crate::texts::{self, Texts};
 
 /// Unpacking is most of the work; the steps after it share the rest.
@@ -131,18 +131,30 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     // The installed uninstaller is kept before anything changes: an update that can't keep
     // it must not start, since putting the earlier version back would then delete it.
     let uninstaller_before = keep_uninstaller(dir).map_err(|(path, err)| failed(texts, Key::error_write, &path, &err))?;
+    // A running service holds its program: stop them for the swap (they start again below).
+    let stopped = match services::stop_for_update(manifest, previous.as_ref(), dir) {
+        Ok(stopped) => stopped,
+        Err(failure) => {
+            if let Some(kept) = &uninstaller_before {
+                let _ = fs::remove_file(kept);
+            }
+            return Err(service_failed(texts, &failure));
+        }
+    };
     let committed = match unpack(plan, &choices, layout.archive, to_copy, &matching, unlocked.as_ref(), report) {
         Ok(committed) => committed,
         Err(problem) => {
             if let Some(kept) = &uninstaller_before {
                 let _ = fs::remove_file(kept);
             }
+            services::restart(previous.as_ref().unwrap_or(manifest), &stopped, dir);
             return Err(problem);
         }
     };
     let installed = manifest.as_installed(&choices);
     let later = (|| -> Result<(), String> {
         super::steps::run_install_steps(manifest, dir, previous.is_none(), &choices, texts, (0.895, 0.915), report)?;
+        services::apply(manifest, previous.as_ref(), dir, &stopped).map_err(|failure| service_failed(texts, &failure))?;
 
         report(0.92, &texts.get(Key::step_shortcuts));
         shortcuts(manifest, previous.as_ref(), &choices, dir, &program, texts)?;
@@ -168,6 +180,13 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
             rolled_back.staged.iter().filter_map(|path| path.strip_prefix(dir).ok()).filter_map(|path| path.to_str()),
         );
         restore_uninstaller(dir, uninstaller_before);
+        match &previous {
+            // The earlier version's services and rules come back, and run again if they ran.
+            Some(previous) => {
+                let _ = services::apply(previous, Some(manifest), dir, &stopped);
+            }
+            None => services::remove(manifest, dir),
+        }
         if let Some(previous) = &previous {
             // What the failed update changed around the files goes back too.
             let before = previous.chosen.clone().unwrap_or_default();
@@ -190,6 +209,11 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     system::notify_shell();
     report(1.0, &texts.get(Key::step_done));
     Ok(())
+}
+
+/// The window's sentence for a service or firewall rule that couldn't be set up.
+pub(super) fn service_failed(texts: &Texts, failure: &services::Failure) -> String {
+    texts.with(Key::error_run, &[("task", &failure.task), ("code", &failure.code)])
 }
 
 /// Notes in the log when a file will sit at a path longer than classic Windows
