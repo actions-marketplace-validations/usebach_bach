@@ -121,8 +121,19 @@ inputs:
       older line), so installed apps keep following the newest one.
     required: false
     default: 'true'
+  compare:
+    description: >-
+      true compares the new setup file with the one of the latest release
+      (bach diff): the files added, removed and changed, and how much bigger or
+      smaller it got. The result goes to the job summary and, on a pull request,
+      into one comment that later pushes update. Nothing is compared when
+      there is no earlier release or its file can't be found. A comment needs
+      pull-requests: write; without it (a pull request from a fork) only the
+      summary is written.
+    required: false
+    default: 'false'
   github-token:
-    description: The token that publishes the release and looks Bach's releases up.
+    description: The token that publishes the release, writes the comment and looks Bach's releases up.
     required: false
     default: ${{ github.token }}
 
@@ -318,6 +329,62 @@ runs:
           bach feed "${feed_args[@]}"
         fi
         echo "feed=$folder/latest.json" >> "$GITHUB_OUTPUT"
+
+    - name: Compare with the latest release
+      id: compare
+      if: inputs.config != '' && inputs.compare == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REPO: ${{ github.repository }}
+        SETUP: ${{ steps.build.outputs.setup }}
+        VERSION: ${{ steps.build.outputs.version }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        WORK_DIR: ${{ runner.temp }}
+      run: |
+        # Windows' bash wants /c/... paths for its own tools.
+        if command -v cygpath >/dev/null 2>&1; then setup=$(cygpath -u "$SETUP"); else setup="$SETUP"; fi
+        name=$(basename "$setup")
+        # The earlier file is named like this one with another version: Hello-Setup-1.4.0.exe
+        # is looked for as Hello-Setup-*.exe. A name without the version is looked for as it is.
+        pattern="${name//"$VERSION"/*}"
+        tag=$(gh release list --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty' 2>/dev/null || true)
+        if [ -z "$tag" ]; then
+          echo "No earlier release to compare with."
+          exit 0
+        fi
+        old_dir="$WORK_DIR/bach-previous"
+        rm -rf "$old_dir"; mkdir -p "$old_dir"
+        if ! gh release download "$tag" --pattern "$pattern" --dir "$old_dir" >/dev/null 2>&1; then
+          echo "::notice::Release $tag has no file named like $pattern, so there is nothing to compare with."
+          exit 0
+        fi
+        old=$(find "$old_dir" -maxdepth 1 -type f -name '*.exe' | head -n 1)
+        if [ -z "$old" ]; then
+          echo "::notice::Release $tag has no file named like $pattern, so there is nothing to compare with."
+          exit 0
+        fi
+        report="$WORK_DIR/bach-diff.txt"
+        if ! bach diff "$old" "$setup" > "$report" 2>&1; then
+          echo "::warning::bach diff couldn't compare with release $tag: $(head -n 3 "$report" | tr '\n' ' ')"
+          exit 0
+        fi
+        cat "$report"
+        # The report is text from the files themselves: it goes out as escaped HTML in <pre>,
+        # so nothing in it can be read as Markdown or HTML.
+        escaped=$(sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' "$report")
+        body=$(printf '<!-- bach-diff -->\n### Bach: this setup file against %s\n\n<pre>\n%s\n</pre>\n' "$tag" "$escaped")
+        printf '%s\n' "$body" >> "$GITHUB_STEP_SUMMARY"
+        if [ -n "$PR_NUMBER" ]; then
+          # One comment, updated by every push. A token that can't write comments (a fork's
+          # pull request) leaves the summary as the only place.
+          existing=$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --paginate --jq '[.[] | select(.body | startswith("<!-- bach-diff -->")) | .id][0] // empty' 2>/dev/null | head -n 1 || true)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -f body="$body" >/dev/null || echo "::notice::Couldn't update the comment (does the job have pull-requests: write?); the summary has the report."
+          else
+            gh api -X POST "repos/$GH_REPO/issues/$PR_NUMBER/comments" -f body="$body" >/dev/null || echo "::notice::Couldn't write the comment (does the job have pull-requests: write?); the summary has the report."
+          fi
+        fi
 
     - name: Publish the release
       id: release
