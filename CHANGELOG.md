@@ -2,6 +2,22 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.10.1 (2026-11-21)
+
+### New
+
+- Show every command, grouped, when bach runs without arguments ([de0fe90](https://github.com/usebach/bach/commit/de0fe90192bb0d6d6b5d563ccbe89de3ca828c76))
+
+### Fixes
+
+- Fix the update notice for npm and the terminal that flashed after commands ([8c7d118](https://github.com/usebach/bach/commit/8c7d118bc2e4bf12cd4bfd1f0b0f762841e8fc2c))
+
+### Improvements
+
+- Keep the npm update command simple again ([fc44b7a](https://github.com/usebach/bach/commit/fc44b7a4211033b5904e800d931f0e222321fd26))
+
+All changes: [v0.10...v0.10.1](https://github.com/usebach/bach/compare/v0.10...v0.10.1)
+
 ## 0.10.0 (2026-11-21)
 
 ### New

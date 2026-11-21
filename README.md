@@ -141,7 +141,7 @@ Every setting is in the [config reference](docs/config.md).
 | `bach version`, `bach workflow` | Raise the version in every file at once; add the one-click release workflow |
 | `bach doctor`, `bach update` | Check that a build can run; update `bach` itself |
 
-Every flag is in the [CLI reference](https://usebach.app/docs/reference/cli/overview).
+Run `bach` on its own for this list grouped by what you are doing, and `bach COMMAND --help` for the options of one command. Every flag is in the [CLI reference](https://usebach.app/docs/reference/cli/overview).
 
 ## Other ways to install
 
