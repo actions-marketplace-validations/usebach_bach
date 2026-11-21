@@ -547,6 +547,8 @@ dependencies = [
 name = "bach-cli"
 version = "0.10.0"
 dependencies = [
+ "anstream",
+ "anstyle",
  "anyhow",
  "bach-pack",
  "cab",

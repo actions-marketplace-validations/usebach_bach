@@ -17,6 +17,7 @@ const API: &str = "https://api.github.com/repos/usebach/bach/releases";
 const DOWNLOADS: &str = "https://github.com/usebach/bach/releases/download";
 const PAGE: &str = "https://github.com/usebach/bach/releases/tag";
 const PAGE_LIST: &str = "https://github.com/usebach/bach/releases";
+const NPM_LATEST: &str = "https://registry.npmjs.org/@usebach/cli/latest";
 
 /// One published release.
 pub struct Release {
@@ -90,6 +91,19 @@ fn candidates(version: &Version, os: &str, arch: &str) -> Vec<String> {
     }
 }
 
+/// The newest version of `@usebach/cli` on npm: what `npm install` would
+/// give a person whose bach came from npm.
+pub fn npm_latest(seconds: Option<u32>) -> Result<Version> {
+    parse_npm(&get(NPM_LATEST, seconds)?)
+}
+
+/// The registry's answer for a package's `latest` tag has the version in `version`.
+fn parse_npm(body: &str) -> Result<Version> {
+    let json: Value = serde_json::from_str(body).context("npm's answer isn't readable")?;
+    let text = json["version"].as_str().context("npm's answer has no version")?;
+    Version::parse(text).with_context(|| format!("npm's version \"{text}\" isn't a version"))
+}
+
 /// GitHub's answer for one release: its tag and its files.
 fn parse(body: &str) -> Result<Release> {
     let json: Value = serde_json::from_str(body).context("GitHub's answer isn't readable")?;
@@ -143,6 +157,14 @@ mod tests {
             "https://github.com/usebach/bach/releases/download/v0.8.0/bach-0.8.0-windows-x64.zip"
         );
         assert_eq!(release.page(), "https://github.com/usebach/bach/releases/tag/v0.8.0");
+    }
+
+    #[test]
+    fn npms_answer_is_its_version() {
+        assert_eq!(parse_npm(r#"{"name":"@usebach/cli","version":"0.10.0"}"#).unwrap(), v("0.10.0"));
+        for body in ["nope", "{}", r#"{"version":"latest"}"#] {
+            assert!(parse_npm(body).is_err(), "{body}");
+        }
     }
 
     #[test]

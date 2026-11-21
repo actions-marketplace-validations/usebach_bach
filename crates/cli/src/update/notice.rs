@@ -119,8 +119,12 @@ fn start_refresh() {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        command.creation_flags(0x0000_0008 | 0x0000_0200);
+        // CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP. Not DETACHED_PROCESS: a
+        // process without a console makes Windows open a new one, window
+        // included, for every console program it starts (curl, PowerShell),
+        // which flashed a terminal after each command. A hidden console is
+        // inherited by those, so nothing shows.
+        command.creation_flags(0x0800_0000 | 0x0000_0200);
     }
     #[cfg(unix)]
     {
@@ -133,8 +137,13 @@ fn start_refresh() {
 /// `bach update-refresh`: asks GitHub, writes the answer, says nothing. A
 /// failed check is not an error anyone should see.
 pub fn refresh() -> Result<()> {
-    if let Ok(release) = Release::latest(Some(10)) {
-        remember(&release.version);
+    let method = std::env::current_exe().map(|exe| Method::detect(&exe)).unwrap_or(Method::Standalone);
+    // The notice names the command that updates this copy, so the version it
+    // announces must be one that command can install: for npm, the newest on npm.
+    let latest =
+        if method == Method::Npm { super::release::npm_latest(Some(10)) } else { Release::latest(Some(10)).map(|release| release.version) };
+    if let Ok(latest) = latest {
+        remember(&latest);
     }
     Ok(())
 }

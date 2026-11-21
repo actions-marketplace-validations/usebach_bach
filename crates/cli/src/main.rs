@@ -47,6 +47,7 @@ mod intune;
 mod key;
 mod msi;
 mod output;
+mod overview;
 mod page;
 mod preview;
 mod profiles;
@@ -481,8 +482,26 @@ enum Command {
     UpdateRefresh,
 }
 
+/// Whether the person only asked what bach can do: no arguments at all, or
+/// just `help`, `--help` or `-h` (a command's own `--help` is clap's).
+fn wants_overview(args: &[std::ffi::OsString]) -> bool {
+    match args {
+        [] => true,
+        [only] => only == "help" || only == "--help" || only == "-h",
+        _ => false,
+    }
+}
+
 fn main() -> ExitCode {
     update::tidy();
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if wants_overview(&args) {
+        overview::print();
+        // The update notice belongs here most of all: this is the command
+        // people type to see what bach does.
+        update::notify();
+        return ExitCode::SUCCESS;
+    }
     let cli = Cli::parse();
     output::set_json(cli.json);
     // `bach update` says what there is to say itself, and the background
