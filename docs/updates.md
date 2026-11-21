@@ -222,7 +222,8 @@ Limits, so nobody is surprised:
 - The SHA-256 comes from the same place as the file. It guards against
   damage and a wrong file, not against someone who controls your release
   page. Sign your setup file so Windows shows your name ([signing](signing.md)).
-- The download is the whole setup file each time, no deltas.
+- Unless you offer an [update patch](#update-patches), the download is the
+  whole setup file each time.
 - A private GitHub repository can't serve the feed (the app has no GitHub
   token to send). Use a server that checks the access key instead: see
   [private updates](#private-updates).
