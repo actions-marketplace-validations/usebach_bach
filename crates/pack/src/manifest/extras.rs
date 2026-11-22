@@ -41,6 +41,8 @@ pub enum Check {
     /// Windows itself, this build number or newer (Windows 10 is 10240,
     /// 1809 is 17763, 2004 is 19041, Windows 11 is 22000).
     Windows { build: u32 },
+    /// macOS itself, this version or newer (`macos.minimum_version`): `12.0`, `13.4`.
+    Macos { version: String },
 }
 
 impl Check {
@@ -51,7 +53,7 @@ impl Check {
             Self::Dotnet { desktop: true, .. } => Some((".NET Desktop Runtime", "https://dotnet.microsoft.com/download/dotnet")),
             Self::Dotnet { desktop: false, .. } => Some((".NET Runtime", "https://dotnet.microsoft.com/download/dotnet")),
             Self::Vcredist => Some(("Microsoft Visual C++ Redistributable", "https://aka.ms/vs/17/release/vc_redist.x64.exe")),
-            Self::File { .. } | Self::Registry { .. } | Self::Windows { .. } => None,
+            Self::File { .. } | Self::Registry { .. } | Self::Windows { .. } | Self::Macos { .. } => None,
         }
     }
 }
