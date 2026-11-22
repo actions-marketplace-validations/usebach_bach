@@ -45,6 +45,7 @@ mod import;
 mod inspect;
 mod intune;
 mod key;
+mod macfile;
 mod msi;
 mod output;
 mod overview;
@@ -155,6 +156,10 @@ enum Command {
         /// Check this profile of the config (`bach profiles` lists them).
         #[arg(long)]
         profile: Option<String>,
+        /// Check the setup file of this platform: windows, macos or all. Without it,
+        /// every platform bach.toml describes.
+        #[arg(long, value_parser = ["windows", "macos", "all"])]
+        platform: Option<String>,
         /// Fail when there is a warning, so a pipeline can't ship what check
         /// complains about (or set BACH_STRICT=1).
         #[arg(long, env = "BACH_STRICT")]
@@ -189,6 +194,22 @@ enum Command {
         /// The setup runtime to build on (default: bach-setup.exe next to bach).
         #[arg(long, env = "BACH_RUNTIME")]
         runtime: Option<PathBuf>,
+        /// Which setup file to build: windows, macos or all. Without it, every
+        /// platform bach.toml describes ([files] is Windows, [macos] is macOS).
+        #[arg(long, value_parser = ["windows", "macos", "all"])]
+        platform: Option<String>,
+        /// An update feed (latest.json) another job wrote for this version (the Windows
+        /// build's, on another runner): the macOS build adds its file to a copy of it.
+        #[arg(long)]
+        feed_from: Option<PathBuf>,
+        /// Also write a macOS installer package (.pkg) of the app, for Jamf, Intune,
+        /// Kandji and other MDM tools (needs a Mac). The macOS counterpart of --msi.
+        #[arg(long)]
+        pkg: bool,
+        /// The macOS setup runtime (bach-setup-macos from the release) for [macos]
+        /// in bach.toml.
+        #[arg(long, env = "BACH_RUNTIME_MACOS")]
+        runtime_macos: Option<PathBuf>,
         /// Compress quickly instead of as small as possible.
         #[arg(long)]
         fast: bool,
@@ -292,6 +313,13 @@ enum Command {
         /// the download link of [updates] in bach.toml, for its file name).
         #[arg(long, requires = "arm64")]
         arm64_url: Option<String>,
+        /// The macOS setup file (.dmg or .zip) of the same version, to list for Macs.
+        #[arg(long)]
+        macos: Option<PathBuf>,
+        /// The https link the macOS setup file is downloaded from (default: the
+        /// download link of [updates] in bach.toml, for its file name).
+        #[arg(long, requires = "macos")]
+        macos_url: Option<String>,
         /// An update patch made by `bach build --patch-from`, to offer to
         /// computers that have the version it updates from.
         #[arg(long)]
@@ -455,6 +483,10 @@ enum Command {
         /// pull request that updates it in winget-pkgs after each release.
         #[arg(long, value_name = "ID")]
         winget: Option<String>,
+        /// Also build the macOS Setup app, in a job of its own on a Mac runner, and add
+        /// it to the release and the update feed. Needs a [macos] section; off by default.
+        #[arg(long)]
+        macos: bool,
     },
     /// List the built-in styles of the installer window, for installer.style.
     Styles,
@@ -511,8 +543,8 @@ fn main() -> ExitCode {
         Command::Update { version, check, force } => update::command(update::Options { version: version.as_deref(), check, force }),
         Command::UpdateRefresh => update::refresh(),
         Command::Init { dir, no_workflow } => template::init(&dir, !no_workflow),
-        Command::Check { config, app_version, profile, strict } => {
-            builder::check(&config, app_version.as_deref(), profile.as_deref(), strict)
+        Command::Check { config, app_version, profile, platform, strict } => {
+            builder::check_platforms(&config, app_version.as_deref(), profile.as_deref(), platform.as_deref(), strict)
         }
         Command::Profiles { config } => profiles::command(&config),
         Command::Build {
@@ -524,6 +556,10 @@ fn main() -> ExitCode {
             msi,
             out,
             runtime,
+            platform,
+            feed_from,
+            pkg,
+            runtime_macos,
             fast,
             app_version,
             online,
@@ -548,6 +584,10 @@ fn main() -> ExitCode {
                 sign,
                 patch_from: patch_from.as_deref(),
                 strict,
+                platform: platform.as_deref(),
+                feed_from: feed_from.as_deref(),
+                pkg,
+                runtime_macos: runtime_macos.as_deref(),
             },
             &profile,
             all_profiles,
@@ -564,7 +604,8 @@ fn main() -> ExitCode {
         Command::Version { target, config, dry_run } => {
             version::command(version::Options { config: &config, target: target.as_deref(), dry_run })
         }
-        Command::Workflow { dir, force, pin, winget } => workflow::command(workflow::Options {
+        Command::Workflow { dir, force, pin, winget, macos } => workflow::command(workflow::Options {
+            macos,
             dir: &dir,
             force,
             winget: winget.as_deref(),
@@ -604,10 +645,12 @@ fn main() -> ExitCode {
             winget: winget.as_deref(),
         }),
         Command::Intune { file, out } => intune::command(intune::Options { setup: &file, out: out.as_deref() }),
-        Command::Feed { file, url, config, notes, notes_file, rollout, out, arm64, arm64_url, patch, patch_url } => {
+        Command::Feed { file, url, config, notes, notes_file, rollout, out, arm64, arm64_url, macos, macos_url, patch, patch_url } => {
             feed::command(feed::Options {
                 arm64: arm64.as_deref(),
                 arm64_url: arm64_url.as_deref(),
+                macos: macos.as_deref(),
+                macos_url: macos_url.as_deref(),
                 setup: &file,
                 url: url.as_deref(),
                 config: config.as_deref(),
