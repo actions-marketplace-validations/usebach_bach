@@ -3,6 +3,14 @@
 use super::Strings;
 
 pub const SV: Strings = Strings {
+    mac_start_menu: "Program",
+    mac_start_menu_description: "Lägg till {name} i mappen Program.",
+    mac_start_with_windows: "Öppna vid inloggning",
+    mac_start_with_windows_description: "Öppna {name} automatiskt när du loggar in.",
+    mac_installed_subtitle: "Du hittar det i mappen Program, eller öppna det nu.",
+    mac_error_register: "Det gick inte att spara var {name} är installerat.",
+    mac_error_unregister: "Det gick inte att ta bort installationsposten för {name}.",
+    mac_error_system: "Det gick inte att ändra en systeminställning för {name}.",
     window_install: "{name} installation",
     window_remove: "Ta bort {name}",
     install_title: "Installera {name}",
@@ -127,6 +135,14 @@ pub const SV: Strings = Strings {
 };
 
 pub const CS: Strings = Strings {
+    mac_start_menu: "Aplikace",
+    mac_start_menu_description: "Přidat {name} do složky Aplikace.",
+    mac_start_with_windows: "Otevřít při přihlášení",
+    mac_start_with_windows_description: "Otevřít {name} automaticky po přihlášení.",
+    mac_installed_subtitle: "Najdeš ji ve složce Aplikace, nebo ji teď otevři.",
+    mac_error_register: "Nepodařilo se uložit, kam je {name} nainstalován.",
+    mac_error_unregister: "Nepodařilo se odebrat záznam o instalaci {name}.",
+    mac_error_system: "Nepodařilo se změnit systémové nastavení pro {name}.",
     window_install: "Instalace {name}",
     window_remove: "Odebrat {name}",
     install_title: "Nainstalovat {name}",
@@ -251,6 +267,14 @@ pub const CS: Strings = Strings {
 };
 
 pub const VI: Strings = Strings {
+    mac_start_menu: "Ứng dụng",
+    mac_start_menu_description: "Thêm {name} vào thư mục Ứng dụng.",
+    mac_start_with_windows: "Mở khi đăng nhập",
+    mac_start_with_windows_description: "Tự động mở {name} khi bạn đăng nhập.",
+    mac_installed_subtitle: "Tìm thấy trong thư mục Ứng dụng, hoặc mở ngay bây giờ.",
+    mac_error_register: "Không thể lưu nơi {name} được cài đặt.",
+    mac_error_unregister: "Không thể xóa bản ghi cài đặt của {name}.",
+    mac_error_system: "Không thể thay đổi một cài đặt hệ thống cho {name}.",
     window_install: "Trình cài đặt {name}",
     window_remove: "Gỡ cài đặt {name}",
     install_title: "Cài đặt {name}",
@@ -375,6 +399,14 @@ pub const VI: Strings = Strings {
 };
 
 pub const ID: Strings = Strings {
+    mac_start_menu: "Aplikasi",
+    mac_start_menu_description: "Tambahkan {name} ke folder Aplikasi Anda.",
+    mac_start_with_windows: "Buka saat masuk",
+    mac_start_with_windows_description: "Buka {name} secara otomatis saat Anda masuk.",
+    mac_installed_subtitle: "Temukan di folder Aplikasi Anda, atau buka sekarang.",
+    mac_error_register: "Tidak dapat menyimpan lokasi pemasangan {name}.",
+    mac_error_unregister: "Tidak dapat menghapus catatan pemasangan {name}.",
+    mac_error_system: "Tidak dapat mengubah pengaturan sistem untuk {name}.",
     window_install: "Penginstal {name}",
     window_remove: "Hapus {name}",
     install_title: "Instal {name}",
@@ -499,6 +531,14 @@ pub const ID: Strings = Strings {
 };
 
 pub const HI: Strings = Strings {
+    mac_start_menu: "एप्लिकेशन",
+    mac_start_menu_description: "{name} को अपने एप्लिकेशन फ़ोल्डर में जोड़ें।",
+    mac_start_with_windows: "लॉगिन पर खोलें",
+    mac_start_with_windows_description: "साइन इन करने पर {name} अपने आप खोलें।",
+    mac_installed_subtitle: "इसे अपने एप्लिकेशन फ़ोल्डर में खोजें, या अभी खोलें।",
+    mac_error_register: "{name} कहाँ इंस्टॉल है, यह सहेजा नहीं जा सका।",
+    mac_error_unregister: "{name} का इंस्टॉल रिकॉर्ड हटाया नहीं जा सका।",
+    mac_error_system: "{name} के लिए सिस्टम सेटिंग बदली नहीं जा सकी।",
     window_install: "{name} सेटअप",
     window_remove: "{name} हटाएँ",
     install_title: "{name} इंस्टॉल करें",

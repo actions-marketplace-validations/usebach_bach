@@ -3,6 +3,14 @@
 use super::Strings;
 
 pub const JA: Strings = Strings {
+    mac_start_menu: "アプリケーション",
+    mac_start_menu_description: "{name} を「アプリケーション」フォルダに追加します。",
+    mac_start_with_windows: "ログイン時に開く",
+    mac_start_with_windows_description: "サインイン時に {name} を自動的に開きます。",
+    mac_installed_subtitle: "「アプリケーション」フォルダで見つけるか、今すぐ開きます。",
+    mac_error_register: "{name} のインストール先を保存できませんでした。",
+    mac_error_unregister: "{name} のインストール記録を削除できませんでした。",
+    mac_error_system: "{name} のシステム設定を変更できませんでした。",
     window_install: "{name} セットアップ",
     window_remove: "{name} のアンインストール",
     install_title: "{name} をインストール",
@@ -127,6 +135,14 @@ pub const JA: Strings = Strings {
 };
 
 pub const KO: Strings = Strings {
+    mac_start_menu: "응용 프로그램",
+    mac_start_menu_description: "{name}을(를) 응용 프로그램 폴더에 추가합니다.",
+    mac_start_with_windows: "로그인 시 열기",
+    mac_start_with_windows_description: "로그인할 때 {name}을(를) 자동으로 엽니다.",
+    mac_installed_subtitle: "응용 프로그램 폴더에서 찾거나 지금 열 수 있습니다.",
+    mac_error_register: "{name}의 설치 위치를 저장하지 못했습니다.",
+    mac_error_unregister: "{name}의 설치 기록을 삭제하지 못했습니다.",
+    mac_error_system: "{name}의 시스템 설정을 변경하지 못했습니다.",
     window_install: "{name} 설치",
     window_remove: "{name} 제거",
     install_title: "{name} 설치",
@@ -251,6 +267,14 @@ pub const KO: Strings = Strings {
 };
 
 pub const ZH: Strings = Strings {
+    mac_start_menu: "应用程序",
+    mac_start_menu_description: "将 {name} 添加到“应用程序”文件夹。",
+    mac_start_with_windows: "登录时打开",
+    mac_start_with_windows_description: "登录时自动打开 {name}。",
+    mac_installed_subtitle: "可在“应用程序”文件夹中找到，或立即打开。",
+    mac_error_register: "无法保存 {name} 的安装位置。",
+    mac_error_unregister: "无法删除 {name} 的安装记录。",
+    mac_error_system: "无法更改 {name} 的系统设置。",
     window_install: "{name} 安装程序",
     window_remove: "卸载 {name}",
     install_title: "安装 {name}",
@@ -375,6 +399,14 @@ pub const ZH: Strings = Strings {
 };
 
 pub const ZH_TW: Strings = Strings {
+    mac_start_menu: "應用程式",
+    mac_start_menu_description: "將 {name} 加入「應用程式」檔案夾。",
+    mac_start_with_windows: "登入時打開",
+    mac_start_with_windows_description: "登入時自動打開 {name}。",
+    mac_installed_subtitle: "可在「應用程式」檔案夾中找到，或立即打開。",
+    mac_error_register: "無法儲存 {name} 的安裝位置。",
+    mac_error_unregister: "無法刪除 {name} 的安裝記錄。",
+    mac_error_system: "無法變更 {name} 的系統設定。",
     window_install: "{name} 安裝程式",
     window_remove: "解除安裝 {name}",
     install_title: "安裝 {name}",

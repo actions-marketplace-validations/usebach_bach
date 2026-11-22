@@ -3,6 +3,14 @@
 use super::Strings;
 
 pub const PL: Strings = Strings {
+    mac_start_menu: "Programy",
+    mac_start_menu_description: "Dodaj {name} do folderu Programy.",
+    mac_start_with_windows: "Otwieraj po zalogowaniu",
+    mac_start_with_windows_description: "Otwieraj {name} automatycznie po zalogowaniu.",
+    mac_installed_subtitle: "Znajdziesz go w folderze Programy lub otwórz go teraz.",
+    mac_error_register: "Nie udało się zapisać miejsca instalacji {name}.",
+    mac_error_unregister: "Nie udało się usunąć wpisu instalacji {name}.",
+    mac_error_system: "Nie udało się zmienić ustawienia systemu dla {name}.",
     window_install: "Instalator {name}",
     window_remove: "Odinstaluj {name}",
     install_title: "Zainstaluj {name}",
@@ -127,6 +135,14 @@ pub const PL: Strings = Strings {
 };
 
 pub const RU: Strings = Strings {
+    mac_start_menu: "Программы",
+    mac_start_menu_description: "Добавить {name} в папку «Программы».",
+    mac_start_with_windows: "Открывать при входе",
+    mac_start_with_windows_description: "Автоматически открывать {name} при входе в систему.",
+    mac_installed_subtitle: "Найдите его в папке «Программы» или откройте сейчас.",
+    mac_error_register: "Не удалось сохранить, куда установлен {name}.",
+    mac_error_unregister: "Не удалось удалить запись об установке {name}.",
+    mac_error_system: "Не удалось изменить параметр системы для {name}.",
     window_install: "Установка {name}",
     window_remove: "Удаление {name}",
     install_title: "Установить {name}",
@@ -251,6 +267,14 @@ pub const RU: Strings = Strings {
 };
 
 pub const TR: Strings = Strings {
+    mac_start_menu: "Uygulamalar",
+    mac_start_menu_description: "{name} uygulamasını Uygulamalar klasörüne ekle.",
+    mac_start_with_windows: "Oturum açıldığında aç",
+    mac_start_with_windows_description: "Oturum açtığında {name} otomatik olarak açılsın.",
+    mac_installed_subtitle: "Uygulamalar klasöründe bulabilir veya şimdi açabilirsin.",
+    mac_error_register: "{name} uygulamasının kurulu olduğu yer kaydedilemedi.",
+    mac_error_unregister: "{name} uygulamasının kurulum kaydı kaldırılamadı.",
+    mac_error_system: "{name} için bir sistem ayarı değiştirilemedi.",
     window_install: "{name} Kurulumu",
     window_remove: "{name} Kaldır",
     install_title: "{name} yükle",
