@@ -3,6 +3,14 @@
 use super::Strings;
 
 pub const DE: Strings = Strings {
+    mac_start_menu: "Programme",
+    mac_start_menu_description: "{name} zum Ordner „Programme“ hinzufügen.",
+    mac_start_with_windows: "Beim Anmelden öffnen",
+    mac_start_with_windows_description: "{name} beim Anmelden automatisch öffnen.",
+    mac_installed_subtitle: "Du findest es im Ordner „Programme“, oder öffne es jetzt.",
+    mac_error_register: "Der Installationsort von {name} konnte nicht gespeichert werden.",
+    mac_error_unregister: "Der Installationseintrag von {name} konnte nicht entfernt werden.",
+    mac_error_system: "Eine Systemeinstellung für {name} konnte nicht geändert werden.",
     window_install: "{name} Setup",
     window_remove: "{name} entfernen",
     install_title: "{name} installieren",
@@ -127,6 +135,14 @@ pub const DE: Strings = Strings {
 };
 
 pub const NL: Strings = Strings {
+    mac_start_menu: "Programma’s",
+    mac_start_menu_description: "Voeg {name} toe aan je map Programma’s.",
+    mac_start_with_windows: "Openen bij inloggen",
+    mac_start_with_windows_description: "Open {name} automatisch wanneer je je aanmeldt.",
+    mac_installed_subtitle: "Je vindt het in je map Programma’s, of open het nu.",
+    mac_error_register: "Kon niet opslaan waar {name} is geïnstalleerd.",
+    mac_error_unregister: "Kon de installatiegegevens van {name} niet verwijderen.",
+    mac_error_system: "Kon een systeeminstelling voor {name} niet wijzigen.",
     window_install: "{name} Setup",
     window_remove: "{name} verwijderen",
     install_title: "{name} installeren",

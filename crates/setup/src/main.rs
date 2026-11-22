@@ -6,55 +6,60 @@
 // Release builds are a GUI app: no console window behind it.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod access;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod actions;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod app;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod assets;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod keyboard;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod launch;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod license;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod log;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod package;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod pages;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod picture;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
+mod proc;
+#[cfg(any(windows, target_os = "macos"))]
 mod silent;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod start;
 mod support;
 #[cfg(windows)]
 mod system;
-#[cfg(windows)]
+#[cfg(target_os = "macos")]
+#[path = "system_mac/mod.rs"]
+mod system;
+#[cfg(any(windows, target_os = "macos"))]
 mod texts;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod theme;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod ui;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod updates;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod view;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod work;
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn main() {
     app::main();
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn main() {
-    eprintln!("bach-setup runs on Windows. Use `bach build` on any system to build installers for it.");
+    eprintln!("bach-setup runs on Windows and macOS. Use `bach build` on any system to build installers for them.");
     std::process::exit(1);
 }

@@ -136,7 +136,13 @@ fn add_workflow(dir: &Path) {
         say!("Once this is a GitHub repository, run `bach workflow` to add a one-click release.");
         return;
     }
-    match crate::workflow::write(&crate::workflow::Options { dir, force: false, pin: crate::workflow::Pin::Commit, winget: None }) {
+    match crate::workflow::write(&crate::workflow::Options {
+        dir,
+        force: false,
+        pin: crate::workflow::Pin::Commit,
+        winget: None,
+        macos: false,
+    }) {
         Ok(done) => say!(
             "Also wrote {}: after you commit and push it, release from GitHub under Actions > Release > Run workflow.",
             done.path.display()

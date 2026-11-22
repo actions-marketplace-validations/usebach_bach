@@ -14,6 +14,10 @@ use bach_pack::manifest::{ArchEntry, DeltaEntry, FeedEntry};
 
 use crate::output::field;
 
+mod mac;
+
+pub use mac::after_mac_build;
+
 pub const FILE_NAME: &str = "latest.json";
 /// A release note longer than this is cut, so a feed stays small.
 const MAX_NOTES: usize = 4000;
@@ -93,6 +97,10 @@ pub struct Options<'a> {
     pub arm64: Option<&'a Path>,
     /// The link it is downloaded from; the config's download link when left out.
     pub arm64_url: Option<&'a str>,
+    /// The macOS setup file (`.dmg` or `.zip`) of the same version, to list for Macs.
+    pub macos: Option<&'a Path>,
+    /// The link it is downloaded from; the config's download link when left out.
+    pub macos_url: Option<&'a str>,
 }
 
 /// `bach feed`: the feed for a (possibly signed) setup file.
@@ -118,6 +126,13 @@ pub fn command(options: Options) -> Result<()> {
             None => url_from_config(options.setup, file, options.config)?,
         };
         listed.push(ArchFile { name: "arm64".into(), url, path: file.to_path_buf() });
+    }
+    if let Some(file) = options.macos {
+        let url = match options.macos_url {
+            Some(url) => url.to_string(),
+            None => url_from_config(options.setup, file, options.config)?,
+        };
+        listed.push(ArchFile { name: mac::NAME.into(), url, path: file.to_path_buf() });
     }
     let notes = match (options.notes, options.notes_file) {
         (Some(notes), _) => Some(notes.to_string()),
@@ -375,6 +390,9 @@ fn write(feed: Feed) -> Result<PathBuf> {
 /// version, for that architecture, because an installed app swaps one for the other.
 fn arch_entry(file: &ArchFile, main: &bach_pack::manifest::Manifest) -> Result<ArchEntry> {
     let shown = file.path.display();
+    if file.name == mac::NAME {
+        return mac::arch_entry(&file.path, &file.url);
+    }
     if !bach_pack::manifest::extras::OTHER_ARCHES.contains(&file.name.as_str()) {
         bail!("the feed can't list a {} setup file", file.name);
     }

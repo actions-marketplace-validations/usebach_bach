@@ -33,6 +33,11 @@ pub fn close_programs_using(files: &[PathBuf]) -> bool {
     }
 }
 
+/// Starts the installed app, detached from setup.
+pub fn launch(program: &Path, dir: &Path) -> std::io::Result<()> {
+    std::process::Command::new(program).current_dir(dir).spawn().map(|_| ())
+}
+
 /// Opens a web page in the user's browser (http and https only, so a
 /// manifest can never start a program this way).
 pub fn open_url(url: &str) {
@@ -66,6 +71,8 @@ pub fn is_present(check: &Check) -> bool {
         }
         Check::Dotnet { version, desktop } => dotnet_installed(version, *desktop),
         Check::Windows { build } => windows_build().is_some_and(|installed| installed >= *build),
+        // A requirement of a macOS build; a Windows computer never gets one.
+        Check::Macos { .. } => false,
         Check::File { path } => expand(path).is_some_and(|path| path.exists()),
         Check::Registry { key } => {
             let (hive, rest) = key.split_once('\\').unwrap_or((key, ""));

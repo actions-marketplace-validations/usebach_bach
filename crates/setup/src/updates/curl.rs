@@ -64,6 +64,13 @@ type Answer = Result<(u16, String), String>;
 /// The most redirects followed by hand when a key is sent.
 const MAX_HOPS: usize = 5;
 
+#[cfg(target_os = "macos")]
+fn curl_path() -> Result<PathBuf, String> {
+    // The curl macOS ships, by full path.
+    Ok(PathBuf::from("/usr/bin/curl"))
+}
+
+#[cfg(windows)]
 fn curl_path() -> Result<PathBuf, String> {
     let system = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
     let curl = system.join("System32").join("curl.exe");
@@ -168,8 +175,7 @@ pub fn download_with(url: &str, to: &Path, how: Fetch, bearer: Option<&Bearer>, 
 
 /// One curl run, with the progress polling.
 fn run(url: &str, to: &Path, how: Fetch, key: Option<&str>, follow: bool, progress: &mut dyn FnMut(u64)) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    use crate::proc::NoWindow;
     let curl = curl_path()?;
     let mut command = Command::new(curl);
     command.args(arguments(how, follow));
@@ -181,7 +187,7 @@ fn run(url: &str, to: &Path, how: Fetch, key: Option<&str>, follow: bool, progre
         .arg("--output")
         .arg(to)
         .arg(url)
-        .creation_flags(CREATE_NO_WINDOW)
+        .no_window()
         .stdin(if key.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -242,8 +248,7 @@ fn describe(http: Option<u16>, reason: &str, url: &str) -> String {
 /// Asks `url` what it is, without downloading it: a request for the first
 /// byte only. Gives the HTTP status and, for a redirect, where it points.
 fn probe(url: &str, key: Option<&str>) -> Result<(u16, String), String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    use crate::proc::NoWindow;
     let mut command = Command::new(curl_path()?);
     command.args([
         "--silent",
@@ -265,7 +270,7 @@ fn probe(url: &str, key: Option<&str>) -> Result<(u16, String), String> {
         "--header",
         "Cache-Control: no-cache",
         "--output",
-        "NUL",
+        crate::proc::NULL_DEVICE,
         "--write-out",
         "%{http_code} %{redirect_url}",
     ]);
@@ -274,7 +279,7 @@ fn probe(url: &str, key: Option<&str>) -> Result<(u16, String), String> {
     }
     let mut child = command
         .arg(url)
-        .creation_flags(CREATE_NO_WINDOW)
+        .no_window()
         .stdin(if key.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

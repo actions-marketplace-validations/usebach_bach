@@ -64,7 +64,7 @@ pub fn install(ctx: &Context, staged: &Staged) -> Result<i32, String> {
         stage::clear(app_id);
         // This process may be the uninstaller the update just replaced;
         // the copy it left behind goes once it has exited.
-        let old = ctx.dir.join(format!("{}.bach-old", bach_pack::manifest::UNINSTALLER));
+        let old = crate::work::place_suffix(&crate::work::uninstaller::path(ctx.manifest(), &ctx.dir), ".bach-old");
         if old.exists() {
             let _ = crate::work::delete_after_exit(&old, None);
         }
@@ -110,9 +110,15 @@ fn run_attempts(ctx: &Context, staged: &Staged) -> Result<bool, String> {
 
 /// Runs a setup file with `--silent` and gives back its exit code.
 fn run_setup(ctx: &Context, setup: &Path) -> Result<i32, String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut command = Command::new(setup);
+    use crate::proc::NoWindow;
+    // On a Mac the staged file is a disk image or a zip: its Setup app is copied out and run from there.
+    #[cfg(target_os = "macos")]
+    let scratch = std::env::temp_dir().join(format!("bach-update-{}", std::process::id()));
+    #[cfg(target_os = "macos")]
+    let program = super::macsetup::unpack(setup, &scratch)?;
+    #[cfg(windows)]
+    let program = setup.to_path_buf();
+    let mut command = Command::new(&program);
     command.arg("--silent");
     if let Some(lang) = &ctx.args.lang {
         command.args(["--lang", lang]);
@@ -123,19 +129,38 @@ fn run_setup(ctx: &Context, setup: &Path) -> Result<i32, String> {
         // by other programs.
         command.env(crate::launch::KEY_ENV, key);
     }
-    let status = command.creation_flags(CREATE_NO_WINDOW).status().map_err(|err| format!("couldn't start the update: {err}"))?;
-    Ok(status.code().unwrap_or(1))
+    let status = command.no_window().status().map_err(|err| format!("couldn't start the update: {err}"));
+    #[cfg(target_os = "macos")]
+    let _ = std::fs::remove_dir_all(&scratch);
+    Ok(status?.code().unwrap_or(1))
+}
+
+/// Starts the app detached from this process.
+#[cfg(windows)]
+fn detached(program: &Path, dir: &Path) -> std::io::Result<std::process::Child> {
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    Command::new(program).current_dir(dir).creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP).spawn()
+}
+
+/// `open` starts an app bundle the way Finder does, so it outlives this process.
+#[cfg(target_os = "macos")]
+fn detached(program: &Path, dir: &Path) -> std::io::Result<std::process::Child> {
+    if program.extension().is_some_and(|ext| ext == "app") {
+        Command::new("/usr/bin/open").arg(program).spawn()
+    } else {
+        use std::os::unix::process::CommandExt;
+        Command::new(program).current_dir(dir).process_group(0).spawn()
+    }
 }
 
 /// Starts the app that was just updated, detached from this process. It
 /// reads the program's name from the new uninstaller, since a new version
 /// may have renamed it.
 fn launch_app(ctx: &Context) {
-    use std::os::windows::process::CommandExt;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     let dir = &ctx.dir;
-    let installed = std::fs::File::open(dir.join(bach_pack::manifest::UNINSTALLER))
+    let installed = std::fs::File::open(crate::work::uninstaller::payload(ctx.manifest(), dir))
         .ok()
         .and_then(|mut file| {
             let layout = container::locate(&mut file).ok()??;
@@ -143,7 +168,7 @@ fn launch_app(ctx: &Context) {
         })
         .unwrap_or_else(|| ctx.manifest().clone());
     let program = installed.executable_in(dir);
-    let started = Command::new(&program).current_dir(dir).creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP).spawn();
+    let started = detached(&program, dir);
     match started {
         Ok(_) => crate::log::line(&format!("Started {}", program.display())),
         Err(err) => crate::log::line(&format!("Couldn't start {}: {err}", program.display())),

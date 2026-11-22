@@ -604,3 +604,35 @@ link can't hand an ARM64 computer a file you didn't sign. The main entry's
 signature is the same as before, so apps built before `arch` existed keep
 verifying and updating.
 
+## One feed for Windows and macOS
+
+A bach.toml with `[macos]` builds a macOS setup file next to the Windows one, and the
+same `latest.json` lists both. The Windows file is the entry's own `url`, `sha256` and
+`size`; the macOS file (a `.dmg`, or a `.zip`) is listed under `arch.macos`, with its own
+link, SHA-256, size and, with `[updates] public_key`, its own signature. A Mac takes only
+`arch.macos`: a feed that doesn't list one offers it nothing, and it never downloads the
+Windows file. Windows apps ignore `arch.macos`.
+
+```json
+{
+  "version": "1.4.0",
+  "url": "https://example.com/Hello-Setup-1.4.0.exe",
+  "sha256": "…",
+  "arch": {
+    "macos": { "url": "https://example.com/Hello-Setup-1.4.0.dmg", "sha256": "…", "size": 4194304 }
+  }
+}
+```
+
+`bach build` writes the feed: the Windows build writes it, then the macOS build adds
+`arch.macos` to it (and signs that entry), so build both in one run. A build that only has
+`[macos]` writes a feed whose own entry is the macOS file. If you build the files separately, `bach feed
+Hello-Setup-1.4.0.exe --macos Hello-Setup-1.4.0.dmg` writes it afterwards.
+
+On a Mac the installed `Uninstall <app>.app` does what `uninstall.exe` does: `--check-update`,
+`--download-update`, `--apply-update`, `--update` and `--auto-update` (a launch agent runs it every
+four hours when "Automatic updates" is on). It downloads the `.dmg`, checks its SHA-256, opens it, copies the Setup app
+out and runs that with `--silent`, then removes the copy. `[updates] signer` makes it run only a Setup app
+signed with a Developer ID of that name (`codesign --verify --deep --strict` must pass). Update patches (`--patch-from`) and staged
+rollouts' Windows-only machine ids are not used for macOS: a rollout uses the Mac's hardware UUID.
+

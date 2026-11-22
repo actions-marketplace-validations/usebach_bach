@@ -81,6 +81,13 @@ pub fn main() {
             crate::log::start(&path, &format!("{} {} setup, Bach {}, run with {run:?}", app.name, app.version, bach_pack::VERSION));
         }
     }
+    if args.cleanup_if_removed && !args.preview {
+        let code = match package {
+            Ok(package) => crate::silent::cleanup_if_removed(&args, package),
+            Err(_) => 1,
+        };
+        std::process::exit(code);
+    }
     if args.updating() && !args.preview {
         let code = match &package {
             Ok(package) => crate::updates::run(&args, package),

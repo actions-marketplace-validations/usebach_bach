@@ -85,6 +85,7 @@ mod tests {
         assert!(changed_since_install(&path, &file), "same size, other content");
 
         // Held open without sharing, it can't be read: not "changed".
+        #[cfg(windows)]
         {
             use std::os::windows::fs::OpenOptionsExt;
             let _held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&path).unwrap();

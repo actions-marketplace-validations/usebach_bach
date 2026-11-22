@@ -115,6 +115,8 @@ jobs:
         with:
           version: local
           config: examples/hello/bach.ci.toml
+          # The example also has a [macos] section; this job builds the Windows file.
+          args: --platform windows
           app-version: v7.8.9
           notes: CI check of the action
 
@@ -140,8 +142,9 @@ jobs:
           Check ($feed.url -eq 'https://github.com/usebach/bach/releases/download/v7.8.9/Hello-Setup-7.8.9.exe') "the feed points at the tag's download ($($feed.url))"
           Check ($feed.sha256 -eq (Get-FileHash -Algorithm SHA256 $env:SETUP).Hash.ToLower()) "the feed has the file's SHA-256"
 
-  # `bach` itself builds and runs on macOS and Linux (only the setup window is
-  # Windows only), so its crates are tested there too.
+  # `bach` itself builds and runs on Linux, and the setup window only on Windows
+  # and macOS (the `macos` job below), so Linux tests the crates that don't need a
+  # window: the builder, the formats and the install scripts.
   cli:
     name: bach on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -149,7 +152,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -181,6 +184,78 @@ jobs:
       # the spot (no download).
       - name: Test install.sh
         run: sh scripts/test-install.sh target/debug/bach
+
+  # The macOS setup runtime and the Setup app, on Apple silicon and on Intel: tests,
+  # clippy, the real install, update, repair and removal of the example app
+  # (scripts/e2e-macos.sh, in a throwaway HOME), and the install script. The window
+  # itself needs a display, which the runners have no one to look at; the silent run
+  # does the same work through the same code.
+  macos:
+    name: macOS (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Apple silicon
+            os: macos-latest
+          - name: Intel
+            os: macos-15-intel
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Reuse earlier build output
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # GPUI compiles its shaders with Xcode's Metal toolchain, a separate
+      # download in recent Xcode versions; a runner that has it already skips this.
+      - name: Make sure the Metal toolchain is there
+        run: xcrun -f metal >/dev/null 2>&1 && xcrun metal --version >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build the example installer
+        env:
+          BACH_NO_DMG_LAYOUT: "1"
+        run: |
+          scripts/build-example.sh
+          target/release/bach inspect dist/Hello-Setup-1.0.0.dmg
+          target/release/bach verify dist/Hello-Setup-1.0.0.dmg
+
+      # Every setup app carries the runtime, so its size is every download's
+      # size. This keeps it from growing unnoticed; raise the limit on purpose.
+      - name: Check the size of the setup runtime
+        run: |
+          size=$(stat -f %z target/release/bach-setup)
+          limit=$((14 * 1024 * 1024))
+          echo "bach-setup is $((size / 1024)) KB (limit $((limit / 1024)) KB)" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$size" -le "$limit" ] || { echo "bach-setup grew past 14 MB. Find out why, or raise the limit in .github/workflows/ci.yml on purpose."; exit 1; }
+
+      - name: Install, repair, update and remove for real
+        run: scripts/e2e-macos.sh release
+
+      - name: Test install.sh
+        run: sh scripts/test-install.sh target/debug/bach
+
+      - name: Test the action's argument splitting
+        run: sh scripts/test-action-args.sh
 
   # Known vulnerabilities (RustSec), licenses and where crates come from; the
   # rules are in deny.toml.

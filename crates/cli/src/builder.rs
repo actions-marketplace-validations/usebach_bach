@@ -17,6 +17,8 @@ use sha2::{Digest, Sha256};
 use crate::output::{self, field, Progress};
 use crate::runtime;
 
+pub(crate) mod mac;
+
 /// Loads the config, with the version of a release tag instead of
 /// `app.version` when one is given, and laid over with a profile when one is named.
 pub(crate) fn load(config_path: &Path, version: Option<&str>, profile: Option<&str>) -> Result<Project> {
@@ -25,9 +27,25 @@ pub(crate) fn load(config_path: &Path, version: Option<&str>, profile: Option<&s
 
 /// [`load`] for the setup file of another architecture (`arm64`), from `[arch.arm64]`.
 pub(crate) fn load_arch(config_path: &Path, version: Option<&str>, profile: Option<&str>, arch: Option<&str>) -> Result<Project> {
+    load_platform(config_path, version, profile, arch, None)
+}
+
+/// [`load_arch`] for the setup file of a platform (`macos`); Windows when None.
+pub(crate) fn load_platform(
+    config_path: &Path,
+    version: Option<&str>,
+    profile: Option<&str>,
+    arch: Option<&str>,
+    platform: Option<&str>,
+) -> Result<Project> {
     config::load_with(
         config_path,
-        &Overrides { version: version.map(String::from), profile: profile.map(String::from), arch: arch.map(String::from) },
+        &Overrides {
+            version: version.map(String::from),
+            profile: profile.map(String::from),
+            arch: arch.map(String::from),
+            platform: platform.map(String::from),
+        },
     )
 }
 
@@ -47,8 +65,34 @@ fn strict_gate(warnings: &[String], strict: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn check(config_path: &Path, version: Option<&str>, profile: Option<&str>, strict: bool) -> Result<()> {
-    let project = load(config_path, version, profile)?;
+/// `bach check` for the platforms asked for (every one the config describes when none is named).
+pub fn check_platforms(
+    config_path: &Path,
+    version: Option<&str>,
+    profile: Option<&str>,
+    platform: Option<&str>,
+    strict: bool,
+) -> Result<()> {
+    let text = bach_pack::textfile::read(config_path).with_context(|| format!("couldn't read {}", config_path.display()))?;
+    let declared = config::declared(&text)?;
+    let all = [("windows", declared.windows), ("macos", declared.macos)];
+    let wanted: Vec<&str> = match platform {
+        Some("all") => all.iter().filter(|(_, on)| *on).map(|(name, _)| *name).collect(),
+        Some(name) => vec![name],
+        None if profile.is_some() => vec!["windows"],
+        None => all.iter().filter(|(_, on)| *on).map(|(name, _)| *name).collect(),
+    };
+    for (index, name) in wanted.iter().enumerate() {
+        if index > 0 {
+            say!();
+        }
+        check_one(config_path, version, profile, (*name == "macos").then_some("macos"), strict)?;
+    }
+    Ok(())
+}
+
+fn check_one(config_path: &Path, version: Option<&str>, profile: Option<&str>, platform: Option<&str>, strict: bool) -> Result<()> {
+    let project = load_platform(config_path, version, profile, None, platform)?;
     let manifest = &project.manifest;
     output::result("name", manifest.app.name.clone());
     output::result("version", manifest.app.version.clone());
@@ -59,6 +103,7 @@ pub fn check(config_path: &Path, version: Option<&str>, profile: Option<&str>, s
             output::result("profile", name.clone());
             say!("{} {} is ready to build, as the {name} profile ({}).", manifest.app.name, manifest.app.version, project.kind.name());
         }
+        None if project.platform.is_macos() => say!("{} {} is ready to build for macOS.", manifest.app.name, manifest.app.version),
         None => say!("{} {} is ready to build.", manifest.app.name, manifest.app.version),
     }
     summary(&project);
@@ -100,6 +145,15 @@ pub struct BuildOptions<'a> {
     pub patch_from: Option<&'a Path>,
     /// Stop when `bach check` would warn (see [`strict_gate`]).
     pub strict: bool,
+    /// Build the setup file of this platform (`windows` or `macos`).
+    pub platform: Option<&'a str>,
+    /// An update feed (`latest.json`) another job wrote for the same version, which the macOS
+    /// build adds its file to, so Windows and macOS builds on different runners share one feed.
+    pub feed_from: Option<&'a Path>,
+    /// Also write a macOS installer package (`.pkg`) for MDM tools: Jamf, Intune, Kandji, Munki.
+    pub pkg: bool,
+    /// The macOS setup runtime (`--runtime-macos`), when the config builds a macOS setup file too.
+    pub runtime_macos: Option<&'a Path>,
 }
 
 /// The key the files are locked with, and what it unlocks while building.
@@ -165,6 +219,47 @@ pub struct Built {
 /// The main build, then each profile asked for; `all` means the main build
 /// and every profile of the config. Stops at the first one that fails.
 pub fn build_all(options: BuildOptions, profiles: &[String], all: bool) -> Result<()> {
+    let text = bach_pack::textfile::read(options.config).with_context(|| format!("couldn't read {}", options.config.display()))?;
+    let declared = config::declared(&text)?;
+    let platforms: Vec<&str> = match options.platform.map(str::trim) {
+        Some("all") => {
+            [("windows", declared.windows), ("macos", declared.macos)].iter().filter(|(_, on)| *on).map(|(name, _)| *name).collect()
+        }
+        Some(name) => vec![name],
+        // Profiles are Windows builds; without a word, every declared platform is built.
+        None if !profiles.is_empty() || all || options.profile.is_some() => vec!["windows"],
+        None => [("windows", declared.windows), ("macos", declared.macos)].iter().filter(|(_, on)| *on).map(|(name, _)| *name).collect(),
+    };
+    if platforms.len() > 1 && options.out.is_some() {
+        bail!("--out names one file, but this builds for {} platforms; leave --out out, or name one with --platform", platforms.len());
+    }
+    for (index, platform) in platforms.iter().enumerate() {
+        if index > 0 {
+            say!();
+        }
+        if *platform == "macos" {
+            let runtime = options.runtime_macos.or(if platforms.len() == 1 { options.runtime } else { None });
+            // Windows-only options (online installer, MSI, patches) belong to the Windows file when both are built.
+            let shared = platforms.len() > 1;
+            build(BuildOptions {
+                platform: Some("macos"),
+                runtime,
+                profile: None,
+                arch: None,
+                online: options.online && !shared,
+                msi: options.msi && !shared,
+                patch_from: if shared { None } else { options.patch_from },
+                ..options
+            })?;
+        } else {
+            let windows = BuildOptions { platform: None, ..options };
+            build_windows_all(windows, profiles, all)?;
+        }
+    }
+    Ok(())
+}
+
+fn build_windows_all(options: BuildOptions, profiles: &[String], all: bool) -> Result<()> {
     let mut wanted: Vec<Option<String>> = Vec::new();
     if all {
         wanted.push(None);
@@ -223,9 +318,16 @@ pub fn build(options: BuildOptions) -> Result<Built> {
         sign,
         patch_from,
         strict,
+        platform,
+        runtime_macos: _,
+        pkg: _,
+        feed_from: _,
     } = options;
     let started = Instant::now();
-    let mut project = load_arch(config_path, version, profile, arch)?;
+    let mut project = load_platform(config_path, version, profile, arch, platform)?;
+    if project.platform.is_macos() {
+        return mac::build(options, project, started);
+    }
     if project.kind == config::ProfileKind::Zip {
         return build_zip(&project, out, strict);
     }
@@ -621,7 +723,13 @@ pub(crate) fn write_packs(project: &mut Project, setup: &Path) -> Result<Vec<Pac
     let wanted: Vec<String> =
         project.manifest.components.iter().filter(|component| component.download.is_some()).map(|c| c.id.clone()).collect();
     let mut packs = Vec::new();
-    let flavour: Vec<&str> = project.profile.as_deref().into_iter().chain(project.arch.as_deref()).collect();
+    let flavour: Vec<&str> = project
+        .profile
+        .as_deref()
+        .into_iter()
+        .chain(project.arch.as_deref())
+        .chain(project.platform.is_macos().then_some("macos"))
+        .collect();
     for id in wanted {
         let members: std::collections::HashSet<String> = project
             .manifest
@@ -842,6 +950,9 @@ impl<W: std::io::Write> std::io::Write for Hashing<W> {
 /// the taskbar and the file's Properties name the app, not Bach.
 #[cfg(windows)]
 fn brand(project: &Project, path: &Path) -> Result<()> {
+    if project.platform.is_macos() {
+        return Ok(());
+    }
     let icon = match &project.icon {
         Some(icon) => Some(fs::read(icon).with_context(|| format!("couldn't read {}", icon.display()))?),
         None => None,
@@ -852,6 +963,10 @@ fn brand(project: &Project, path: &Path) -> Result<()> {
 
 #[cfg(not(windows))]
 fn brand(project: &Project, _path: &Path) -> Result<()> {
+    // A macOS Setup app gets its icon and details from its bundle.
+    if project.platform.is_macos() {
+        return Ok(());
+    }
     eprintln!(
         "  note: the setup file keeps Bach's icon and version details{}; \
          build on Windows to brand it",

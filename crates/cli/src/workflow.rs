@@ -30,6 +30,9 @@ pub struct Options<'a> {
     /// also opens the pull request that updates it in winget-pkgs. Left out,
     /// a job an earlier run of this command wrote is kept.
     pub winget: Option<&'a str>,
+    /// Also build the macOS Setup app, in a job of its own on a Mac runner. Off unless asked: a Windows
+    /// app is never built for macOS by itself. Left out, a job an earlier run wrote is kept.
+    pub macos: bool,
 }
 
 /// How `uses: usebach/bach@...` is written.
@@ -53,6 +56,8 @@ pub struct Written {
     pub updated: bool,
     /// The winget package the workflow updates, when it has that job.
     pub winget: Option<String>,
+    /// The workflow has the job that builds the macOS Setup app.
+    pub macos: bool,
     /// What the action is pinned to: the commit, or the moving `v0` tag.
     pub action: String,
     /// The commit was wanted but couldn't be looked up.
@@ -82,6 +87,9 @@ pub fn command(options: Options) -> Result<()> {
     }
     if let Some(id) = &done.winget {
         say!("After each release it also opens the winget pull request for {id}; add a repository secret named WINGET_TOKEN for it (see docs/releasing.md).");
+    }
+    if done.macos {
+        say!("It also builds the macOS Setup app on a Mac runner and adds it to the release. To sign and notarize it, add the repository secrets listed in docs/releasing.md; without them the app is sealed ad hoc.");
     }
     say!("Commit and push it, then release on GitHub under Actions > Release > Run workflow.");
     if options.pin == Pin::Commit && !done.pin_failed {
@@ -126,7 +134,17 @@ pub fn write(options: &Options) -> Result<Written> {
     if let Some(id) = winget {
         check_winget_id(id)?;
     }
-    let text = render(&relative, &project, &action, winget)?;
+    let macos = options.macos || existing.as_deref().filter(|_| ours).is_some_and(has_macos_job);
+    if macos {
+        let config = std::fs::read_to_string(dir.join("bach.toml")).unwrap_or_default();
+        if !bach_pack::config::declared(&config).is_ok_and(|declared| declared.macos) {
+            bail!(
+                "the macOS job builds the [macos] setup file, but {} has no [macos] section; add one (see docs/config.md#macos)",
+                dir.join("bach.toml").display()
+            );
+        }
+    }
+    let text = render(&relative, &project, &action, winget, macos)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("couldn't create {}", parent.display()))?;
     }
@@ -136,6 +154,7 @@ pub fn write(options: &Options) -> Result<Written> {
         stack: project.stack,
         no_github: crate::github::repository(&dir).is_none(),
         winget: winget.map(str::to_string),
+        macos,
         updated: ours,
         action,
         pin_failed,
@@ -258,7 +277,7 @@ impl Node {
 
 /// The finished YAML for a project in `dir` (relative to the repository, with
 /// `/`, empty for the repository's own folder).
-fn render(dir: &str, project: &Project, action: &str, winget: Option<&str>) -> Result<String> {
+fn render(dir: &str, project: &Project, action: &str, winget: Option<&str>, macos: bool) -> Result<String> {
     // The folder lands in YAML and in shell: only plain path characters.
     if !dir.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | ' ')) {
         bail!("the folder \"{dir}\" has characters the workflow can't carry; rename it to letters, digits, spaces, '.', '_' or '-'");
@@ -284,14 +303,111 @@ fn render(dir: &str, project: &Project, action: &str, winget: Option<&str>) -> R
         .replace("@DEFAULTS@\n", &defaults)
         .replace("@SETUP@\n", &setup)
         .replace("@BUILD@\n", &build)
+        .replace("@MACOS@", &if macos { macos_job(&defaults, &setup, &build, &config, action) } else { String::new() })
         .replace("@WINGET@", &winget.map(winget_job).unwrap_or_default())
         .replace("@CONFIG@", &config)
         .replace("@ACTION@", action);
     debug_assert!(
-        ["@DEFAULTS@", "@SETUP@", "@BUILD@", "@CONFIG@", "@ACTION@", "@WINGET@"].iter().all(|token| !text.contains(token)),
+        ["@DEFAULTS@", "@SETUP@", "@BUILD@", "@CONFIG@", "@ACTION@", "@WINGET@", "@MACOS@"].iter().all(|token| !text.contains(token)),
         "every placeholder is filled"
     );
     Ok(text)
+}
+
+/// Whether a workflow an earlier run wrote has the macOS job, so updating the file keeps it.
+fn has_macos_job(text: &str) -> bool {
+    text.lines().any(|line| line == "  macos:")
+}
+
+/// The job that builds the macOS Setup app after the release job published the Windows file, and adds
+/// it to the same release and the same update feed. It runs only when asked for (`bach workflow --macos`).
+/// Signing and notarization use repository secrets and are skipped, with the app sealed ad hoc, without them.
+fn macos_job(defaults: &str, setup: &str, build: &str, config: &str, action: &str) -> String {
+    format!(
+        r#"
+  # Builds the macOS Setup app (the [macos] section of bach.toml) on a Mac and adds it to the release
+  # the job above published, and to the same update feed (latest.json). To sign and notarize it, add
+  # these repository secrets (see docs/releasing.md); without them the app is sealed ad hoc, which
+  # runs but makes macOS ask people to confirm the first open:
+  #   MACOS_CERTIFICATE            a Developer ID Application certificate (.p12), base64 encoded
+  #   MACOS_CERTIFICATE_PASSWORD   its password
+  #   APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER   an App Store Connect API key (.p8, base64) for notarization
+  # and put `[macos.signing]` with identity = "Developer ID Application: ..." and notarize = "bach-notary"
+  # in bach.toml.
+  macos:
+    name: Build for macOS
+    needs: release
+    if: ${{{{ !inputs.dry_run }}}}
+    runs-on: macos-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+{defaults}    env:
+      HAS_SIGNING: ${{{{ secrets.MACOS_CERTIFICATE != '' }}}}
+      HAS_NOTARY: ${{{{ secrets.APPLE_API_KEY != '' }}}}
+    steps:
+      - name: Check out the release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{{{ needs.release.outputs.version }}}}
+          persist-credentials: false
+
+      - name: Install Bach
+        uses: {action}
+{setup}{build}
+      - name: Install the signing certificate
+        if: ${{{{ env.HAS_SIGNING == 'true' }}}}
+        shell: bash
+        env:
+          MACOS_CERTIFICATE: ${{{{ secrets.MACOS_CERTIFICATE }}}}
+          MACOS_CERTIFICATE_PASSWORD: ${{{{ secrets.MACOS_CERTIFICATE_PASSWORD }}}}
+        run: |
+          keychain="$RUNNER_TEMP/bach.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          rm -f "$RUNNER_TEMP/certificate.p12"
+
+      - name: Store the notarization credentials
+        if: ${{{{ env.HAS_SIGNING == 'true' && env.HAS_NOTARY == 'true' }}}}
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{{{ secrets.APPLE_API_KEY }}}}
+          APPLE_API_KEY_ID: ${{{{ secrets.APPLE_API_KEY_ID }}}}
+          APPLE_API_ISSUER: ${{{{ secrets.APPLE_API_ISSUER }}}}
+        run: |
+          printf '%s' "$APPLE_API_KEY" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          xcrun notarytool store-credentials bach-notary --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+      # The Windows job wrote latest.json; the macOS file is added to a copy of it.
+      - name: Fetch the update feed of this release
+        shell: bash
+        env:
+          GH_TOKEN: ${{{{ github.token }}}}
+          VERSION: ${{{{ needs.release.outputs.version }}}}
+        run: gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --pattern latest.json --output "$RUNNER_TEMP/windows-feed.json" || echo "No update feed on the release yet."
+
+      - name: Build the macOS Setup app and add it to the release
+        id: bach
+        uses: {action}
+        with:
+          version: local
+          config: {config}
+          args: --platform macos --feed-from ${{{{ runner.temp }}}}/windows-feed.json ${{{{ env.HAS_SIGNING == 'true' && '--sign' || '' }}}}
+          app-version: ${{{{ needs.release.outputs.version }}}}
+          release: true
+          tag: v${{{{ needs.release.outputs.version }}}}
+          prerelease: ${{{{ inputs.prerelease || contains(needs.release.outputs.version, '-') }}}}
+          draft: ${{{{ inputs.draft }}}}
+          latest: ${{{{ inputs.latest }}}}
+"#
+    )
 }
 
 /// The package id the winget job of an earlier run carries, so running
@@ -453,7 +569,7 @@ mod tests {
             "electron",
             &[("package.json", r#"{"name":"n","version":"1.0.0","devDependencies":{"electron":"30"}}"#), ("package-lock.json", "{}")],
         );
-        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap();
+        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
         assert_eq!((done.stack, done.no_github, done.updated), (Some("Electron"), false, false));
         let text = written(&dir);
         assert!(text.starts_with(MARK));
@@ -469,7 +585,7 @@ mod tests {
     #[test]
     fn each_stack_builds_its_own_way() {
         let rust = project("rust", &[("Cargo.toml", "[package]\nname = \"a\"\nversion = \"1.0.0\"\n")]);
-        write(&Options { dir: &rust, force: false, pin: Pin::Float, winget: None }).unwrap();
+        write(&Options { dir: &rust, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
         let text = written(&rust);
         assert!(
             text.contains("dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable")
@@ -481,7 +597,7 @@ mod tests {
             "forge",
             &[("package.json", r#"{"devDependencies":{"electron":"30","@electron-forge/cli":"7"}}"#), ("pnpm-lock.yaml", "")],
         );
-        write(&Options { dir: &forge, force: false, pin: Pin::Float, winget: None }).unwrap();
+        write(&Options { dir: &forge, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
         let text = written(&forge);
         assert!(
             text.contains("electron-forge package") && text.contains("pnpm install --frozen-lockfile") && text.contains("--lockfile-only")
@@ -491,16 +607,16 @@ mod tests {
             "dotnet",
             &[("A.csproj", "<Project><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>")],
         );
-        write(&Options { dir: &dotnet, force: false, pin: Pin::Float, winget: None }).unwrap();
+        write(&Options { dir: &dotnet, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
         assert!(written(&dotnet).contains("dotnet publish -c Release -r win-x64 --self-contained"));
 
         let tauri = project("tauri", &[("src-tauri/tauri.conf.json", r#"{"productName":"A","version":"1.0.0"}"#)]);
-        write(&Options { dir: &tauri, force: false, pin: Pin::Float, winget: None }).unwrap();
+        write(&Options { dir: &tauri, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
         let text = written(&tauri);
         assert!(text.contains("cargo build --release --manifest-path src-tauri/Cargo.toml"), "no package.json, so Cargo alone");
 
         let unknown = project("unknown", &[]);
-        let done = write(&Options { dir: &unknown, force: false, pin: Pin::Float, winget: None }).unwrap();
+        let done = write(&Options { dir: &unknown, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
         assert!(done.stack.is_none());
         assert!(written(&unknown).contains("TODO: build your app"));
         for dir in [rust, forge, dotnet, tauri, unknown] {
@@ -512,22 +628,22 @@ mod tests {
     fn a_project_in_a_subfolder_runs_from_there() {
         let dir = project("mono", &[("desktop/README", "x")]);
         std::fs::rename(dir.join("bach.toml"), dir.join("desktop/bach.toml")).unwrap();
-        write(&Options { dir: &dir.join("desktop"), force: false, pin: Pin::Float, winget: None }).unwrap();
+        write(&Options { dir: &dir.join("desktop"), force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
         let text = written(&dir);
         assert!(text.contains("working-directory: \"desktop\""));
         assert!(text.contains("config: desktop/bach.toml"));
         std::fs::remove_dir_all(dir).unwrap();
         assert!(
-            render("a\"b", &Project { stack: None, node: None, forge: false, tauri_uses_node: false }, FLOATING, None).is_err(),
+            render("a\"b", &Project { stack: None, node: None, forge: false, tauri_uses_node: false }, FLOATING, None, false).is_err(),
             "no quotes in a folder name"
         );
-        assert!(render("a$(x)", &Project { stack: None, node: None, forge: false, tauri_uses_node: false }, FLOATING, None).is_err());
+        assert!(render("a$(x)", &Project { stack: None, node: None, forge: false, tauri_uses_node: false }, FLOATING, None, false).is_err());
     }
 
     #[test]
     fn the_winget_job_is_added_on_request_and_kept_on_update() {
         let dir = project("winget", &[]);
-        write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap();
+        write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
         let plain = written(&dir);
         assert!(!plain.contains("wingetcreate") && !plain.contains("@WINGET@"), "no job unless asked for");
         assert!(
@@ -538,7 +654,7 @@ mod tests {
             "the release job hands its version on either way"
         );
 
-        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: Some("Example.Hello") }).unwrap();
+        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: Some("Example.Hello"), macos: false }).unwrap();
         assert_eq!(done.winget.as_deref(), Some("Example.Hello"));
         let text = written(&dir);
         assert!(text.contains("PACKAGE: \"Example.Hello\"") && text.contains("-t $env:WINGET_TOKEN --submit"), "{text}");
@@ -552,7 +668,7 @@ mod tests {
         );
 
         // Updating the workflow later, without the flag, keeps the job.
-        let again = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap();
+        let again = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
         assert_eq!(again.winget.as_deref(), Some("Example.Hello"));
         assert_eq!(written(&dir), text);
         std::fs::remove_dir_all(dir).unwrap();
@@ -571,11 +687,11 @@ mod tests {
     #[test]
     fn a_file_that_isnt_ours_is_kept_unless_forced() {
         let dir = project("keep", &[(FILE, "name: mine\n")]);
-        let error = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).err().unwrap().to_string();
+        let error = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: false }).err().unwrap().to_string();
         assert!(error.contains("--force"), "{error}");
         assert_eq!(written(&dir), "name: mine\n");
-        write(&Options { dir: &dir, force: true, pin: Pin::Float, winget: None }).unwrap();
-        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap();
+        write(&Options { dir: &dir, force: true, pin: Pin::Float, winget: None, macos: false }).unwrap();
+        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
         assert!(done.updated, "Bach's own file is updated in place");
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -585,9 +701,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("bach-workflow-none-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap_err().to_string().contains("bach init"));
+        assert!(write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: false })
+            .unwrap_err()
+            .to_string()
+            .contains("bach init"));
         std::fs::write(dir.join("bach.toml"), "").unwrap();
-        assert!(write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None })
+        assert!(write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: false })
             .unwrap_err()
             .to_string()
             .contains("git repository"));
@@ -599,11 +718,11 @@ mod tests {
         let pinned = pinned_action(sha, "0.6.0");
         assert_eq!(pinned, format!("usebach/bach@{sha} # v0.6.0"));
         let project = Project { stack: None, node: None, forge: false, tauri_uses_node: false };
-        let text = render("", &project, &pinned, None).unwrap();
+        let text = render("", &project, &pinned, None, false).unwrap();
         // Both uses of the action, with a 40-digit commit and the version as a comment.
         assert_eq!(text.matches(&format!("uses: usebach/bach@{sha} # v0.6.0")).count(), 2, "{text}");
         assert!(!text.contains("uses: usebach/bach@v0"));
-        let floating = render("", &project, FLOATING, None).unwrap();
+        let floating = render("", &project, FLOATING, None, false).unwrap();
         assert_eq!(
             floating
                 .matches(
@@ -615,7 +734,7 @@ mod tests {
         );
         // The float option writes the moving tag without asking GitHub.
         let dir = project_dir_for_pin();
-        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None }).unwrap();
+        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
         assert_eq!((done.action.as_str(), done.pin_failed), (FLOATING, false));
         assert!(written(&dir).contains(
             "uses: usebach/bach@v0
@@ -660,5 +779,36 @@ mod tests {
             None,
             "another tag is no match"
         );
+    }
+
+    #[test]
+    fn the_macos_job_is_only_added_when_asked_and_kept_on_update() {
+        let dir = project("macos-job", &[("package.json", r#"{"name":"x","scripts":{"build":"x"}}"#)]);
+        std::fs::write(
+            dir.join("bach.toml"),
+            "[app]\nname=\"X\"\nversion=\"1.0.0\"\npublisher=\"P\"\nexecutable=\"x.exe\"\n[files]\nsource=\"app\"\n",
+        )
+        .unwrap();
+        // A Windows app is never built for macOS by itself.
+        let plain = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
+        assert!(!plain.macos && !written(&dir).contains("runs-on: macos-latest"));
+        // Asking for it without a [macos] section is refused with the way forward.
+        let err = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: true }).unwrap_err().to_string();
+        assert!(err.contains("no [macos] section"), "{err}");
+        std::fs::write(
+            dir.join("bach.toml"),
+            "[app]\nname=\"X\"\nversion=\"1.0.0\"\npublisher=\"P\"\n[macos]\nsource=\"app\"\nexecutable=\"X.app\"\n",
+        )
+        .unwrap();
+        let done = write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: true }).unwrap();
+        let text = written(&dir);
+        assert!(done.macos && text.contains("  macos:\n    name: Build for macOS") && text.contains("runs-on: macos-latest"));
+        assert!(text.contains("--platform macos --feed-from") && text.contains("needs: release"));
+        assert!(text.contains("args: --platform windows"), "the Windows job stays Windows");
+        assert!(!text.contains('@') || !["@MACOS@", "@SETUP@", "@BUILD@"].iter().any(|token| text.contains(token)));
+        // Running it again without the flag keeps the job.
+        write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
+        assert!(written(&dir).contains("runs-on: macos-latest"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

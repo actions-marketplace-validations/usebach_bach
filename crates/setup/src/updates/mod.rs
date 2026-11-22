@@ -21,6 +21,8 @@ pub(crate) mod authenticode;
 mod auto;
 pub(crate) mod curl;
 pub(crate) mod feed;
+#[cfg(target_os = "macos")]
+pub(crate) mod macsetup;
 mod rollout;
 pub(crate) mod stage;
 
@@ -28,7 +30,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use bach_pack::i18n::Key;
-use bach_pack::manifest::{FeedEntry, Manifest, UNINSTALLER};
+#[cfg(windows)]
+use bach_pack::manifest::UNINSTALLER;
+use bach_pack::manifest::{FeedEntry, Manifest};
 use serde_json::json;
 
 use crate::launch::Args;
@@ -229,9 +233,17 @@ fn access_key(args: &Args, package: &Package) -> Result<Option<String>, String> 
 /// The folder this `uninstall.exe` sits in, or else the one Settings › Apps
 /// lists for the app.
 fn install_dir(package: &Package) -> Option<PathBuf> {
-    let name = package.exe.file_name()?.to_string_lossy().to_lowercase();
-    if name == UNINSTALLER {
-        return package.exe.parent().map(PathBuf::from);
+    #[cfg(windows)]
+    {
+        let name = package.exe.file_name()?.to_string_lossy().to_lowercase();
+        if name == UNINSTALLER {
+            return package.exe.parent().map(PathBuf::from);
+        }
+    }
+    // On a Mac the uninstaller is in the Library; the install record says where the app is.
+    #[cfg(target_os = "macos")]
+    if let Some(dir) = system::recorded_dir(&package.manifest) {
+        return Some(dir);
     }
     system::installed(&package.manifest).map(|installed| installed.dir)
 }
@@ -340,7 +352,13 @@ fn update(ctx: &Context) -> Result<i32, String> {
     if ctx.args.silent {
         return apply::install(ctx, &staged);
     }
-    let mut command = Command::new(&staged.file);
+    #[cfg(windows)]
+    let program = staged.file.clone();
+    // On a Mac the Setup app is copied out of the download, so the window can stay open
+    // after the disk image is gone; the next update run clears the folder.
+    #[cfg(target_os = "macos")]
+    let program = macsetup::unpack(&staged.file, &stage::folder(&ctx.manifest().app.id).join(format!("run-{}", std::process::id())))?;
+    let mut command = Command::new(&program);
     if let Some(lang) = &ctx.args.lang {
         command.args(["--lang", lang]);
     }

@@ -333,6 +333,44 @@ nonce are random), signing (a signature carries the time it was made, and a
 signed file is the unsigned one plus the signature), and another version of
 `bach` or of its `bach-setup.exe` runtime.
 
+## macOS
+
+A bach.toml with `[macos]` also builds a **Setup app**, `Install Hello.app`, in a
+`.dmg` (a `.zip` on a computer without `hdiutil`). It is the same runtime
+(`bach-setup`, compiled for macOS) and the same install code, with these differences:
+
+- **The payload is a file in the bundle**, `Contents/Resources/setup.bach`, in the
+  container format of a Windows setup file with no runtime in front of it. It is
+  never appended to the program: a Mach-O program with bytes after its end fails code
+  signing, and a bundle's signature covers its resources.
+- **The uninstaller is an app, out of sight**, `Uninstall Hello.app` in `~/Library/Application Support/Bach/uninstallers/<id>`:
+  a copy of the runtime, the installed manifest and the logo. The Mac way to remove an app is the Trash, so nothing is
+  put beside the app; the watcher uses the uninstaller (and the install record, which says where the app was) to clean up. It is written next to the old one and
+  swapped in, kept aside while an update runs and put back if the update fails, like
+  `uninstall.exe`. A Mac can delete a program that runs, so removal needs no copy in the temp folder.
+- **Where things go.** Per user: `~/Applications/<folder>`, or `~/Applications` itself for an app that is one bundle;
+  machine-wide: `/Applications/<folder>`, which an administrator can write without a prompt, so
+  setup never runs as root. The record that says where an install is (macOS has
+  no list of apps with uninstallers) is `~/Library/Application Support/Bach/installs/<id>.json`.
+- **The choices.** The Start menu shortcut is a symbolic link in Applications, the
+  desktop shortcut one on the Desktop, "start with Windows" a launch agent
+  (`~/Library/LaunchAgents/app.bach.login.<id>.plist`), automatic updates a launch agent
+  (`app.bach.update.<id>`, every four hours), and PATH a marked block in `~/.zprofile` (and
+  `~/.bash_profile` if it exists). Each is taken away again by an update that no longer wants it, and by the uninstaller.
+- **Files keep their permissions and links.** The manifest records the permission bits of
+  programs and the target of symbolic links (frameworks use them). A payload's bits are masked to `rwxrwxrwx`
+  (never setuid), links are created with the files and undone with them, a link whose
+  target would leave the app is refused when building and when reading, and a file is never written through a
+  link that leads out of the install folder.
+- **Updates.** The feed lists the macOS file under `arch.macos`, signed separately. The
+  installed uninstaller downloads the `.dmg`, checks its SHA-256, copies the Setup app out and runs
+  it with `--silent`. With `[updates] signer`, the Setup app has to be signed with a Developer ID of that name.
+- **Safety rules** are the same: packaged paths can't leave the install folder, the uninstaller removes only
+  what it installed, and data folders (`macos.data`) must sit in the user's home, in a place apps keep their data, below a folder of the app's own.
+
+`scripts/e2e-macos.sh` installs, repairs, updates, refuses a downgrade and a damaged file, and removes the example app
+with a throwaway `HOME`; CI runs it on Apple silicon and on Intel.
+
 ## Windows on ARM
 
 A setup file is the setup runtime with the app's files appended, and the

@@ -38,8 +38,44 @@ pub use services::{Direction, FirewallProtocol, FirewallRule, Network, ServiceAc
 pub use system::{ContextMenuEntry, ContextTarget, EnvVar, Migrate, RegistryData, RegistryValue, RegistryView, SystemChanges};
 pub use validate::MAX_LICENSE;
 
-/// The uninstaller's file name in every install folder.
+/// The uninstaller's file name in every Windows install folder. On macOS the
+/// uninstaller is an app bundle named after the app; see [`Manifest::uninstaller`].
 pub const UNINSTALLER: &str = "uninstall.exe";
+
+/// What the setup file installs onto: it decides the uninstaller's shape,
+/// where files go and how the app is registered.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Platform {
+    #[default]
+    Windows,
+    Macos,
+}
+
+impl Platform {
+    pub fn is_windows(&self) -> bool {
+        *self == Platform::Windows
+    }
+
+    pub fn is_macos(&self) -> bool {
+        *self == Platform::Macos
+    }
+
+    /// The name the config and the command line use.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Platform::Windows => "windows",
+            Platform::Macos => "macos",
+        }
+    }
+}
+
+/// Inside a macOS bundle (`Contents/MacOS/bach-setup` runs, and the payload
+/// sits beside it at `Contents/Resources/setup.bach`): the runtime's name and
+/// the payload's. Signing a bundle covers its resources, but a Mach-O program
+/// with bytes appended to it fails code signing, so the payload is never appended there.
+pub const MAC_RUNTIME_IN_BUNDLE: &str = "Contents/MacOS/bach-setup";
+pub const MAC_PAYLOAD_IN_BUNDLE: &str = "Contents/Resources/setup.bach";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Manifest {
@@ -67,6 +103,17 @@ pub struct Manifest {
     pub file_types: Vec<FileType>,
     #[serde(default)]
     pub locale: Locale,
+    /// What this setup file installs onto. Left out for Windows, which is what
+    /// every setup file was before macOS was added.
+    #[serde(default, skip_serializing_if = "Platform::is_windows")]
+    pub platform: Platform,
+    /// macOS only: background programs the app asks for, run by launchd for the user who installed it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<MacAgent>,
+    /// macOS only: what the setup app and the uninstaller bundle are called
+    /// to the system. Left out for Windows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mac: Option<MacInfo>,
     /// What the user chose. Only in an installed uninstaller, so an update
     /// offers the same choices and the uninstaller knows what to undo.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -104,6 +151,41 @@ pub struct Manifest {
     /// `files` must already be in the install folder with the recorded SHA-256.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub patch_from: Option<String>,
+}
+
+/// A background program of a macOS app, run by a launch agent (the Mac's counterpart of a Windows service).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MacAgent {
+    /// Names the agent (`app.bach.agent.<app id>.<name>`): letters, digits and dashes.
+    pub name: String,
+    /// The program, a packaged file with the executable permission.
+    pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<String>,
+    /// Start it when the user signs in (and when the install finishes).
+    #[serde(default = "yes_agent")]
+    pub run_at_load: bool,
+    /// Start it again when it ends.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_alive: bool,
+    /// Run it again every this many seconds (10 or more).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval: Option<u32>,
+}
+
+fn yes_agent() -> bool {
+    true
+}
+
+/// What a macOS setup file tells the system about itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MacInfo {
+    /// The setup app's bundle identifier (`macos.bundle_id`); the uninstaller's
+    /// is this with `.uninstall` after it.
+    pub bundle_id: String,
+    /// The oldest macOS the app runs on (`macos.minimum_version`), like `12.0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum_version: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -263,11 +345,26 @@ pub struct FileEntry {
     /// and checks them against this before it relies on them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// macOS: the file's permission bits (`0o755`), so a program stays one.
+    /// Only the owner, group and other read, write and execute bits are kept;
+    /// None means an ordinary file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<u32>,
+    /// macOS: this entry is a symbolic link to this relative target (frameworks
+    /// in an app bundle use them). It has no bytes of its own; the target is
+    /// checked to stay inside the install folder, see [`paths::check_link`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
 }
 
 impl FileEntry {
     pub fn new(path: impl Into<String>, size: u64) -> Self {
-        Self { path: path.into(), size, component: None, sha256: None }
+        Self { path: path.into(), size, component: None, sha256: None, mode: None, link: None }
+    }
+
+    /// Whether the entry is a symbolic link rather than a file with bytes.
+    pub fn is_link(&self) -> bool {
+        self.link.is_some()
     }
 }
 
@@ -286,6 +383,36 @@ impl Manifest {
     /// The program inside an install folder.
     pub fn executable_in(&self, dir: &Path) -> PathBuf {
         paths::under(dir, &self.app.executable)
+    }
+
+    /// Whether the program is really there: a file on Windows, and on macOS
+    /// also an app bundle, which is a folder.
+    pub fn program_exists(&self, dir: &Path) -> bool {
+        let program = self.executable_in(dir);
+        match self.platform {
+            Platform::Windows => program.is_file(),
+            Platform::Macos => program.exists(),
+        }
+    }
+
+    /// The uninstaller's path inside the install folder: `uninstall.exe` on
+    /// Windows, and on macOS an app bundle named `Uninstall <app>.app`, so
+    /// it opens like any app. This is the *file that carries the manifest*
+    /// on Windows; use [`Manifest::uninstaller_payload`] for that on macOS.
+    pub fn uninstaller(&self) -> String {
+        match self.platform {
+            Platform::Windows => UNINSTALLER.to_string(),
+            Platform::Macos => format!("Uninstall {}.app", paths::file_name_part(&self.app.name, &self.app.id)),
+        }
+    }
+
+    /// The file inside the install folder that holds the uninstaller's manifest:
+    /// the uninstaller itself on Windows, the payload inside its bundle on macOS.
+    pub fn uninstaller_payload(&self) -> String {
+        match self.platform {
+            Platform::Windows => UNINSTALLER.to_string(),
+            Platform::Macos => format!("{}/{MAC_PAYLOAD_IN_BUNDLE}", self.uninstaller()),
+        }
     }
 
     /// The folder that goes on `PATH`.
@@ -367,7 +494,7 @@ pub(crate) fn sample() -> Manifest {
         files: vec![
             FileEntry::new("hello.exe", 10),
             FileEntry::new("data/readme.txt", 5),
-            FileEntry { path: "samples/one.txt".into(), size: 3, component: Some("samples".into()), sha256: None },
+            FileEntry { component: Some("samples".into()), ..FileEntry::new("samples/one.txt", 3) },
         ],
         components: vec![Component {
             id: "samples".into(),
@@ -379,6 +506,9 @@ pub(crate) fn sample() -> Manifest {
         protocols: vec![Protocol { scheme: "hello".into(), description: None }],
         file_types: vec![FileType { extension: ".hello".into(), description: Some("Hello note".into()) }],
         locale: Locale::default(),
+        platform: Platform::Windows,
+        mac: None,
+        agents: Vec::new(),
         chosen: None,
         requirements: Vec::new(),
         shortcuts: vec![Shortcut {

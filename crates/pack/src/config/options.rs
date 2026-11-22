@@ -43,12 +43,20 @@ pub struct FileTypeSection {
     description: Option<String>,
 }
 
-pub(super) fn install(section: &InstallerSection, app: &manifest::App) -> Result<manifest::Install> {
+/// `bare_bundle`: a macOS app that is one app bundle and nothing else. It goes straight into
+/// Applications (no folder of its own, so one icon and one thing to drag to the Trash), and the
+/// window asks nothing but "Install" unless the config offers more.
+pub(super) fn install(section: &InstallerSection, app: &manifest::App, bare_bundle: bool) -> Result<manifest::Install> {
     let folder = match &section.folder {
         Some(folder) => folder.trim().to_string(),
+        None if bare_bundle => String::new(),
         None => app.id.clone(),
     };
-    if let Some(problem) = paths::id_problem(&folder) {
+    let bare = folder.is_empty();
+    if bare && !bare_bundle {
+        bail!("installer.folder is empty; it must be a plain folder name, like \"{}\"", app.id);
+    }
+    if let Some(problem) = paths::id_problem(&folder).filter(|_| !bare) {
         bail!("installer.folder is \"{folder}\", which {problem}. It must be a plain folder name, like \"{}\"", app.id);
     }
     let path_folder = match section.path_folder.as_deref().map(str::trim) {
@@ -57,12 +65,20 @@ pub(super) fn install(section: &InstallerSection, app: &manifest::App) -> Result
     };
     Ok(manifest::Install {
         folder,
-        desktop_shortcut: choice(section.desktop_shortcut.as_ref(), "installer.desktop_shortcut", Choice::On)?,
-        start_menu_shortcut: choice(section.start_menu_shortcut.as_ref(), "installer.start_menu_shortcut", Choice::Always)?,
+        desktop_shortcut: choice(
+            section.desktop_shortcut.as_ref(),
+            "installer.desktop_shortcut",
+            if bare { Choice::Never } else { Choice::On },
+        )?,
+        start_menu_shortcut: choice(
+            section.start_menu_shortcut.as_ref(),
+            "installer.start_menu_shortcut",
+            if bare { Choice::Never } else { Choice::Always },
+        )?,
         start_with_windows: choice(section.start_with_windows.as_ref(), "installer.start_with_windows", Choice::Never)?,
         add_to_path: choice(section.add_to_path.as_ref(), "installer.add_to_path", Choice::Never)?,
         path_folder,
-        change_folder: section.change_folder.unwrap_or(true),
+        change_folder: section.change_folder.unwrap_or(!bare),
         open_button: section.open_button.unwrap_or(true),
         start_menu_folder: match section.start_menu_folder.as_deref().map(str::trim) {
             None | Some("") => None,

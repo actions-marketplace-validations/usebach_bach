@@ -6,7 +6,7 @@ use anyhow::{bail, Context, Result};
 
 use super::extras::{is_https, is_valid_shortcut_name};
 use super::features::{is_valid_component_id, is_valid_extension, is_valid_scheme};
-use super::{Manifest, OPTION_AUTOSTART, OPTION_DESKTOP, OPTION_PATH, OPTION_START_MENU, UNINSTALLER};
+use super::{Manifest, OPTION_AUTOSTART, OPTION_DESKTOP, OPTION_PATH, OPTION_START_MENU};
 use crate::{i18n, paths};
 
 /// A license longer than this is damage, not a license.
@@ -19,7 +19,9 @@ pub fn manifest(manifest: &Manifest) -> Result<()> {
     if let Some(problem) = paths::id_problem(&manifest.app.id) {
         bail!("the app id \"{}\" can't name a folder: it {problem}", manifest.app.id);
     }
-    if let Some(problem) = paths::id_problem(&manifest.install.folder) {
+    // An app bundle that goes straight into Applications has no folder of its own.
+    let bare = manifest.platform.is_macos() && manifest.install.folder.is_empty();
+    if let Some(problem) = paths::id_problem(&manifest.install.folder).filter(|_| !bare) {
         bail!("the install folder \"{}\" isn't a plain folder name: it {problem}", manifest.install.folder);
     }
     if manifest.app.name.trim().is_empty() || manifest.app.version.trim().is_empty() {
@@ -44,7 +46,10 @@ pub fn manifest(manifest: &Manifest) -> Result<()> {
         }
     }
     for folder in &manifest.uninstall.data {
-        paths::check_data_folder(folder)?;
+        match manifest.platform {
+            super::Platform::Windows => paths::check_data_folder(folder)?,
+            super::Platform::Macos => paths::mac::check_data_folder(folder)?,
+        }
     }
     extras(manifest)?;
     super::system::check(&manifest.system)?;
@@ -138,6 +143,27 @@ fn extras(manifest: &Manifest) -> Result<()> {
             bail!("the setup file's checksum is damaged");
         }
     }
+    if !manifest.agents.is_empty() && !manifest.platform.is_macos() {
+        bail!("only a macOS setup file can have launch agents");
+    }
+    let mut names = HashSet::new();
+    for agent in &manifest.agents {
+        if agent.name.is_empty() || agent.name.len() > 40 || !agent.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            bail!("the agent \"{}\" has a name with something other than letters, digits and dashes", agent.name);
+        }
+        if !names.insert(agent.name.to_lowercase()) {
+            bail!("the agent \"{}\" is listed twice", agent.name);
+        }
+        let Some(file) = manifest.files.iter().find(|file| file.path == agent.file && !file.is_link()) else {
+            bail!("the agent \"{}\" runs \"{}\", which isn't one of the installed files", agent.name, agent.file);
+        };
+        if file.mode.unwrap_or(0) & 0o111 == 0 {
+            bail!("the agent \"{}\" runs \"{}\", which has no executable permission", agent.name, agent.file);
+        }
+        if agent.interval.is_some_and(|seconds| seconds < 10) {
+            bail!("the agent \"{}\" runs every less than 10 seconds", agent.name);
+        }
+    }
     for file in &manifest.files {
         if file.sha256.as_deref().is_some_and(|hash| hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit())) {
             bail!("the checksum of \"{}\" is damaged", file.path);
@@ -161,8 +187,23 @@ fn files(manifest: &Manifest) -> Result<()> {
         if normal != file.path {
             bail!("\"{}\" isn't stored in its canonical form", file.path);
         }
-        if normal.eq_ignore_ascii_case(UNINSTALLER) {
-            bail!("the app ships its own {UNINSTALLER}, which would replace Bach's uninstaller");
+        let uninstaller = manifest.uninstaller();
+        if normal.eq_ignore_ascii_case(&uninstaller) || normal.to_lowercase().starts_with(&format!("{}/", uninstaller.to_lowercase())) {
+            bail!("the app ships its own {uninstaller}, which would replace Bach's uninstaller");
+        }
+        if manifest.platform.is_windows() && (file.mode.is_some() || file.link.is_some()) {
+            bail!("\"{}\" has a unix mode or is a link, which only a macOS setup file can install", file.path);
+        }
+        if let Some(mode) = file.mode {
+            if mode > 0o777 {
+                bail!("\"{}\" has a mode ({mode:o}) with more than the read, write and execute bits", file.path);
+            }
+        }
+        if let Some(target) = &file.link {
+            if file.size != 0 {
+                bail!("the link \"{}\" carries bytes", file.path);
+            }
+            paths::check_link(&file.path, target)?;
         }
         if !seen.insert(paths::fold_case(&normal)) {
             bail!("\"{}\" is listed twice", file.path);

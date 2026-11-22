@@ -53,8 +53,32 @@ impl Staged {
 
 /// Where an app's staged update lives.
 pub fn folder(app_id: &str) -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    base.join("Bach").join("updates").join(bach_pack::paths::safe_dir_name(app_id))
+    base_folder().join("updates").join(bach_pack::paths::safe_dir_name(app_id))
+}
+
+/// Bach's own folder in the user's profile.
+#[cfg(windows)]
+fn base_folder() -> PathBuf {
+    std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Bach")
+}
+
+#[cfg(target_os = "macos")]
+fn base_folder() -> PathBuf {
+    crate::system::support_dir().unwrap_or_else(|_| std::env::temp_dir().join("Bach"))
+}
+
+/// What the setup file is called: `exe` on Windows; `dmg` or `zip` on a Mac, as the
+/// download link says (a `.dmg` when it doesn't).
+fn setup_extension(url: &str) -> &'static str {
+    if cfg!(windows) {
+        return "exe";
+    }
+    let name = url.split(['?', '#']).next().unwrap_or_default().to_ascii_lowercase();
+    if name.ends_with(".zip") {
+        "zip"
+    } else {
+        "dmg"
+    }
 }
 
 /// The marker's staged update, if one is recorded and its file is there.
@@ -87,12 +111,40 @@ pub fn verify(staged: &Staged, app_id: &str) -> Result<(), String> {
     if !hash.eq_ignore_ascii_case(&staged.sha256) {
         return Err("the downloaded update doesn't match its SHA-256".into());
     }
-    inspect(&staged.file, app_id, &staged.version)
+    let kind = staged.file.extension().map(|ext| ext.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    inspect(&staged.file, app_id, &staged.version, &kind)
 }
 
 /// Reads `path` as a setup file and checks it belongs to `app_id` and is
 /// `version`, so a wrong file or a feed that names another version never runs.
-fn inspect(path: &Path, app_id: &str, version: &str) -> Result<(), String> {
+#[cfg(windows)]
+fn inspect(path: &Path, app_id: &str, version: &str, _kind: &str) -> Result<(), String> {
+    check_setup_file(path, app_id, version)
+}
+
+/// On a Mac the download is a disk image or a zip: the Setup app inside is copied
+/// out, and its payload is what gets read.
+#[cfg(target_os = "macos")]
+fn inspect(path: &Path, app_id: &str, version: &str, kind: &str) -> Result<(), String> {
+    let scratch = std::env::temp_dir().join(format!(
+        "bach-inspect-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())
+    ));
+    let result = super::macsetup::unpack_as(path, kind, &scratch)
+        .map_err(|why| {
+            crate::log::line(&why);
+            "the download isn't a setup file for this app".to_string()
+        })
+        .and_then(|program| {
+            let payload = super::macsetup::payload_of(&program).ok_or("the download isn't a setup file for this app")?;
+            check_setup_file(&payload, app_id, version)
+        });
+    let _ = fs::remove_dir_all(&scratch);
+    result
+}
+
+fn check_setup_file(path: &Path, app_id: &str, version: &str) -> Result<(), String> {
     let wrong = || "the download isn't a setup file for this app".to_string();
     let mut file = File::open(path).map_err(|err| err.to_string())?;
     let layout = container::locate(&mut file).ok().flatten().ok_or_else(wrong)?;
@@ -162,12 +214,12 @@ pub fn ensure_with(entry: &FeedEntry, app_id: &str, bearer: Option<&Bearer>, pro
             return Err("the download doesn't match the feed's SHA-256".into());
         }
     }
-    if let Err(problem) = inspect(&partial, app_id, &entry.version) {
+    if let Err(problem) = inspect(&partial, app_id, &entry.version, setup_extension(&entry.url)) {
         let _ = fs::remove_file(&partial);
         return Err(problem);
     }
 
-    let file_name = format!("{stem}.exe");
+    let file_name = format!("{stem}.{}", setup_extension(&entry.url));
     let file = dir.join(&file_name);
     let _ = fs::remove_file(&file);
     fs::rename(&partial, &file).map_err(|err| err.to_string())?;

@@ -18,9 +18,18 @@ pub fn high_contrast_requested() -> bool {
         .is_ok_and(|flags| flags_say_on(&flags))
 }
 
-#[cfg(not(windows))]
+/// "Increase contrast" in System Settings › Accessibility › Display. Read once with `defaults`.
+#[cfg(target_os = "macos")]
 pub fn high_contrast_requested() -> bool {
-    false
+    use std::sync::OnceLock;
+    static ASKED: OnceLock<bool> = OnceLock::new();
+    *ASKED.get_or_init(|| {
+        !cfg!(test)
+            && std::process::Command::new("/usr/bin/defaults")
+                .args(["read", "com.apple.universalaccess", "increaseContrast"])
+                .output()
+                .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "1")
+    })
 }
 
 /// `Flags` is a decimal string; HCF_HIGHCONTRASTON is its lowest bit.

@@ -12,8 +12,12 @@ use bach_pack::manifest::{self, FileEntry, LogoKind, Manifest};
 /// Everything setup knows about the app it installs or removes.
 pub struct Package {
     pub manifest: Manifest,
-    /// The file the payload was read from (this executable).
+    /// The file the payload was read from: this executable on Windows, and on a
+    /// Mac the `setup.bach` beside it in the app bundle.
     pub exe: PathBuf,
+    /// The program that is running: this executable. Copied to make the uninstaller.
+    #[cfg_attr(windows, allow(dead_code))]
+    pub runtime: PathBuf,
     /// None for the built-in sample, which has nothing to unpack.
     pub layout: Option<Layout>,
     pub logo: Option<Logo>,
@@ -40,10 +44,32 @@ impl Package {
         Self::load_from(exe)
     }
 
+    /// Where the payload is for a program at `exe`: the program itself, or on a
+    /// Mac `Contents/Resources/setup.bach` of the bundle it runs from. A program
+    /// outside a bundle (`cargo run`) has none.
+    #[cfg(target_os = "macos")]
+    fn payload_path(exe: &std::path::Path) -> PathBuf {
+        bach_pack::macapp::PAYLOAD
+            .strip_prefix("Contents/")
+            .and_then(|inside| exe.parent()?.parent().map(|contents| contents.join(inside)))
+            .unwrap_or_else(|| exe.to_path_buf())
+    }
+
+    #[cfg(windows)]
+    fn payload_path(exe: &std::path::Path) -> PathBuf {
+        exe.to_path_buf()
+    }
+
     /// The payload of the setup file at `exe`: this executable, or the full
     /// setup file an online installer downloaded.
     pub fn load_from(exe: PathBuf) -> Result<Option<Self>> {
-        let mut file = File::open(&exe).context("couldn't open this setup file")?;
+        let payload = Self::payload_path(&exe);
+        let mut file = match File::open(&payload) {
+            Ok(file) => file,
+            // A bare runtime on a Mac has no payload file at all.
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound && cfg!(target_os = "macos") => return Ok(None),
+            Err(err) => return Err(err).context("couldn't open this setup file"),
+        };
         let Some(layout) = container::locate(&mut file)? else {
             return Ok(None);
         };
@@ -62,14 +88,18 @@ impl Package {
             Some(LogoKind::Png) => Some(Logo::Png(Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, bytes)))),
             None => None,
         };
-        Ok(Some(Self { manifest, exe, layout: Some(layout), logo, fonts: look.fonts, picture, panel }))
+        Ok(Some(Self { manifest, exe: payload, runtime: exe, layout: Some(layout), logo, fonts: look.fonts, picture, panel }))
     }
 
     /// A made-up app for previewing the window on a bare runtime.
     pub fn sample() -> Self {
+        let mac = cfg!(target_os = "macos");
         let manifest = Manifest {
             format: bach_pack::FORMAT_VERSION,
             builder: bach_pack::VERSION.into(),
+            agents: Vec::new(),
+            platform: if mac { manifest::Platform::Macos } else { manifest::Platform::Windows },
+            mac: mac.then(|| manifest::MacInfo { bundle_id: "app.bach.setup.sample".into(), minimum_version: None }),
             app: manifest::App {
                 id: "Sample".into(),
                 name: "Sample".into(),
@@ -77,7 +107,7 @@ impl Package {
                 publisher: "Sample Inc.".into(),
                 description: Some("A preview of the installer window.".into()),
                 website: None,
-                executable: "sample.exe".into(),
+                executable: if mac { "Sample.app".into() } else { "sample.exe".into() },
             },
             install: manifest::Install {
                 folder: "Sample".into(),
@@ -92,9 +122,13 @@ impl Package {
                 website_button: false,
                 scope: manifest::Scope::User,
             },
-            uninstall: manifest::Uninstall { data: vec![r"%APPDATA%\Sample".into()], data_description: None, feedback_url: None },
+            uninstall: manifest::Uninstall {
+                data: vec![if mac { "~/Library/Application Support/Sample".into() } else { r"%APPDATA%\Sample".into() }],
+                data_description: None,
+                feedback_url: None,
+            },
             look: manifest::Look::default(),
-            files: vec![FileEntry::new("sample.exe", 48 << 20)],
+            files: vec![FileEntry::new(if mac { "Sample.app/Contents/MacOS/sample" } else { "sample.exe" }, 48 << 20)],
             components: Vec::new(),
             protocols: Vec::new(),
             file_types: Vec::new(),
@@ -110,7 +144,16 @@ impl Package {
             archive_sha256: None,
             patch_from: None,
         };
-        Self { manifest, exe: PathBuf::new(), layout: None, logo: None, fonts: Vec::new(), picture: None, panel: None }
+        Self {
+            manifest,
+            exe: PathBuf::new(),
+            runtime: PathBuf::new(),
+            layout: None,
+            logo: None,
+            fonts: Vec::new(),
+            picture: None,
+            panel: None,
+        }
     }
 
     /// Whether this carries files to install.

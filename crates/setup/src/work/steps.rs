@@ -15,6 +15,7 @@
 //!   (unless it says `ignore_errors`); a step that runs before removal never
 //!   stops the removal, because an app must always be removable.
 
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -31,6 +32,7 @@ use crate::texts::Texts;
 
 /// How long one step may take before setup gives up on it, unless it sets
 /// `timeout_minutes`.
+#[allow(dead_code)]
 pub const LIMIT: Duration = Duration::from_secs(15 * 60);
 
 /// The steps that apply to an install or update with these choices.
@@ -146,7 +148,17 @@ pub fn execute(program: &Path, arguments: Option<&str>, elevated: bool, limit: D
     }
     if let Some(arguments) = arguments {
         // The arguments are the developer's command line, passed as written.
+        #[cfg(windows)]
         command.raw_arg(arguments);
+        // A Mac has no command line string: the words are split the way a shell would, and no shell runs.
+        #[cfg(target_os = "macos")]
+        command.args(elevate::split(arguments));
+    }
+    // Its own process group, so a timeout can end everything it started.
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
     }
     crate::log::line(&format!("Running {} {arguments_text}", program.display()));
     let mut child = match command.spawn() {
@@ -234,7 +246,32 @@ fn log_output(output: &Mutex<Vec<u8>>) {
     }
 }
 
+/// A process group that ends its processes when it is dropped.
+#[cfg(target_os = "macos")]
+mod tree {
+    use std::process::Child;
+
+    pub struct Job(libc::pid_t);
+
+    impl Job {
+        /// The group `child` leads (it was started with `process_group(0)`).
+        pub fn containing(child: &Child) -> Option<Job> {
+            libc::pid_t::try_from(child.id()).ok().map(Job)
+        }
+    }
+
+    impl Drop for Job {
+        fn drop(&mut self) {
+            // SAFETY: a signal to the group this step started; if it is gone already, nothing happens.
+            unsafe {
+                libc::kill(-self.0, libc::SIGKILL);
+            }
+        }
+    }
+}
+
 /// A Windows job object that ends its processes when it is closed.
+#[cfg(windows)]
 mod tree {
     use std::os::windows::io::AsRawHandle;
     use std::process::Child;
@@ -318,7 +355,115 @@ pub fn run(step: &RunStep, recorded: Option<&FileEntry>, dir: &Path, texts: &Tex
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
+mod mac_tests {
+    use super::*;
+    use crate::package::Package;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn texts() -> Texts {
+        Texts::in_language(&Package::sample().manifest, &bach_pack::i18n::LANGUAGES[0])
+    }
+
+    /// A folder with a program `bin/tool` that runs `body` as a shell script.
+    fn folder(name: &str, body: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("bach-steps-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        std::fs::write(dir.join("bin/tool"), format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(dir.join("bin/tool"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        dir
+    }
+
+    fn step(arguments: &str) -> RunStep {
+        RunStep {
+            name: "Helper".into(),
+            file: "bin/tool".into(),
+            arguments: Some(arguments.into()),
+            when: RunWhen::Install,
+            success_codes: vec![0],
+            ignore_errors: false,
+            component: None,
+            elevated: false,
+            timeout_minutes: None,
+        }
+    }
+
+    #[test]
+    fn a_step_that_succeeds_passes_and_one_that_fails_says_which_and_why() {
+        let dir = folder("codes", "exit \"$1\"");
+        assert!(run(&step("0"), None, &dir, &texts()).is_ok());
+        let message = run(&step("7"), None, &dir, &texts()).unwrap_err();
+        assert!(message.contains("Helper") && message.contains('7'), "{message}");
+        let mut listed = step("3010");
+        assert!(run(&listed, None, &dir, &texts()).is_err());
+        listed.success_codes = vec![0, 3010 % 256];
+        assert!(run(&listed, None, &dir, &texts()).is_ok(), "an exit code a Mac can report is accepted when listed");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn arguments_reach_the_program_as_words_and_no_shell_runs() {
+        // The script fails unless it gets exactly two words, the first with a space in it and nothing expanded.
+        let dir = folder("args", "[ \"$#\" = 2 ] && [ \"$1\" = \"a b\" ] && [ \"$2\" = '$HOME' ] && exit 0\nexit 9");
+        assert!(run(&step(r#""a b" '$HOME'"#), None, &dir, &texts()).is_ok());
+        assert!(run(&step("a b $HOME"), None, &dir, &texts()).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn it_runs_in_its_own_folder_and_a_missing_program_fails_to_start() {
+        let dir = folder("cwd", "[ -f marker.txt ] && exit 0\nexit 5");
+        std::fs::write(dir.join("bin/marker.txt"), "x").unwrap();
+        assert!(run(&step(""), None, &dir, &texts()).is_ok());
+        let mut missing = step("");
+        missing.file = "bin/not-there".into();
+        assert!(run(&missing, None, &dir, &texts()).unwrap_err().contains("Helper"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_timeout_ends_the_programs_the_step_started_too() {
+        let marker = std::env::temp_dir().join(format!("bach-steps-grandchild-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        // The script starts a grandchild that would write the marker after 4 seconds.
+        let dir = folder("tree", &format!("(sleep 4; touch '{}') &\nsleep 60", marker.display()));
+        let ended = execute(&dir.join("bin/tool"), None, false, Duration::from_secs(1));
+        assert!(matches!(ended, Ended::TimedOut), "{ended:?}");
+        std::thread::sleep(Duration::from_secs(5));
+        assert!(!marker.exists(), "the grandchild must be gone");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn only_the_end_of_a_long_output_is_kept() {
+        let dir = folder("output", "i=1; while [ $i -le 3000 ]; do echo line$i; i=$((i+1)); done");
+        let mut child = Command::new(dir.join("bin/tool")).stdout(Stdio::piped()).spawn().unwrap();
+        let kept = Mutex::new(Vec::new());
+        Pipe::Out(child.stdout.take().unwrap()).drain_into(&kept);
+        let _ = child.wait();
+        let text = String::from_utf8_lossy(&kept.lock().unwrap()).to_string();
+        assert!(kept.lock().unwrap().len() <= OUTPUT_KEPT);
+        assert!(text.contains("line3000") && !text.contains("line1\n"), "the end stays, the start goes");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn removal_goes_on_when_a_step_fails() {
+        let dir = folder("removal", "exit 4");
+        let mut failing = step("");
+        failing.when = RunWhen::Uninstall;
+        let mut manifest = Package::sample().manifest;
+        manifest.files = vec![bach_pack::manifest::FileEntry::new("bin/tool", 1)];
+        manifest.run = vec![failing];
+        let seen = std::cell::RefCell::new(Vec::new());
+        run_removal_steps(&manifest, &dir, &texts(), &|_, label| seen.borrow_mut().push(label.to_string()), 0.1);
+        assert_eq!(seen.borrow().len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use crate::package::Package;
@@ -441,7 +586,7 @@ mod tests {
         manifest.files = vec![
             FileEntry::new("sample.exe", 1),
             FileEntry::new("bin/tool.exe", 1),
-            FileEntry { path: "extras/more.exe".into(), size: 1, component: Some("extras".into()), sha256: None },
+            FileEntry { component: Some("extras".into()), ..FileEntry::new("extras/more.exe", 1) },
         ];
         manifest.run = steps;
         manifest
@@ -514,8 +659,7 @@ mod tests {
         }
         let dir = folder("swapped");
         let program = dir.join("bin/tool.exe");
-        let mut recorded =
-            FileEntry { path: "bin/tool.exe".into(), size: std::fs::metadata(&program).unwrap().len(), sha256: None, component: None };
+        let mut recorded = FileEntry::new("bin/tool.exe", std::fs::metadata(&program).unwrap().len());
         recorded.sha256 = Some(bach_pack::protect::sha256_hex(std::fs::File::open(&program).unwrap()).unwrap());
         let mut elevated = step("/c exit 0");
         elevated.elevated = true;

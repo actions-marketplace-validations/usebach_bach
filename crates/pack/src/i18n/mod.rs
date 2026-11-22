@@ -78,6 +78,8 @@ texts! {
     step_removing, step_removing_shortcuts, step_unregistering, step_deleting_data, step_cleaning, step_done,
     installed_title, installed_subtitle, installed_subtitle_plain, updated_title,
     removed_title, removed_subtitle, removed_data_deleted, removed_data_kept,
+    mac_start_menu, mac_start_menu_description, mac_start_with_windows, mac_start_with_windows_description,
+    mac_installed_subtitle, mac_error_register, mac_error_unregister, mac_error_system,
     install_failed, update_failed, remove_failed,
     error_still_open, error_in_use, error_busy, error_disk_full, error_no_access,
     error_create, error_write, error_delete, error_read_setup, error_damaged,

@@ -14,6 +14,16 @@ every user into Program Files after one Windows prompt, and a `[[run]]` step
 can say `elevated = true`. There is no script language: everything is declared
 in `bach.toml`.
 
+## macOS too
+
+A `bach.toml` with a `[macos]` section (`source` = the folder with `Hello.app`,
+`executable = "Hello.app"`, `data = ["~/Library/Application Support/Hello"]`) makes
+`bach build` also write a Setup app in a `.dmg` (a `.zip` away from a Mac) that installs
+per user into `~/Applications`, updates in place, and uninstalls with `Uninstall <app>.app`.
+`bach build --platform macos` builds only that; `--sign` signs (and, with
+`[macos.signing] notarize`, notarizes) it on a Mac. Registry, services, MSI and the other
+Windows-only sections are left out of a macOS build. Reference: `docs/config.md#macos`.
+
 ## 1. Get the `bach` command
 
 Check first: `bach --version`. If that works, skip to step 2.

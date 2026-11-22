@@ -5,6 +5,7 @@ use crate::manifest::Choice;
 mod arch;
 mod downloads;
 mod layout;
+mod macos;
 mod profiles;
 mod style;
 
@@ -1271,7 +1272,7 @@ fn an_elevated_step_in_a_per_user_install_warns() {
 
 #[test]
 fn a_very_long_file_list_warns() {
-    let entry = |n: usize| FileEntry { path: format!("data/part-{n:06}.bin"), size: 1, component: None, sha256: None };
+    let entry = |n: usize| FileEntry { path: format!("data/part-{n:06}.bin"), ..FileEntry::new("", 1) };
     let few: Vec<FileEntry> = (0..1_000).map(entry).collect();
     assert!(file_list_warning(&few).is_none());
     let many: Vec<FileEntry> = (0..30_000).map(entry).collect();

@@ -13,10 +13,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bach_pack::i18n::Key;
-use bach_pack::manifest::{Choice, Manifest, UNINSTALLER};
+use bach_pack::manifest::{Choice, Manifest};
 use bach_pack::paths;
 
-use super::{delete_after_exit, describe, failed, plain, remove_empty_parents, remove_file_if_present, remove_waiting, same_file, Report};
+#[cfg(windows)]
+use super::{delete_after_exit, remove_waiting};
+use super::{describe, failed, plain, remove_empty_parents, remove_file_if_present, same_file, Report};
 use crate::package::Package;
 use crate::system::{self, changes, env_path, host, integration, services, task};
 use crate::texts::Texts;
@@ -35,9 +37,11 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     check_install_dir(dir, manifest, texts)?;
     super::install::check_elevated_folder(manifest, dir, texts)?;
     let _lock = host::SetupLock::acquire(&manifest.app.id).ok_or_else(|| texts.get(Key::error_busy))?;
-    let uninstaller = dir.join(UNINSTALLER);
+    let uninstaller = super::uninstaller::path(manifest, dir);
     let current = std::env::current_exe().ok();
-    let running_in_place = current.as_deref().is_some_and(|current| same_file(current, &uninstaller));
+    // On a Mac the running program is inside the uninstaller's bundle.
+    #[cfg_attr(not(windows), allow(unused_variables))]
+    let running_in_place = current.as_deref().is_some_and(|current| same_file(current, &uninstaller) || current.starts_with(&uninstaller));
 
     // An update cut short earlier is undone first, so what's on disk is
     // what the manifest lists.
@@ -121,7 +125,7 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     if plan.delete_data {
         report(0.75, &texts.get(Key::step_deleting_data));
         for template in &manifest.uninstall.data {
-            if let Some(folder) = paths::expand_data_folder(template, |name| std::env::var(name).ok()) {
+            if let Some(folder) = paths::expand_data_folder_for(manifest.platform, template, |name| std::env::var(name).ok()) {
                 crate::log::line(&format!("Deleting the data folder {}", folder.display()));
             }
         }
@@ -132,19 +136,40 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
     }
 
     report(0.9, &texts.get(Key::step_cleaning));
-    if !running_in_place {
-        // The installed uninstaller handed over to this temp copy and is
-        // exiting; give it a moment to let go of its file.
-        remove_waiting(&uninstaller, texts, Key::error_busy)?;
+    #[cfg(windows)]
+    {
+        if !running_in_place {
+            // The installed uninstaller handed over to this temp copy and is
+            // exiting; give it a moment to let go of its file.
+            remove_waiting(&uninstaller, texts, Key::error_busy)?;
+        }
+        // What an update's rename of the running uninstaller left behind.
+        super::place::clear_leftovers(&uninstaller);
     }
-    // What an update's rename of the running uninstaller left behind.
-    super::place::clear_leftovers(&uninstaller);
-    // Only an empty folder goes: the user may have kept their own files there.
-    let _ = fs::remove_dir(dir);
+    // A Mac can delete a program while it runs: the bundle (and what an update left of
+    // an older one) goes now, and this process just finishes its window.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = fs::remove_dir_all(&uninstaller);
+        for leftover in [".bach-old", ".bach-new", ".bach-prev"] {
+            let _ = fs::remove_dir_all(super::place::with_suffix(&uninstaller, leftover));
+        }
+        crate::system::integration::forget_bundle(&manifest.executable_in(dir));
+        // The uninstaller's folder in the Library goes with it, and the install folder when it is the app's own.
+        if let Ok(folder) = crate::system::uninstaller_folder(manifest) {
+            let _ = fs::remove_dir(folder);
+        }
+    }
+    // Only an empty folder goes: the user may have kept their own files there. An app that sits
+    // directly in Applications has no folder of its own: Applications itself stays.
+    if !(cfg!(target_os = "macos") && manifest.install.folder.is_empty()) {
+        let _ = fs::remove_dir(dir);
+    }
     system::notify_shell();
 
     // This process's own file can't go while it runs: a hidden helper waits
     // for it to exit and deletes it then.
+    #[cfg(windows)]
     if let Some(current) = current {
         if running_in_place || is_temporary_copy(&current) {
             let folder = running_in_place.then_some(dir.as_path());
@@ -165,6 +190,11 @@ pub fn remove(plan: &RemovePlan, report: Report) -> Result<(), String> {
 fn undo_integration(manifest: &Manifest, dir: &Path, program: &Path, texts: &Texts) -> Result<(), String> {
     let fail = |err: anyhow::Error| format!("{} {}", texts.get(Key::error_system), plain(&err));
     integration::clear_autostart(manifest, program).map_err(fail)?;
+    #[cfg(target_os = "macos")]
+    {
+        system::agents::remove(manifest);
+        system::guard::remove(manifest).map_err(fail)?;
+    }
     if manifest.updates.is_some() {
         // Best effort: a task that can't be deleted does nothing once the
         // app is gone (it removes itself on its next round).
@@ -233,7 +263,7 @@ fn restore(done: &[(PathBuf, PathBuf)]) {
 /// `--install-dir` can never send the uninstaller anywhere else.
 fn check_install_dir(dir: &Path, manifest: &Manifest, texts: &Texts) -> Result<(), String> {
     let registered = system::installed(manifest).is_some_and(|installed| same_file(&installed.dir, dir));
-    let looks_installed = dir.join(UNINSTALLER).is_file() || manifest.executable_in(dir).is_file();
+    let looks_installed = super::uninstaller::exists(manifest, dir) || manifest.program_exists(dir);
     if dir.is_absolute() && dir.is_dir() && (registered || looks_installed) {
         Ok(())
     } else {
@@ -251,7 +281,7 @@ fn check_install_dir(dir: &Path, manifest: &Manifest, texts: &Texts) -> Result<(
 fn delete_data(manifest: &Manifest, install_dir: &Path, lookup: &dyn Fn(&str) -> Option<String>) -> Vec<(PathBuf, String)> {
     let mut left = Vec::new();
     for template in &manifest.uninstall.data {
-        let Some(folder) = paths::expand_data_folder(template, lookup) else {
+        let Some(folder) = paths::expand_data_folder_for(manifest.platform, template, lookup) else {
             continue;
         };
         if paths::is_same_or_inside(install_dir, &folder) {
@@ -267,12 +297,13 @@ fn delete_data(manifest: &Manifest, install_dir: &Path, lookup: &dyn Fn(&str) ->
 }
 
 /// The uninstaller's own copy in the temp folder (see launch.rs).
+#[cfg(windows)]
 fn is_temporary_copy(path: &Path) -> bool {
     let temp = std::env::temp_dir();
     path.parent().is_some_and(|parent| same_file(parent, &temp))
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use std::os::windows::fs::OpenOptionsExt;
