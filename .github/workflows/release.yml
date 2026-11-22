@@ -10,7 +10,7 @@
 #
 # It raises the version, writes CHANGELOG.md from the commits since the last
 # release, runs the tests and clippy, builds bach-X.Y.Z-windows-x64.zip, the
-# bare bach-setup.exe (which `bach` downloads when it runs without one, on
+# bare bach-setup.exe (and, in a job of its own, the universal bach-setup-macos) (which `bach` downloads when it runs without one, on
 # macOS and Linux CI for example) and the example installer, commits
 # "Release vX.Y.Z" to main with a tag, and publishes a GitHub release with
 # all of them and their SHA-256. A second job then adds `bach` for macOS and
@@ -242,12 +242,70 @@ jobs:
             @flags
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
+  # The macOS setup runtime: one universal program (Apple silicon and Intel)
+  # that every macOS setup app is built on. It is published like the Windows
+  # runtime, and the macOS builds of `bach` below have its SHA-256 built in, so
+  # `bach build --platform macos` downloads only this exact file.
+  macos-runtime:
+    name: bach-setup for macOS
+    needs: release
+    if: ${{ !inputs.dry_run }}
+    runs-on: macos-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{ needs.release.outputs.version }}
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      # GPUI compiles its shaders with Xcode's Metal toolchain, a separate
+      # download in recent Xcode versions; a runner that has it already skips this.
+      - name: Make sure the Metal toolchain is there
+        run: xcrun -f metal >/dev/null 2>&1 && xcrun metal --version >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
+
+      - name: Build the universal runtime
+        id: build
+        run: |
+          cargo build --release -p bach-setup --target aarch64-apple-darwin
+          cargo build --release -p bach-setup --target x86_64-apple-darwin
+          mkdir -p dist
+          lipo -create -output dist/bach-setup-macos target/aarch64-apple-darwin/release/bach-setup target/x86_64-apple-darwin/release/bach-setup
+          # Signed ad hoc, so both halves run; the Setup app built on it is sealed again.
+          codesign --force --sign - dist/bach-setup-macos
+          lipo -archs dist/bach-setup-macos
+          (cd dist && shasum -a 256 bach-setup-macos > bach-setup-macos.sha256)
+          echo "sha256=$(cut -d ' ' -f 1 dist/bach-setup-macos.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: Attest where it comes from
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/bach-setup-macos
+
+      - name: Add it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${{ needs.release.outputs.version }}" dist/bach-setup-macos dist/bach-setup-macos.sha256 --repo "${{ github.repository }}"
+
   # `bach` itself runs anywhere; these builds let macOS and Linux (and their
   # CI) use it without Rust. Built from the release tag, then added to the
   # release the job above published.
   cli:
     name: bach for ${{ matrix.name }}
-    needs: release
+    needs: [release, macos-runtime]
     if: ${{ !inputs.dry_run }}
     strategy:
       fail-fast: false
@@ -290,6 +348,8 @@ jobs:
         env:
           # The published runtime's hash, so this bach accepts only that file.
           BACH_RUNTIME_SHA256: ${{ needs.release.outputs.runtime_sha256 }}
+          # And the macOS runtime's, for `bach build --platform macos`.
+          BACH_RUNTIME_MACOS_SHA256: ${{ needs.macos-runtime.outputs.sha256 }}
         run: |
           cargo build --release -p bach-cli --target ${{ matrix.target }}
           name="bach-${{ needs.release.outputs.version }}-${{ matrix.name }}"

@@ -36,11 +36,13 @@
 # that builds is then the version in that commit's Cargo.toml, so the pinned
 # code and the downloaded program always belong together. `version` picks
 # another one.
-# Works on Windows, macOS and Linux runners; outside Windows the setup file
-# keeps Bach's icon (build on windows-latest to apply app.icon).
+# Works on Windows, macOS and Linux runners; outside Windows the Windows setup
+# file keeps Bach's icon (build on windows-latest to apply app.icon). A bach.toml
+# with [macos] also builds the macOS setup app: on a macOS runner as a .dmg (and,
+# with --sign, signed and notarized), elsewhere as a .zip of the same app.
 
 name: Bach Installer
-description: Build a modern Windows installer (Setup.exe) from a bach.toml, and publish it as a release your installed app updates from.
+description: Build modern installers for Windows (Setup.exe) and macOS (a Setup app in a .dmg) from a bach.toml, and publish them as a release your installed app updates from.
 author: Bach
 branding:
   icon: package
@@ -139,8 +141,11 @@ inputs:
 
 outputs:
   setup:
-    description: The path of the setup file bach build wrote.
+    description: The path of the setup file bach build wrote (the Windows one, or the macOS one when bach.toml only has [macos]).
     value: ${{ steps.build.outputs.setup }}
+  setup-macos:
+    description: The path of the macOS setup file (.dmg or .zip), when bach.toml has [macos].
+    value: ${{ steps.build.outputs.setup-macos }}
   web-setup:
     description: The path of the online installer, when bach.toml asks for one (installer.online).
     value: ${{ steps.build.outputs.web-setup }}
@@ -261,11 +266,15 @@ runs:
         fi
         cat "$result"
         setup=$(jq -r '.setup // empty' "$result")
-        if [ -z "$setup" ]; then
+        setup_macos=$(jq -r '.setup_macos // empty' "$result")
+        # A config that only builds for macOS has no Windows file: the macOS one is then the setup file.
+        main="${setup:-$setup_macos}"
+        if [ -z "$main" ]; then
           echo "::error::bach build didn't report a setup file."
           exit 1
         fi
-        echo "setup=$setup" >> "$GITHUB_OUTPUT"
+        echo "setup=$main" >> "$GITHUB_OUTPUT"
+        echo "setup-macos=$setup_macos" >> "$GITHUB_OUTPUT"
         # The online installer, when the config asks for one.
         echo "web-setup=$(jq -r '.online_setup // empty' "$result")" >> "$GITHUB_OUTPUT"
         # The update patch, when `args` has --patch-from.
@@ -315,6 +324,17 @@ runs:
           echo "bach.toml has no [updates], so there is no update feed."
           exit 0
         fi
+        # A macOS-only build wrote its feed itself (signed, with the final file's SHA-256).
+        case "$SETUP" in
+          *.exe) ;;
+          *)
+            if [ "$SIGNED" = "true" ] || [ -n "$NOTES" ] || [ -n "$NOTES_FILE" ]; then
+              echo "::notice::Notes and sign-command apply to the Windows setup file; this build only has a macOS one, so latest.json is as bach build wrote it."
+            fi
+            echo "feed=$(dirname "$SETUP")/latest.json" >> "$GITHUB_OUTPUT"
+            exit 0
+            ;;
+        esac
         # Windows' bash wants /c/... paths for its own tools.
         if command -v cygpath >/dev/null 2>&1; then setup_unix=$(cygpath -u "$SETUP"); else setup_unix="$SETUP"; fi
         folder=$(dirname "$setup_unix")
@@ -395,6 +415,7 @@ runs:
         GH_REPO: ${{ github.repository }}
         SETUP: ${{ steps.build.outputs.setup }}
         WEB_SETUP: ${{ steps.build.outputs.web-setup }}
+        MAC_SETUP: ${{ steps.build.outputs.setup-macos }}
         PATCH_FILE: ${{ steps.build.outputs.patch }}
         FEED: ${{ steps.feed.outputs.feed }}
         VERSION: ${{ steps.build.outputs.version }}
@@ -413,10 +434,13 @@ runs:
           [ -n "$FEED" ] && feed=$(cygpath -u "$FEED") || feed=""
           [ -n "$WEB_SETUP" ] && web=$(cygpath -u "$WEB_SETUP") || web=""
           [ -n "$PATCH_FILE" ] && patch=$(cygpath -u "$PATCH_FILE") || patch=""
+          [ -n "$MAC_SETUP" ] && mac=$(cygpath -u "$MAC_SETUP") || mac=""
         else
-          setup="$SETUP"; feed="$FEED"; web="$WEB_SETUP"; patch="$PATCH_FILE"
+          setup="$SETUP"; feed="$FEED"; web="$WEB_SETUP"; patch="$PATCH_FILE"; mac="$MAC_SETUP"
         fi
         files=("$setup")
+        # The macOS setup file goes with the Windows one (it is the setup file when it is the only one).
+        [ -n "$mac" ] && [ -f "$mac" ] && [ "$mac" != "$setup" ] && files+=("$mac")
         [ -n "$web" ] && [ -f "$web" ] && files+=("$web")
         # The feed points at the patch, so the patch has to be in the release.
         [ -n "$patch" ] && [ -f "$patch" ] && files+=("$patch")
@@ -445,6 +469,7 @@ runs:
           echo "### Released $tag"
           echo
           echo "- Setup file: \`$(basename "$setup")\`"
+          [ -n "$mac" ] && [ -f "$mac" ] && [ "$mac" != "$setup" ] && echo "- macOS setup file: \`$(basename "$mac")\`"
           [ -n "$web" ] && [ -f "$web" ] && echo "- Online installer: \`$(basename "$web")\`"
           [ ${#files[@]} -gt 1 ] && echo "- Update feed: \`latest.json\`"
           echo "- $url"
