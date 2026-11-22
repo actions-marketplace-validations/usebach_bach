@@ -10,6 +10,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 
+pub mod mac;
+
+pub use mac::check_link;
+
 /// Characters Windows refuses in a file name, besides the path separators.
 const FORBIDDEN: &[char] = &['<', '>', ':', '"', '|', '?', '*'];
 
@@ -102,6 +106,20 @@ fn check_component(path: &str, part: &str) -> Result<()> {
 /// only joins.
 pub fn under(dir: &Path, packaged: &str) -> PathBuf {
     packaged.split('/').fold(dir.to_path_buf(), |path, part| path.join(part))
+}
+
+/// `name` as one file name part: anything a file name can't hold becomes a
+/// space, and `fallback` stands in when nothing is left. Used for names Bach
+/// derives from the app's, like the macOS uninstaller bundle.
+pub fn file_name_part(name: &str, fallback: &str) -> String {
+    let name: String =
+        name.chars().map(|c| if FORBIDDEN.contains(&c) || matches!(c, '/' | '\\') || c.is_control() { ' ' } else { c }).collect();
+    let name = name.trim().trim_end_matches('.').trim();
+    if name.is_empty() {
+        fallback.to_string()
+    } else {
+        name.to_string()
+    }
 }
 
 /// The longest an app id or install folder may be, in characters.
@@ -313,6 +331,23 @@ pub fn expand_data_folder(template: &str, lookup: impl Fn(&str) -> Option<String
         lookup(name).filter(|value| !value.trim().is_empty()).is_some_and(|value| is_same_or_inside(Path::new(&value), &folder))
     });
     (!holds_a_root).then_some(folder)
+}
+
+/// [`expand_data_folder`] for either platform: a Windows template is read
+/// through `lookup` (the environment); a macOS template (`~/Library/...`) is
+/// placed below the `HOME` that `lookup` gives.
+pub fn expand_data_folder_for(
+    platform: crate::manifest::Platform,
+    template: &str,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Option<PathBuf> {
+    match platform {
+        crate::manifest::Platform::Windows => expand_data_folder(template, lookup),
+        crate::manifest::Platform::Macos => {
+            let home = lookup("HOME").filter(|home| !home.trim().is_empty())?;
+            mac::expand_data_folder(template, Path::new(&home))
+        }
+    }
 }
 
 /// A key under which two names are the same file on Windows: letters are
