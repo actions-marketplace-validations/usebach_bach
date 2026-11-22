@@ -15,6 +15,7 @@
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Seek, SeekFrom};
+#[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -22,14 +23,16 @@ use std::sync::Arc;
 use bach_pack::archive;
 use bach_pack::container;
 use bach_pack::i18n::Key;
-use bach_pack::manifest::{Choices, Manifest, UNINSTALLER};
+use bach_pack::manifest::{Choices, Manifest};
 use bach_pack::paths;
 use bach_pack::protect::{KeyError, Unlocked};
 
 use super::components;
+#[cfg(windows)]
+use super::is_in_use;
 use super::patch::patch_base;
 use super::place::{self, Transaction};
-use super::{describe, failed, is_disk_full, is_in_use, is_in_use_at, plain, remove_empty_parents, remove_file_if_present, Report};
+use super::{describe, failed, is_disk_full, is_in_use_at, plain, remove_empty_parents, remove_file_if_present, Report};
 use crate::package::Package;
 use crate::system::{self, changes, env_path, host, integration, services, task};
 use crate::texts::{self, Texts};
@@ -130,7 +133,7 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
     // and then the earlier version comes back whole.
     // The installed uninstaller is kept before anything changes: an update that can't keep
     // it must not start, since putting the earlier version back would then delete it.
-    let uninstaller_before = keep_uninstaller(dir).map_err(|(path, err)| failed(texts, Key::error_write, &path, &err))?;
+    let uninstaller_before = keep_uninstaller(manifest, dir).map_err(|(path, err)| failed(texts, Key::error_write, &path, &err))?;
     // A running service holds its program: stop them for the swap (they start again below).
     let stopped = match services::stop_for_update(manifest, previous.as_ref(), dir) {
         Ok(stopped) => stopped,
@@ -179,7 +182,7 @@ fn install_files(plan: &InstallPlan, report: Report) -> Result<(), String> {
             dir,
             rolled_back.staged.iter().filter_map(|path| path.strip_prefix(dir).ok()).filter_map(|path| path.to_str()),
         );
-        restore_uninstaller(dir, uninstaller_before);
+        restore_uninstaller(manifest, dir, uninstaller_before);
         match &previous {
             // The earlier version's services and rules come back, and run again if they ran.
             Some(previous) => {
@@ -220,6 +223,10 @@ pub(super) fn service_failed(texts: &Texts, failure: &services::Failure) -> Stri
 /// handles (260 characters): setup writes it fine, but shortcuts, Explorer and
 /// many programs may not cope, which is a first thing to know when a support
 /// log is read.
+#[cfg(target_os = "macos")]
+fn log_long_paths(_manifest: &Manifest, _choices: &Choices, _dir: &Path) {}
+
+#[cfg(windows)]
 fn log_long_paths(manifest: &Manifest, choices: &Choices, dir: &Path) {
     const CLASSIC_LIMIT: usize = 259;
     let longest = manifest
@@ -240,8 +247,14 @@ fn log_long_paths(manifest: &Manifest, choices: &Choices, dir: &Path) {
 /// update can put it back. `Ok(None)` is a first install, where there is none;
 /// a copy that can't be made is an error (with the path it failed on), never
 /// `None`, because [`restore_uninstaller`] deletes the uninstaller when nothing was kept.
-fn keep_uninstaller(dir: &Path) -> Result<Option<PathBuf>, (PathBuf, std::io::Error)> {
-    let current = dir.join(UNINSTALLER);
+#[cfg(target_os = "macos")]
+fn keep_uninstaller(manifest: &Manifest, dir: &Path) -> Result<Option<PathBuf>, (PathBuf, std::io::Error)> {
+    super::uninstaller::keep(manifest, dir)
+}
+
+#[cfg(windows)]
+fn keep_uninstaller(manifest: &Manifest, dir: &Path) -> Result<Option<PathBuf>, (PathBuf, std::io::Error)> {
+    let current = super::uninstaller::path(manifest, dir);
     if !current.is_file() {
         return Ok(None);
     }
@@ -253,8 +266,14 @@ fn keep_uninstaller(dir: &Path) -> Result<Option<PathBuf>, (PathBuf, std::io::Er
 
 /// Puts the uninstaller kept by [`keep_uninstaller`] back; on a first install
 /// (nothing kept) the new one is removed.
-fn restore_uninstaller(dir: &Path, kept: Option<PathBuf>) {
-    let current = dir.join(UNINSTALLER);
+#[cfg(target_os = "macos")]
+fn restore_uninstaller(manifest: &Manifest, dir: &Path, kept: Option<PathBuf>) {
+    super::uninstaller::restore(manifest, dir, kept)
+}
+
+#[cfg(windows)]
+fn restore_uninstaller(manifest: &Manifest, dir: &Path, kept: Option<PathBuf>) {
+    let current = super::uninstaller::path(manifest, dir);
     match kept {
         Some(kept) => {
             let _ = place::replace_file(&kept, &current);
@@ -307,7 +326,7 @@ fn keep_key(plan: &InstallPlan) {
 
 fn create_install_dir(dir: &Path, texts: &Texts) -> Result<(), String> {
     fs::create_dir_all(dir).map_err(|err| {
-        if err.raw_os_error() == Some(5) {
+        if err.raw_os_error() == Some(5) || err.kind() == std::io::ErrorKind::PermissionDenied {
             texts.with(Key::error_no_access, &[("path", &dir.display().to_string())])
         } else {
             failed(texts, Key::error_create, dir, &err)
@@ -345,8 +364,16 @@ fn ensure_closed(program: &Path, texts: &Texts) -> Result<(), String> {
 
 /// Whether the app is running from `program`: a program in use can't be
 /// opened for writing.
+#[cfg(windows)]
 pub fn is_running(program: &Path) -> bool {
     program.exists() && matches!(fs::OpenOptions::new().write(true).open(program), Err(err) if is_in_use(&err))
+}
+
+/// On a Mac a program that runs can still be replaced, so "running" is asked of the process list:
+/// anything running from the app's bundle (or the program) counts.
+#[cfg(target_os = "macos")]
+pub fn is_running(program: &Path) -> bool {
+    program.exists() && !crate::system::apps::processes_under(program).is_empty()
 }
 
 /// Undoes an update that was cut short in `dir` (see `place.rs`); how many
@@ -385,14 +412,18 @@ fn unpack(
     let manifest = &plan.package.manifest;
     let dir = &plan.dir;
     let read_failed = |err: std::io::Error| format!("{} {}", texts.get(Key::error_read_setup), describe(&err));
-    let wanted: HashSet<&str> = manifest.files.iter().filter(|file| choices.installs(file)).map(|file| file.path.as_str()).collect();
+    // Links have no bytes: they are in the manifest, not in the archive, and are made at the end.
+    let wanted: HashSet<&str> =
+        manifest.files.iter().filter(|file| choices.installs(file) && !file.is_link()).map(|file| file.path.as_str()).collect();
+    let links: Vec<&bach_pack::manifest::FileEntry> =
+        manifest.files.iter().filter(|file| choices.installs(file) && file.is_link()).collect();
     // What the manifest says each file is, to check against what the archive hands out.
     let recorded: std::collections::HashMap<&str, &bach_pack::manifest::FileEntry> =
-        manifest.files.iter().filter(|file| choices.installs(file)).map(|file| (file.path.as_str(), file)).collect();
+        manifest.files.iter().filter(|file| choices.installs(file) && !file.is_link()).map(|file| (file.path.as_str(), file)).collect();
     for file in &manifest.files {
         place::clear_leftovers(&paths::under(dir, &file.path));
     }
-    place::clear_leftovers(&dir.join(UNINSTALLER));
+    place::clear_leftovers(&super::uninstaller::path(manifest, dir));
 
     let copying = texts.get(Key::step_copying);
     // What is downloaded comes first, before anything is written, and counts toward the bar
@@ -410,7 +441,7 @@ fn unpack(
     // before the commit below), not in a pass of its own beforehand.
     let (section, verdict) = super::section::hashing(source.take(archive_section.len));
     let reader = BufReader::new(section);
-    let mut transaction = Transaction::default();
+    let mut transaction = Transaction::within(dir);
     let mut write_error: Option<String> = None;
     let mut present: HashSet<String> = HashSet::new();
     let mut visit = |packaged: &str, size: u64, body: &mut dyn Read| {
@@ -437,10 +468,15 @@ fn unpack(
         }
         let mut verifying = archive::Verifying::new(super::cancel::Cancellable(body));
         transaction
-            .stage(&target, &mut verifying, &mut |chunk| {
-                done.set(done.get().saturating_add(chunk));
-                report(0.04 + UNPACK_SHARE * (download_total.saturating_add(done.get()) as f32 / total as f32).min(1.0), &copying);
-            })
+            .stage_with(
+                &target,
+                &mut verifying,
+                &mut |chunk| {
+                    done.set(done.get().saturating_add(chunk));
+                    report(0.04 + UNPACK_SHARE * (download_total.saturating_add(done.get()) as f32 / total as f32).min(1.0), &copying);
+                },
+                recorded.and_then(|file| file.mode),
+            )
             .map_err(|err| {
                 write_error = Some(if super::cancel::requested() {
                     super::cancel::CANCELLED.to_string()
@@ -542,6 +578,18 @@ fn unpack(
             return Err(texts.get(Key::error_patch_base));
         }
     }
+    // The links go in with the files, so an update that fails brings the earlier ones back too.
+    #[cfg(unix)]
+    for link in &links {
+        let (Some(to), target) = (link.link.as_deref(), paths::under(dir, &link.path)) else { continue };
+        if let Err(err) = transaction.stage_link(&target, to) {
+            transaction.discard();
+            remove_empty_parents(dir, wanted.iter().copied());
+            return Err(failed(texts, Key::error_write, &target, &err));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = &links;
     transaction.commit_open(&place::journal_path(dir)).map_err(|failure| {
         if is_in_use_at(&failure.error, &failure.target) {
             texts.with(Key::error_in_use, &[("path", &failure.target.display().to_string())])
@@ -556,7 +604,7 @@ fn unpack(
 /// our business), and None when it can't be read, in which case nothing is
 /// cleaned up rather than guessed.
 pub fn previous_install(dir: &Path, manifest: &Manifest) -> Option<Manifest> {
-    let mut file = File::open(dir.join(UNINSTALLER)).ok()?;
+    let mut file = File::open(super::uninstaller::payload(manifest, dir)).ok()?;
     let layout = container::locate(&mut file).ok()??;
     let previous = container::read_manifest(&mut file, &layout).ok()?;
     (previous.app.id == manifest.app.id).then_some(previous)
@@ -584,6 +632,12 @@ fn remove_stale(dir: &Path, previous: &Manifest, installed: &Manifest) {
 
 /// `uninstall.exe`: the runtime's own bytes with the installed manifest and
 /// the logo, and no files.
+#[cfg(target_os = "macos")]
+fn write_uninstaller(package: &Package, installed: &Manifest, dir: &Path, texts: &Texts) -> Result<(), String> {
+    super::uninstaller::write(package, installed, dir, texts)
+}
+
+#[cfg(windows)]
 fn write_uninstaller(package: &Package, installed: &Manifest, dir: &Path, texts: &Texts) -> Result<(), String> {
     let fail = |detail: String| format!("{} {}", texts.get(Key::error_uninstaller), super::sentence(detail));
     let layout = package.layout.ok_or_else(|| fail("this setup file has no payload".into()))?;
@@ -593,7 +647,7 @@ fn write_uninstaller(package: &Package, installed: &Manifest, dir: &Path, texts:
     source.read_exact(&mut runtime).map_err(|err| fail(describe(&err)))?;
     let logo = container::read_logo(&mut source, &layout).map_err(|err| fail(plain(&err)))?;
 
-    let target = dir.join(UNINSTALLER);
+    let target = super::uninstaller::path(installed, dir);
     let partial = place::with_suffix(&target, ".bach-new");
     let written = File::create(&partial)
         .map_err(anyhow::Error::from)
@@ -692,6 +746,12 @@ pub(super) fn integrate(
     texts: &Texts,
 ) -> Result<(), String> {
     let fail = |err: anyhow::Error| format!("{} {}", texts.get(Key::error_system), plain(&err));
+    // A Mac user removes an app by moving it to the Trash: a watcher cleans up after that.
+    #[cfg(target_os = "macos")]
+    {
+        system::agents::apply(manifest, previous, dir).map_err(fail)?;
+        system::guard::install(manifest, dir).map_err(fail)?;
+    }
     if choices.start_with_windows {
         integration::set_autostart(manifest, program).map_err(fail)?;
     } else {
@@ -701,7 +761,11 @@ pub(super) fn integrate(
     // Automatic updates are a per-user scheduled task. A PC that won't allow
     // one just doesn't update by itself; that never fails the install.
     if manifest.updates.is_some() {
-        let result = if choices.auto_update { task::register(manifest, &dir.join(UNINSTALLER)) } else { task::unregister(manifest) };
+        let result = if choices.auto_update {
+            task::register(manifest, &super::uninstaller::path(manifest, dir))
+        } else {
+            task::unregister(manifest)
+        };
         if let Err(err) = result {
             crate::log::line(&format!("Automatic updates: {err:#}"));
         }
@@ -749,18 +813,52 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn the_uninstaller_is_kept_or_the_update_does_not_start() {
         let dir = temp("keep");
+        let manifest = crate::package::Package::sample().manifest;
         // A first install has none to keep.
-        assert!(matches!(keep_uninstaller(&dir), Ok(None)));
-        fs::write(dir.join(UNINSTALLER), b"old").unwrap();
-        let kept = keep_uninstaller(&dir).unwrap().expect("a copy");
+        assert!(matches!(keep_uninstaller(&manifest, &dir), Ok(None)));
+        fs::write(dir.join(bach_pack::manifest::UNINSTALLER), b"old").unwrap();
+        let kept = keep_uninstaller(&manifest, &dir).unwrap().expect("a copy");
         assert_eq!(fs::read(&kept).unwrap(), b"old");
         // A copy that can't be made is an error, not "nothing to keep": a folder stands where it goes.
         fs::remove_file(&kept).unwrap();
         fs::create_dir(&kept).unwrap();
-        assert!(keep_uninstaller(&dir).is_err());
+        assert!(keep_uninstaller(&manifest, &dir).is_err());
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn the_uninstaller_bundle_is_kept_and_comes_back() {
+        let dir = temp("keep");
+        crate::system::with_home(&dir.join("home"), || uninstaller_bundle_round_trip(&dir));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn uninstaller_bundle_round_trip(dir: &Path) {
+        let dir = dir.join("apps");
+        fs::create_dir_all(&dir).unwrap();
+        let dir = dir.as_path();
+        let manifest = crate::package::Package::sample().manifest;
+        assert!(matches!(keep_uninstaller(&manifest, dir), Ok(None)), "a first install has none to keep");
+        let bundle = crate::work::uninstaller::path(&manifest, dir);
+        fs::create_dir_all(bundle.join("Contents/Resources")).unwrap();
+        fs::write(bundle.join(bach_pack::macapp::PAYLOAD), b"old payload").unwrap();
+        // A bundle with no payload isn't an uninstaller yet.
+        let kept = keep_uninstaller(&manifest, dir).unwrap().expect("a copy");
+        assert_eq!(fs::read(kept.join(bach_pack::macapp::PAYLOAD)).unwrap(), b"old payload");
+        // The update replaced it, then failed: the earlier one is restored.
+        fs::write(bundle.join(bach_pack::macapp::PAYLOAD), b"new payload").unwrap();
+        restore_uninstaller(&manifest, dir, Some(kept));
+        assert_eq!(fs::read(bundle.join(bach_pack::macapp::PAYLOAD)).unwrap(), b"old payload");
+        assert!(!place::with_suffix(&bundle, ".bach-prev").exists());
+        // A first install that failed leaves no uninstaller.
+        restore_uninstaller(&manifest, dir, None);
+        assert!(!bundle.exists());
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

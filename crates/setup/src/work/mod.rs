@@ -6,7 +6,13 @@
 mod components;
 mod conflicts;
 mod install;
+#[cfg(windows)]
 mod migrate;
+#[cfg(not(windows))]
+mod migrate {
+    //! Replacing an older install made by another installer is a Windows feature.
+    pub fn run(_: &bach_pack::manifest::Manifest) {}
+}
 pub mod msi;
 mod online;
 mod patch;
@@ -15,15 +21,22 @@ mod preview;
 mod remove;
 mod section;
 mod steps;
+pub mod uninstaller;
 
 use std::fs;
 use std::io;
 use std::path::Path;
+#[cfg(any(windows, test))]
 use std::time::Duration;
 
 use bach_pack::i18n::Key;
 
 pub use components::is_downloading;
+
+/// `path` with `suffix` after its name (`uninstall.exe.bach-old`).
+pub fn place_suffix(path: &Path, suffix: &str) -> std::path::PathBuf {
+    place::with_suffix(path, suffix)
+}
 pub use conflicts::{describe as describe_files, foreign_files};
 pub use install::{install, is_running, previous_install, recover_interrupted, InstallPlan};
 pub use preview::pretend;
@@ -81,9 +94,14 @@ pub enum Event {
 /// How a job reports progress.
 pub type Report<'a> = &'a dyn Fn(f32, &str);
 
-/// Sharing violation or lock violation: another process has the file open.
+/// Sharing violation or lock violation: another process has the file open. On a
+/// Mac that is "text file busy" (ETXTBSY) or "resource busy" (EBUSY).
 fn is_in_use(err: &io::Error) -> bool {
-    matches!(err.raw_os_error(), Some(32) | Some(33))
+    if cfg!(target_os = "macos") {
+        matches!(err.raw_os_error(), Some(26) | Some(16))
+    } else {
+        matches!(err.raw_os_error(), Some(32) | Some(33))
+    }
 }
 
 /// Whether `err`, from changing `path`, means a running program holds it.
@@ -93,6 +111,9 @@ fn is_in_use(err: &io::Error) -> bool {
 /// sharing violation is a program really holding it; otherwise telling the
 /// person to close the app would send them in circles.
 fn is_in_use_at(err: &io::Error, path: &Path) -> bool {
+    if cfg!(target_os = "macos") {
+        return is_in_use(err);
+    }
     match err.raw_os_error() {
         Some(32) | Some(33) => true,
         Some(5) => matches!(fs::OpenOptions::new().write(true).open(path), Err(open) if is_in_use(&open)),
@@ -102,7 +123,8 @@ fn is_in_use_at(err: &io::Error, path: &Path) -> bool {
 
 /// ERROR_DISK_FULL or ERROR_HANDLE_DISK_FULL.
 fn is_disk_full(err: &io::Error) -> bool {
-    matches!(err.raw_os_error(), Some(112) | Some(39)) || err.kind() == io::ErrorKind::StorageFull
+    // 112 and 39 are Windows' ERROR_DISK_FULL and ERROR_HANDLE_DISK_FULL, 28 is ENOSPC.
+    matches!(err.raw_os_error(), Some(112) | Some(39) | Some(28)) || err.kind() == io::ErrorKind::StorageFull
 }
 
 fn same_file(a: &Path, b: &Path) -> bool {
@@ -122,6 +144,7 @@ fn remove_file_if_present(path: &Path) -> io::Result<()> {
 
 /// Deletes a file, waiting a moment for a program that is just exiting
 /// (the app, or the uninstaller that started a temp copy) to let go of it.
+#[cfg(windows)]
 fn remove_waiting(path: &Path, texts: &Texts, still_open: Key) -> Result<(), String> {
     let mut last = None;
     for _ in 0..20 {
@@ -141,6 +164,20 @@ fn remove_waiting(path: &Path, texts: &Texts, still_open: Key) -> Result<(), Str
 /// Starts a hidden `cmd` that retries deleting `file` (and then removing
 /// `folder`, if empty) for up to two minutes, until this process has exited
 /// and let go of it.
+#[cfg(target_os = "macos")]
+pub(crate) fn delete_after_exit(file: &Path, folder: Option<&Path>) -> std::io::Result<()> {
+    // A Mac can delete a program while it runs, so this is only for a copy of setup somewhere
+    // else. The paths travel in environment variables, never inside the script's text.
+    let script =
+        "for i in $(seq 1 120); do rm -rf \"$BACH_DELETE_FILE\" 2>/dev/null; [ -e \"$BACH_DELETE_FILE\" ] || break; sleep 1; done; \
+                  [ -z \"$BACH_DELETE_DIR\" ] || rmdir \"$BACH_DELETE_DIR\" 2>/dev/null; exit 0";
+    let mut command = std::process::Command::new("/bin/sh");
+    command.arg("-c").arg(script).env("BACH_DELETE_FILE", file).env("BACH_DELETE_DIR", folder.unwrap_or(Path::new("")));
+    command.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    command.spawn().map(|_| ())
+}
+
+#[cfg(windows)]
 pub(crate) fn delete_after_exit(file: &Path, folder: Option<&Path>) -> std::io::Result<()> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -170,7 +207,7 @@ pub(crate) fn delete_after_exit(file: &Path, folder: Option<&Path>) -> std::io::
     command.spawn().map(|_| ())
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod delete_tests {
     use super::*;
 
@@ -271,6 +308,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn in_use_and_full_disks_are_recognised() {
         assert!(is_in_use(&io::Error::from_raw_os_error(32)));
         assert!(is_in_use(&io::Error::from_raw_os_error(33)));
@@ -279,6 +317,40 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
+    fn busy_programs_and_full_disks_are_recognised() {
+        assert!(is_in_use(&io::Error::from_raw_os_error(26)), "text file busy");
+        assert!(is_in_use(&io::Error::from_raw_os_error(16)), "resource busy");
+        assert!(!is_in_use(&io::Error::from_raw_os_error(2)));
+        assert!(!is_in_use(&io::Error::from_raw_os_error(13)), "permission denied alone isn't proof of a running program");
+        assert!(is_disk_full(&io::Error::from_raw_os_error(28)));
+        assert!(!is_disk_full(&io::Error::from_raw_os_error(13)));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn a_leftover_copy_with_odd_characters_is_deleted_and_nothing_else() {
+        let base = std::env::temp_dir().join(format!("bach-delete-{}", std::process::id()));
+        let folder = base.join("100% & ^ safe (x86) ! $HOME `id`");
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("a & b %PATH% ! ^ $(id).tmp");
+        std::fs::write(&file, b"x").unwrap();
+        let bystander = base.join("stays.txt");
+        std::fs::write(&bystander, b"x").unwrap();
+        delete_after_exit(&file, Some(&folder)).unwrap();
+        for _ in 0..40 {
+            if !file.exists() && !folder.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        assert!(!file.exists() && !folder.exists(), "the file and its empty folder go");
+        assert!(bystander.exists(), "nothing else is touched");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    #[cfg(windows)]
     #[allow(clippy::permissions_set_readonly_false)] // Windows: only the read-only attribute
     fn access_denied_is_in_use_only_while_a_program_holds_the_file() {
         use std::os::windows::fs::OpenOptionsExt;
