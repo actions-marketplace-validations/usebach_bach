@@ -4,7 +4,7 @@ use anyhow::{bail, Result};
 use serde::Deserialize;
 
 use crate::manifest::extras::{is_https, is_valid_shortcut_name};
-use crate::manifest::{Access, Check, Choice, Component, FileEntry, Requirement, RunStep, RunWhen, Shortcut, Updates};
+use crate::manifest::{Access, Check, Choice, Component, FileEntry, Platform, Requirement, RunStep, RunWhen, Shortcut, Updates};
 use crate::paths;
 
 #[derive(Debug, Deserialize)]
@@ -23,7 +23,7 @@ pub struct RequirementSection {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunSection {
+pub(super) struct RunSection {
     /// What setup says it is doing ("Setting up {name}"); the file's name by default.
     name: Option<String>,
     /// A packaged .exe, relative to the install folder.
@@ -203,19 +203,22 @@ pub fn shortcuts(sections: &[ShortcutSection], files: &[FileEntry]) -> Result<Ve
         .collect()
 }
 
-pub fn run_steps(sections: &[RunSection], files: &[FileEntry], components: &[Component]) -> Result<Vec<RunStep>> {
+pub fn run_steps(sections: &[RunSection], files: &[FileEntry], components: &[Component], platform: Platform) -> Result<Vec<RunStep>> {
     sections
         .iter()
         .enumerate()
         .map(|(index, section)| {
             let at = format!("run[{index}]");
             let file = paths::normalize(section.file.trim()).map_err(|err| anyhow::anyhow!("{at}.file: {err}"))?;
-            if !file.to_ascii_lowercase().ends_with(".exe") {
+            if platform.is_windows() && !file.to_ascii_lowercase().ends_with(".exe") {
                 bail!("{at}.file is \"{file}\"; it must be an .exe");
             }
             let Some(entry) = files.iter().find(|entry| entry.path.eq_ignore_ascii_case(&file)) else {
                 bail!("{at}.file is \"{file}\", but no installed file has that path (is it excluded?)");
             };
+            if platform.is_macos() && (entry.is_link() || entry.mode.unwrap_or(0) & 0o111 == 0) {
+                bail!("{at}.file is \"{file}\", which isn't a program (it has no executable permission); run `chmod +x` on it first");
+            }
             if let Some(minutes) = section.timeout_minutes {
                 if !(1..=crate::manifest::extras::MAX_TIMEOUT_MINUTES).contains(&minutes) {
                     bail!("{at}.timeout_minutes is {minutes}; use 1 to {} minutes", crate::manifest::extras::MAX_TIMEOUT_MINUTES);
