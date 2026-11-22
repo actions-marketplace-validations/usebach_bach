@@ -378,7 +378,11 @@ fn make_dmg(folder: &Path, volume: &str, output: &Path) -> Result<()> {
     let _ = fs::remove_file(&writable);
     let converted = converted?;
     if !converted.status.success() {
-        bail!("hdiutil couldn't compress the disk image: {}", String::from_utf8_lossy(&converted.stderr).trim());
+        bail!(
+            "hdiutil couldn't compress the disk image: {} {}",
+            String::from_utf8_lossy(&converted.stderr).trim(),
+            String::from_utf8_lossy(&converted.stdout).trim()
+        );
     }
     Ok(())
 }
@@ -434,15 +438,30 @@ fn render_background(folder: &Path, title: &str, subtitle: &str) -> bool {
 /// closes it again. Finder scripting needs a signed-in desktop session and may ask the user once to let
 /// the terminal control Finder; when it can't, the image is simply left with Finder's default window.
 fn arrange_window(image: &Path, volume: &str, item: &str, background: bool) -> bool {
+    // Tests and scripts that only need a working image skip Finder, which can take a while to answer.
+    if std::env::var_os("BACH_NO_DMG_LAYOUT").is_some() {
+        return true;
+    }
     let mount = Path::new("/Volumes").join(volume);
     if mount.exists() {
         // A volume of that name is open already; Finder would lay out the wrong one.
         return false;
     }
-    let attached = Command::new("hdiutil").args(["attach", "-quiet", "-readwrite", "-noverify", "-noautoopen"]).arg(image).output();
-    if !attached.is_ok_and(|output| output.status.success()) {
+    // Without -quiet, attach lists what it mounted ("/dev/disk4s1 ... /Volumes/Name"): the disk to let go of at the end.
+    let attached = Command::new("hdiutil").args(["attach", "-readwrite", "-noverify", "-noautoopen"]).arg(image).output();
+    let Some(attached) = attached.ok().filter(|output| output.status.success()) else {
         return false;
-    }
+    };
+    let device = String::from_utf8_lossy(&attached.stdout)
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .find(|first| first.starts_with("/dev/disk"))
+        .map(|first| {
+            // "/dev/disk4s1" belongs to the whole disk "/dev/disk4".
+            let digits: String = first.trim_start_matches("/dev/disk").chars().take_while(char::is_ascii_digit).collect();
+            format!("/dev/disk{digits}")
+        })
+        .unwrap_or_else(|| mount.to_string_lossy().into_owned());
     const SCRIPT: &str = "set vol to system attribute \"BACH_VOLUME\"\n\
         set itemName to system attribute \"BACH_ITEM\"\n\
         tell application \"Finder\"\n\
@@ -491,7 +510,7 @@ fn arrange_window(image: &Path, volume: &str, item: &str, background: bool) -> b
                     }
                     break;
                 }
-                Ok(None) if started.elapsed() > std::time::Duration::from_secs(60) => {
+                Ok(None) if started.elapsed() > std::time::Duration::from_secs(30) => {
                     let _ = child.kill();
                     let _ = child.wait();
                     break;
@@ -503,13 +522,14 @@ fn arrange_window(image: &Path, volume: &str, item: &str, background: bool) -> b
     }
     // Finder writes the window's look (`.DS_Store`) when the volume is ejected; a busy volume is detached with force.
     let _ = Command::new("sync").status();
-    for attempt in 0..5 {
+    // The image must be let go of before it is compressed: a window Finder still holds is closed by force.
+    for attempt in 0..8 {
         let mut command = Command::new("hdiutil");
         command.args(["detach", "-quiet"]);
-        if attempt >= 3 {
+        if attempt >= 2 {
             command.arg("-force");
         }
-        if command.arg(&mount).output().is_ok_and(|output| output.status.success()) {
+        if command.arg(&device).output().is_ok_and(|output| output.status.success()) {
             break;
         }
         std::thread::sleep(std::time::Duration::from_secs(1));

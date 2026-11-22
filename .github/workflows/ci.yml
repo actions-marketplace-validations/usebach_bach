@@ -232,6 +232,8 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Build the example installer
+        env:
+          BACH_NO_DMG_LAYOUT: "1"
         run: |
           scripts/build-example.sh
           target/release/bach inspect dist/Hello-Setup-1.0.0.dmg

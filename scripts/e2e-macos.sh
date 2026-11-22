@@ -17,6 +17,8 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/bach-e2e.XXXXXX")"
 export HOME="$work/home"
 # Launch agents are written but never loaded into this Mac's launchd.
 export BACH_NO_LAUNCHCTL=1
+# The disk images here are only opened by this script, so Finder isn't asked to lay their window out.
+export BACH_NO_DMG_LAYOUT=1
 mkdir -p "$HOME/Desktop" "$HOME/Applications" "$HOME/Library"
 mounted=""
 cleanup() {
