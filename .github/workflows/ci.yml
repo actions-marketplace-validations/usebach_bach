@@ -115,6 +115,8 @@ jobs:
         with:
           version: local
           config: examples/hello/bach.ci.toml
+          # The example also has a [macos] section; this job builds the Windows file.
+          args: --platform windows
           app-version: v7.8.9
           notes: CI check of the action
 
