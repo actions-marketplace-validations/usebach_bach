@@ -175,3 +175,32 @@ file's SHA-256. See [signing](signing.md).
 When `bach.toml` isn't in the repository's root, `bach workflow desktop` (the
 folder with the `bach.toml`) writes a workflow whose steps run in that folder.
 Version files are the ones next to `bach.toml`.
+
+## Releasing for macOS from GitHub Actions
+
+A Windows app is never built for macOS by itself. To also release the macOS Setup app, add a `[macos]` section to
+`bach.toml` and run `bach workflow --macos`: the generated workflow gets a second job, `macos`, that runs on a Mac after the
+release job, builds the Setup app and adds it to the same release and the same update feed (`latest.json`). Run
+`bach workflow` again without the flag and the job stays; delete the job from the file to drop it.
+
+Without any secrets the app is sealed ad hoc: it runs, but macOS asks people to confirm the first open. To sign and
+notarize it (what Apple expects for software people download), you need the Apple Developer Program (99 US dollars a year).
+Then:
+
+1. In your developer account, create a **Developer ID Application** certificate, export it from Keychain Access as a `.p12`
+   with a password, and store it base64 encoded: `base64 -i certificate.p12 | pbcopy`.
+2. In App Store Connect (Users and Access, Integrations), create an API key and download its `.p8` file; store it base64 encoded.
+3. Add these repository secrets (Settings, Secrets and variables, Actions): `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`,
+   `APPLE_API_KEY`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`.
+4. In `bach.toml`:
+
+   ```toml
+   [macos.signing]
+   identity = "Developer ID Application: Example Inc. (ABCDE12345)"
+   notarize = "bach-notary"
+   ```
+
+The job imports the certificate into a temporary keychain, stores the notarization credentials under the name `bach-notary`,
+and builds with `--sign`; Apple's notary service checks the `.dmg` and its ticket is stapled to it, so it opens without a warning.
+For a `.pkg` for MDM tools, also create a **Developer ID Installer** certificate and set `installer_identity` (see [`[macos]`](config.md#macos)).
+

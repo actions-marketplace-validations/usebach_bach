@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>One <code>bach.toml</code> in, one <code>Setup.exe</code> out.</strong><br>
-  Windows installers with a native window, in-place updates and a clean uninstaller,<br>
+  Windows installers (and macOS ones) with a native window, in-place updates and a clean uninstaller,<br>
   without an installer script and without an administrator prompt.
 </p>
 
@@ -104,6 +104,12 @@ case, an app that installs for one user, with settings instead of code:
   text replaceable; every choice reachable with Tab.
 - **Builds anywhere.** `bach` runs on Windows, macOS and Linux, so installers
   can come out of any CI. Setup files need no .NET and no Visual C++ runtime.
+- **Windows and macOS from one file.** Add a `[macos]` section and
+  `bach build` also writes a Setup app in a `.dmg`: the same window, the same
+  updates over older installs, optional open at login and links, all per user,
+  with no administrator prompt. A Mac app that is one bundle goes straight into Applications,
+  and moving it to the Trash removes it. See
+  [`[macos]`](docs/config.md#macos).
 
 **Use something else when** you need drivers, custom install-time scripts, or
 a small stub: a Bach setup file adds about 10 MB to your app. For Group Policy
@@ -130,15 +136,15 @@ Every setting is in the [config reference](docs/config.md).
 | `bach import` | Writes a first `bach.toml` from an Inno Setup or NSIS script, and lists what it couldn't convert |
 | `bach init` | Writes a starter `bach.toml`, filled in for Rust, Tauri, Electron, .NET, Godot and Unity projects, plus a release workflow in a GitHub checkout |
 | `bach check` | Validates the config and lists every file and option; `--strict` turns a warning into an error |
-| `bach preview` | Opens the real window without installing; try `--theme dark`, `--lang de`, `--style arcade`, `--layout showcase` |
+| `bach preview` | Opens the real window without installing (the Windows one on Windows, the macOS one on a Mac); try `--theme dark`, `--lang de`, `--style arcade`, `--layout showcase` |
 | `bach watch` | Like `preview`, and reopens the window every time you save `bach.toml` |
-| `bach build` | Writes the setup file; `--online`, `--msi`, `--patch-from OLD.exe`, `--profile NAME`, `--sign` and more |
+| `bach build` | Writes the setup file of every platform bach.toml describes (`--platform windows\|macos`); `--online`, `--msi`, `--pkg`, `--patch-from OLD.exe`, `--profile NAME`, `--sign` and more |
 | `bach styles`, `bach layouts` | List the built-in styles and layouts |
 | `bach inspect`, `bach verify`, `bach diff` | Show what a setup file carries, check it for damage, compare two versions |
 | `bach test` | Installs, starts and removes a setup file in Windows Sandbox (or, with `--here`, on a CI runner) and reports what failed or was left behind |
 | `bach sign`, `bach key`, `bach feed-key` | Sign a setup file, make access keys, make the key that signs update feeds |
 | `bach feed`, `bach page`, `bach winget`, `bach choco`, `bach intune` | Write the update feed, a download page, and the winget, Chocolatey and Intune packages |
-| `bach version`, `bach workflow` | Raise the version in every file at once; add the one-click release workflow |
+| `bach version`, `bach workflow` | Raise the version in every file at once; add the one-click release workflow (`--macos` adds a Mac job) |
 | `bach doctor`, `bach update` | Check that a build can run; update `bach` itself |
 
 Run `bach` on its own for this list grouped by what you are doing, and `bach COMMAND --help` for the options of one command. Every flag is in the [CLI reference](https://usebach.app/docs/reference/cli/overview).
@@ -151,7 +157,7 @@ Run `bach` on its own for this list grouped by what you are doing, and `bach COM
   irm https://raw.githubusercontent.com/usebach/bach/main/install.ps1 | iex
   ```
 
-- **macOS or Linux**, for building Windows installers in CI:
+- **macOS or Linux**, for building installers in CI (a Mac also builds and tests the macOS Setup app):
 
   ```bash
   curl -fsSL https://raw.githubusercontent.com/usebach/bach/main/install.sh | sh

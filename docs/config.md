@@ -4,7 +4,7 @@ Every setting Bach reads. Paths are relative to the `bach.toml` file. Unknown
 settings are an error, so a typo never goes unnoticed, and every mistake is
 reported as one sentence naming the setting at fault.
 
-Only `[app]` and `[files]` are required. Everything else has a sensible
+Only `[app]` and one of `[files]` (Windows) or `[macos]` are required. Everything else has a sensible
 default, so a five-line config already builds a complete installer.
 
 - [`[app]`](#app): name, version, publisher, the program
@@ -25,6 +25,7 @@ default, so a five-line config already builds a complete installer.
 - [`[uninstall]`](#uninstall): the user's data
 - [`[profiles]`](#profiles): other builds of the app: a company version, a portable ZIP
 - [`[arch.arm64]`](#archarm64): one download for x64 and ARM64
+- [`[macos]`](#macos): the macOS setup app, built from the same file
 - [`[signing]`](#signing): sign the setup files while building (optional)
 - [A complete example](#a-complete-example)
 - [Silent installs](#silent-installs) and [updating from the app](#updating-from-the-app)
@@ -46,7 +47,7 @@ files keep working. `bach init` writes it. A version this Bach doesn't read stop
 | `name` | yes | The app's name, as people see it: the window, the Start menu, the desktop shortcut and Settings › Apps. |
 | `version` | yes | Any version text, like `1.2.0` or `2.0.0-beta.1`. Shown in the window and Settings › Apps; the first numbers also go into the setup file's details. |
 | `publisher` | yes | You or your company. Shown in the window's footer and Settings › Apps. |
-| `executable` | yes | The program to start, relative to `[files] source`, for example `my-app.exe` or `bin/my-app.exe`. Shortcuts and the "Open" button start it. |
+| `executable` | yes, for Windows | The program to start, relative to `[files] source`, for example `my-app.exe` or `bin/my-app.exe`. Shortcuts and the "Open" button start it. The macOS build names its own in `[macos]`. |
 | `id` | no | Identifies the install across versions (registry key name). Defaults to `name`. Letters, digits, spaces, `.`, `-` and `_`, up to 64 characters, and not a name Windows keeps for devices (`CON`, `PRN`, `AUX`, `NUL`, `COM0` to `COM9`, `LPT0` to `LPT9`, with or without an extension, in any letter case). Never change it after your first release, or updates install side by side. |
 | `description` | no | One line. The shortcut's tooltip, and the line under "Install My App" on the first page (unless `[text] install_subtitle` replaces it). Without it, that line is left out. |
 | `website` | no | An `https://` link, shown as the support link in Settings › Apps. |
@@ -1127,6 +1128,10 @@ a text is given in only one, `bach check` points it out.
 | `choose_folder` | Choose where to install {name} |
 | `desktop_shortcut`, `desktop_shortcut_description` | Desktop shortcut, Start {name} from your desktop too. |
 | `start_menu`, `start_menu_description` | Start menu, Find {name} in the Start menu. |
+| `mac_start_menu`, `mac_start_menu_description` | Applications, Add {name} to your Applications folder. (macOS) |
+| `mac_start_with_windows`, `mac_start_with_windows_description` | Open at login, Open {name} automatically when you sign in. (macOS) |
+| `mac_installed_subtitle` | Find it in your Applications folder, or open it now. (macOS) |
+| `mac_error_register`, `mac_error_unregister`, `mac_error_system` | The macOS versions of the errors about the install record and system settings. |
 | `start_with_windows`, `start_with_windows_description` | Start with Windows, Open {name} automatically when you sign in. |
 | `auto_update`, `auto_update_description` | Automatic updates, Install new versions of {name} in the background while it isn't running. |
 | `add_to_path`, `add_to_path_description` | Add to PATH, Run {name} from any terminal. |
@@ -1316,6 +1321,113 @@ Wrote dist/Hello-Setup-1.4.0-arm64.exe (10.8 MB)
 - Profiles: a profile build also writes its ARM64 file.
 
 `--json` adds `setup_arm64`, the ARM64 setup file's path.
+
+## [macos]
+
+One `bach.toml`, two setup files. `[files]` is the Windows build; `[macos]` names
+the macOS files, and `bach build` then also writes a **Setup app** in a `.dmg`:
+`Install Hello.app`, which opens the same calm window as the Windows setup file, in
+the user's language and in light or dark mode. The name, version, publisher, texts,
+look, languages, choices and `[updates]` are shared. `[files]` may be left out when the
+app only runs on a Mac.
+
+```toml
+[macos]
+source = "app-macos"                       # the macOS files: Hello.app and anything beside it
+executable = "Hello.app"                   # an app bundle, or a program inside source
+output = "dist/{name}-Setup-{version}.dmg" # optional: .dmg or .zip
+data = ["~/Library/Application Support/Hello"]
+minimum_version = "12.0"                   # optional: the oldest macOS it runs on
+executables = ["Hello.app/Contents/MacOS/*"]  # optional: see below
+icon = "AppIcon.icns"                      # optional: the Setup app's icon
+bundle_id = "com.example.hello.setup"      # optional: made from app.id when left out
+
+[[macos.agents]]                           # optional: a background program, run by launchd
+name = "sync"
+file = "Hello.app/Contents/MacOS/hello-sync"
+keep_alive = true
+
+[macos.signing]                            # optional: used by `bach build --sign`
+identity = "Developer ID Application: Example Inc. (ABCDE12345)"
+installer_identity = "Developer ID Installer: Example Inc. (ABCDE12345)"   # signs the .pkg
+notarize = "example-notary"                # a notarytool keychain profile
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `source` | The folder with the macOS files, relative to `bach.toml`. Required. Symbolic links inside it (frameworks use them) are kept as links, and a link that points outside the folder is refused. Program permissions are kept. `.DS_Store` files are left out. |
+| `executable` | The program to start: an app bundle (`Hello.app`, started the way Finder does) or a program inside `source`. `app.executable` when left out. |
+| `exclude` | `files.exclude` for this folder. The main `files.exclude` applies when left out. |
+| `executables` | Patterns (like `Hello.app/Contents/MacOS/*`) of files that must be programs. Needed when the folder comes from a computer that doesn't keep permissions (a Windows checkout, a zip). On a Mac or Linux folder the permissions already say it. |
+| `output` | Where the setup file goes. It must end in `.dmg` or `.zip`; `{name}`, `{version}` and `{id}` are filled in. `dist/{name}-Setup-{version}.dmg` when left out. A `.dmg` needs `hdiutil`, so on Windows and Linux `bach build` writes a `.zip` of the same Setup app instead and says so. |
+| `data` | Folders the uninstaller deletes when the user ticks "Also delete my data". Each starts with `~/`, sits in `~/Library/Application Support`, `Caches`, `Logs`, `Preferences` or `Containers`, `~/Documents` and the like, or is a dot folder, and has a folder of your app's own below it. The home folder, `~/Library`, key and mail folders and other programs' data are refused. |
+| `icon` | A `.icns` for the Setup app and the uninstaller. |
+| `bundle_id` | The Setup app's bundle identifier; the uninstaller's is this with `.uninstall` after it. |
+| `minimum_version` | The oldest macOS the app runs on, like `"12.0"`. The Setup app doesn't open on an older one, and setup says what is needed. |
+| `run` | `[[macos.run]]` steps, like `[[run]]` for Windows: programs from your files that have the executable permission. Windows `[[run]]` steps aren't used for macOS. |
+| `agents` | `[[macos.agents]]`: background programs, the Mac's counterpart of `[[services]]`. `name` (letters, digits, dashes), `file` (a packaged program with the executable permission; `app.executable` when left out), `arguments` (a command line, never run through a shell), `run_at_load` (default `true`), `keep_alive` (default `false`) and `interval` (seconds, 10 or more). Each is a per-user launch agent `app.bach.agent.<app id>.<name>`, loaded with the install, replaced by an update and removed with the app. |
+| `signing.identity` | A code signing identity. `-` signs ad hoc. |
+| `signing.installer_identity` | A "Developer ID Installer" identity that signs the `.pkg` (`bach build --pkg --sign`). |
+| `signing.notarize` | A `notarytool` keychain profile: after signing, the build submits the `.dmg` to Apple, waits, and staples the ticket. Needs a Developer ID identity and a `.dmg`. |
+
+```bash
+bach build --platform macos --pkg                 # also an installer package for MDM tools
+bach build                                        # every platform bach.toml describes
+bach build --sign                                 # sign (and notarize) with [macos.signing]
+```
+
+```console
+Building Hello 1.0.0 for macOS
+...
+Wrote dist/Hello-Setup-1.0.0.dmg (9.3 MB)
+```
+
+- **The setup runtime** for macOS is `bach-setup-macos`, one program for Apple silicon
+  and Intel. It comes from the release (next to `bach`, or downloaded and checked against its
+  SHA-256, like the Windows one), or `--runtime-macos FILE` (`BACH_RUNTIME_MACOS`) names it. After
+  `cargo build` on a Mac, `target/release/bach-setup` is found too.
+- **What the user gets.** They open the `.dmg`, whose window shows one large icon, `Install Hello`, and
+  double-click it (on a Mac, `bach build` lays the window out through Finder; where Finder doesn't answer, the image
+  opens in Finder's default look). The Setup app opens a small window; for an app that is one bundle it asks nothing but
+  "Install" (options the config offers are rows in it). An app that is one bundle (`Hello.app` and nothing beside it) goes
+  straight into `~/Applications` (or `/Applications` with `installer.scope = "machine"`, which an administrator can write
+  without a prompt; setup never runs as root): one icon, and no folder, shortcut or question unless the config asks. Anything
+  beside the bundle goes into `~/Applications/<installer.folder>`. Updates, repair, downgrade protection, components and
+  downloads work as on Windows.
+- **The choices map to the Mac.** The "Start menu shortcut" becomes a link in Applications
+  (shown as "Applications"), the "desktop shortcut" a link on the Desktop, "Start with
+  Windows" a launch agent that opens the app at login (shown as "Open at login"), "Add to PATH"
+  a marked block in `~/.zprofile` (and `~/.bash_profile` when it exists), and "Automatic updates" a launch
+  agent that checks every four hours. The links are symbolic links, and a real file of the same name is never replaced.
+- **Moving the app to the Trash works too.** Setup leaves a launch agent (`app.bach.guard.<app id>`) that
+  watches the install folder. When the app is gone, it removes what setup added around it: the links, launch
+  agents, PATH block, install record and the uninstaller, never the user's data. Moving the app out of its folder
+  counts as removing it.
+- **For companies: a `.pkg`.** `bach build --pkg` (on a Mac) also writes `Hello-Setup-1.0.0.pkg`, the counterpart of `--msi`:
+  a flat installer package that puts the app in `/Applications` for every user, with program permissions and links kept, for Jamf,
+  Intune, Kandji, Munki and `installer -pkg`. It has no window and no choices, and MDM tools remove or update it themselves.
+  With `--sign` it is signed with `signing.installer_identity` and, with `notarize`, notarized and stapled.
+  Without a `[macos.signing]` it is unsigned, which MDM tools can still deploy.
+- **There is no Uninstall program to find.** The way to remove a Mac app is the Trash, so that is the
+  way: the app is the only thing in Applications. Behind the scenes the uninstaller is `Uninstall Hello.app` in
+  `~/Library/Application Support/Bach/uninstallers/<app id>` (the watcher, updates and `--uninstall` use it; run its
+  `Contents/MacOS/bach-setup --uninstall` to remove an app with its window, or `--silent --delete-data` to also delete the data).
+  Removing the app also removes its links, launch agents, PATH block and install record (in
+  `~/Library/Application Support/Bach/installs`). Folders in `data` go only when asked.
+- **Many Macs at once.** The setup file needs no window: `Install Hello.app/Contents/MacOS/bach-setup --silent [--dir FOLDER]
+  [--with IDS] [--without IDS] [--log FILE]` installs, updates and (with `--uninstall`) removes the same way, with the exit
+  codes of a Windows setup file, and `--help` lists the rest. For MDM tools, `bach build --pkg` writes a `.pkg`.
+- **Not on macOS.** `[[registry]]`, `[[env]]`, `[[context_menu]]`, `[[migrate]]`, `[[services]]` (use `[[macos.agents]]`),
+  `[[firewall]]`, `[[requirements]]`, `[[shortcuts]]`, `[[protocols]]`, `[[file_types]]`, `[signing]`,
+  the online installer, MSI, winget, Chocolatey, Intune and update patches are Windows
+  features: a macOS build leaves them out. A macOS app declares its link schemes and file types in its own `Info.plist`; setup asks Launch Services to read it.
+- **Signing.** The payload sits in the Setup app's `Contents/Resources`, never appended to the
+  program, so the signature covers it. Without `--sign`, a Mac host seals the app ad hoc; Gatekeeper then asks
+  users to confirm the first open. `--sign` with a Developer ID identity (and `notarize`) makes it open without that.
+  Signing needs a Mac. `[updates] signer` accepts an update only when its Setup app is signed with a Developer ID of that name.
+- **Updates.** The macOS file is listed in the feed under `arch.macos`, with its own link, SHA-256,
+  size and signature, so one `latest.json` serves Windows and macOS (`bach feed SETUP.exe --macos FILE.dmg`
+  writes it when you build the files separately). An app that only builds for macOS gets a feed whose own entry is the macOS file.
 
 ## [signing]
 
