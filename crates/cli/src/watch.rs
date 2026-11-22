@@ -12,8 +12,8 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Result};
 
+use crate::output;
 use crate::preview::{self, PreviewOptions};
-use crate::{output, runtime};
 
 pub struct Options<'a> {
     pub config: &'a Path,
@@ -37,7 +37,7 @@ pub fn command(options: Options) -> Result<()> {
         bail!("bach watch runs until you stop it, so it has no --json result; `bach check --json` gives one");
     }
     preview::check(&options.preview, "watch")?;
-    let runtime = runtime::find(options.preview.runtime)?;
+    let runtime = preview::find_runtime(options.preview.runtime)?;
     say!("Watching {} and the files it names. Save a change and the preview opens again; press Ctrl+C to stop.", options.config.display());
 
     let mut window: Option<Child> = None;

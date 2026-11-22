@@ -11,7 +11,12 @@ use bach_pack::manifest::{Choice, Manifest};
 use crate::output::{self, field};
 
 pub fn inspect(path: &Path) -> Result<()> {
-    let mut file = std::fs::File::open(path).with_context(|| format!("couldn't open {}", path.display()))?;
+    // A macOS setup file keeps its payload inside the Setup app; keep it readable while we look.
+    let mac = crate::macfile::payload(path)?;
+    let mut file = match &mac {
+        Some(payload) => payload.open()?,
+        None => std::fs::File::open(path).with_context(|| format!("couldn't open {}", path.display()))?,
+    };
     let Some(layout) = container::locate(&mut file)? else {
         bail!("{} isn't a Bach setup file", path.display());
     };
@@ -25,6 +30,7 @@ pub fn inspect(path: &Path) -> Result<()> {
         "Uninstaller"
     };
     output::result("kind", kind.to_lowercase());
+    output::result("platform", manifest.platform.name());
     output::result("app_id", app.id.clone());
     output::result("name", app.name.clone());
     output::result("version", app.version.clone());
@@ -32,7 +38,7 @@ pub fn inspect(path: &Path) -> Result<()> {
     output::result("executable", app.executable.clone());
     output::result("files", manifest.files.len());
     output::result("size", manifest.total_size());
-    say!("{kind} for {} {}", app.name, app.version);
+    say!("{kind} for {} {}{}", app.name, app.version, if manifest.platform.is_macos() { " (macOS)" } else { "" });
     field("App id", &app.id);
     details(&manifest, manifest.access.as_ref().is_some_and(|access| access.encryption.is_some()));
     if layout.has_archive() {
@@ -40,10 +46,11 @@ pub fn inspect(path: &Path) -> Result<()> {
     }
     if let Some(chosen) = &manifest.chosen {
         let mut picked = Vec::new();
+        let mac = manifest.platform.is_macos();
         for (on, name) in [
             (chosen.desktop_shortcut, "desktop shortcut"),
-            (chosen.start_menu_shortcut, "Start menu"),
-            (chosen.start_with_windows, "start with Windows"),
+            (chosen.start_menu_shortcut, if mac { "Applications" } else { "Start menu" }),
+            (chosen.start_with_windows, if mac { "open at login" } else { "start with Windows" }),
             (chosen.add_to_path, "PATH"),
             (chosen.auto_update, "automatic updates"),
         ] {
@@ -65,10 +72,12 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
     field("Publisher", &manifest.app.publisher);
     field("Program", &manifest.app.executable);
     field("Files", format!("{} ({})", manifest.files.len(), output::size(manifest.total_size())));
-    let folder = if install.scope.is_machine() {
-        format!(r"%ProgramFiles%\{}", install.folder)
-    } else {
-        format!(r"%LOCALAPPDATA%\Programs\{}", install.folder)
+    let mac = manifest.platform.is_macos();
+    let folder = match (mac, install.scope.is_machine()) {
+        (true, true) => format!("/Applications/{}", install.folder).trim_end_matches('/').to_string(),
+        (true, false) => format!("~/Applications/{}", install.folder).trim_end_matches('/').to_string(),
+        (false, true) => format!(r"%ProgramFiles%\{}", install.folder),
+        (false, false) => format!(r"%LOCALAPPDATA%\Programs\{}", install.folder),
     };
     field("Installs to", if install.change_folder { folder } else { format!("{folder} (fixed)") });
     if install.scope.is_machine() {
@@ -78,8 +87,8 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
     let mut options = Vec::new();
     for (choice, name) in [
         (install.desktop_shortcut, "desktop shortcut"),
-        (install.start_menu_shortcut, "Start menu"),
-        (install.start_with_windows, "start with Windows"),
+        (install.start_menu_shortcut, if mac { "Applications" } else { "Start menu" }),
+        (install.start_with_windows, if mac { "open at login" } else { "start with Windows" }),
         (install.add_to_path, "add to PATH"),
     ] {
         match choice {
@@ -113,12 +122,18 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
         field("Opens files", types.join(", "));
     }
     let languages = if manifest.locale.languages.is_empty() {
-        format!("all {} (follows Windows)", i18n::LANGUAGES.len())
+        format!("all {} (follows {})", i18n::LANGUAGES.len(), if mac { "macOS" } else { "Windows" })
     } else {
         manifest.locale.languages.join(", ")
     };
     field("Languages", languages);
     field("Look", look(manifest));
+    if let Some(info) = &manifest.mac {
+        field("Bundle id", &info.bundle_id);
+        if let Some(minimum) = &info.minimum_version {
+            field("Needs", format!("macOS {minimum} or newer"));
+        }
+    }
     if let Some(license) = &manifest.locale.license {
         let codes: Vec<&str> = license.keys().map(|code| if code == ANY_LANGUAGE { "all languages" } else { code }).collect();
         field("License", format!("shown first ({})", codes.join(", ")));
@@ -194,7 +209,13 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
 fn look(manifest: &Manifest) -> String {
     let look = &manifest.look;
     let theme = match look.theme {
-        bach_pack::manifest::Theme::System => "follows Windows' light or dark",
+        bach_pack::manifest::Theme::System => {
+            if manifest.platform.is_macos() {
+                "follows macOS' light or dark"
+            } else {
+                "follows Windows' light or dark"
+            }
+        }
         bach_pack::manifest::Theme::Light => "light",
         bach_pack::manifest::Theme::Dark => "dark",
     };
