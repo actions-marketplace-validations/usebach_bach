@@ -103,6 +103,16 @@ Notes:
   whichever fits your pipeline. After changing a signed file in any way,
   write the feed again with `bach feed`.
 
+## Sign the macOS Setup app
+
+`[macos.signing]` and `bach build --sign` sign the Setup app with `codesign` (a Mac is needed): the identity
+is a Developer ID Application certificate in your keychain, the signature gets the hardened runtime and a
+secure timestamp, and the `.dmg` is signed too. With `notarize = "profile"`, the build then submits the
+`.dmg` with `xcrun notarytool submit --keychain-profile profile --wait` and staples the ticket, so the app opens
+without Gatekeeper's warning. Store the profile once with `xcrun notarytool store-credentials`. Without `--sign`,
+a Mac seals the Setup app ad hoc: it runs, but a downloaded copy asks the user to confirm the first open.
+The payload is inside the bundle (`Contents/Resources/setup.bach`), so the signature covers it.
+
 ## Check a Bach download
 
 Every file of a Bach release (the zip, `bach-setup.exe`, the example installer,

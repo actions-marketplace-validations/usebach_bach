@@ -22,6 +22,7 @@ pub struct Signature {
 }
 
 /// Reads the signature of `file`.
+#[cfg(windows)]
 pub fn read(file: &Path) -> Result<Signature, String> {
     // `system_dir` is System32 itself, as Windows reports it.
     let system = crate::system::folders::system_dir().ok_or("Windows' folder couldn't be found")?;
@@ -41,7 +42,56 @@ pub fn read(file: &Path) -> Result<Signature, String> {
     parse(&String::from_utf8_lossy(&output.stdout))
 }
 
+/// Reads the code signature of the Setup app inside a downloaded `.dmg` or `.zip`:
+/// valid for macOS (`codesign --verify --deep --strict`) and made with a
+/// Developer ID, whose name is the signer. An ad hoc signature is "NotSigned" here,
+/// because it names nobody.
+#[cfg(target_os = "macos")]
+pub fn read(file: &Path) -> Result<Signature, String> {
+    let scratch = std::env::temp_dir().join(format!(
+        "bach-verify-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())
+    ));
+    let result = (|| {
+        let program = super::macsetup::unpack(file, &scratch)?;
+        let app =
+            program.ancestors().find(|part| part.extension().is_some_and(|ext| ext == "app")).ok_or("the download holds no setup app")?;
+        let verified = Command::new("/usr/bin/codesign")
+            .args(["--verify", "--deep", "--strict"])
+            .arg(app)
+            .output()
+            .map_err(|err| format!("couldn't ask macOS who signed the update: {err}"))?;
+        let details = Command::new("/usr/bin/codesign").args(["-dvv"]).arg(app).output().map_err(|err| err.to_string())?;
+        // codesign prints its details on stderr.
+        Ok(parse_codesign(verified.status.success(), &String::from_utf8_lossy(&details.stderr)))
+    })();
+    let _ = std::fs::remove_dir_all(&scratch);
+    result
+}
+
+/// `Authority=Developer ID Application: Example Inc. (ABCDE12345)` is the signing
+/// certificate; its name is the signer, and the team id the organisational unit.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn parse_codesign(valid: bool, details: &str) -> Signature {
+    let authority = details.lines().find_map(|line| line.strip_prefix("Authority=")).map(str::trim);
+    let team = details.lines().find_map(|line| line.strip_prefix("TeamIdentifier=")).map(str::trim).filter(|team| *team != "not set");
+    let adhoc = details.lines().any(|line| line.trim() == "Signature=adhoc");
+    match authority {
+        Some(authority) if valid && !adhoc => {
+            // "Developer ID Application: Example Inc. (ABCDE12345)" -> "Example Inc."
+            let name = authority.split_once(": ").map_or(authority, |(_, rest)| rest);
+            let name = name.rsplit_once(" (").filter(|(_, tail)| tail.ends_with(')')).map_or(name, |(head, _)| head);
+            let unit = team.map(|team| format!(", OU={team}")).unwrap_or_default();
+            Signature { status: "Valid".into(), subject: format!("CN={name}{unit}") }
+        }
+        _ if adhoc || authority.is_none() => Signature { status: "NotSigned".into(), subject: String::new() },
+        _ => Signature { status: "NotTrusted".into(), subject: String::new() },
+    }
+}
+
 /// The two lines the PowerShell command prints.
+#[cfg(windows)]
 fn parse(text: &str) -> Result<Signature, String> {
     let mut lines = text.lines().map(str::trim);
     let status = lines.next().filter(|status| !status.is_empty()).ok_or("Windows didn't say who signed the update")?;
@@ -94,6 +144,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn what_powershell_prints_is_read_or_refused() {
         assert_eq!(parse("Valid\r\nCN=A\r\n").unwrap(), signature("Valid", "CN=A"));
         assert_eq!(parse("NotSigned\r\n\r\n").unwrap(), signature("NotSigned", ""));
@@ -101,6 +152,20 @@ mod tests {
     }
 
     #[test]
+    fn what_codesign_prints_is_read() {
+        let developer = "Executable=/x\nAuthority=Developer ID Application: Example Inc. (ABCDE12345)\nAuthority=Developer ID Certification Authority\nTeamIdentifier=ABCDE12345\n";
+        let found = parse_codesign(true, developer);
+        assert_eq!(found, signature("Valid", "CN=Example Inc., OU=ABCDE12345"));
+        assert!(judge(&found, "Example Inc.").is_ok());
+        assert!(judge(&found, "Somebody Else").is_err());
+        assert_eq!(parse_codesign(false, developer).status, "NotTrusted", "a signature that doesn't verify");
+        let adhoc = "Signature=adhoc\nTeamIdentifier=not set\n";
+        assert_eq!(parse_codesign(true, adhoc).status, "NotSigned");
+        assert_eq!(parse_codesign(true, "").status, "NotSigned");
+    }
+
+    #[test]
+    #[cfg(windows)]
     fn windows_is_asked_for_real_signatures() {
         // A program Microsoft signs, a file that is nobody's, and the named publisher.
         let notepad = crate::system::folders::system_dir().unwrap().join("notepad.exe");

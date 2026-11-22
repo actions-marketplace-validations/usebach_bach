@@ -30,7 +30,12 @@ const NAMED: usize = 5;
 
 pub fn command(options: Options) -> Result<()> {
     let path = options.file;
-    let mut file = File::open(path).with_context(|| format!("couldn't open {}", path.display()))?;
+    // A macOS setup file keeps its payload inside the Setup app.
+    let mac = crate::macfile::payload(path)?;
+    let mut file = match &mac {
+        Some(payload) => payload.open()?,
+        None => File::open(path).with_context(|| format!("couldn't open {}", path.display()))?,
+    };
     let Some(layout) = container::locate(&mut file)? else {
         bail!("{} isn't a Bach setup file", path.display());
     };
@@ -40,12 +45,15 @@ pub fn command(options: Options) -> Result<()> {
     output::result("name", app.name.clone());
     output::result("version", app.version.clone());
 
-    let signature = pe::signature(path);
+    let signature = if mac.is_some() { None } else { pe::signature(path) };
     let signature_text = match signature {
         Some(Signature::Signed) => {
             "signed (the file carries a signature; Windows decides whether it is valid, `signtool verify /pa` checks it)"
         }
         Some(Signature::Unsigned) => "not signed",
+        None if mac.is_some() => {
+            "not checked here: macOS checks the Setup app's signature when it opens (`codesign --verify --deep --strict` checks it)"
+        }
         None => "unknown",
     };
     output::result("signature", if signature == Some(Signature::Signed) { "signed" } else { "unsigned" });
@@ -145,7 +153,8 @@ pub fn command(options: Options) -> Result<()> {
         // An update patch carries only what changed; every other file is on the computer already.
         if manifest.patch_from.is_none() {
             for entry in &manifest.files {
-                if !seen.contains(&entry.path) && !downloaded.contains(entry.path.as_str()) {
+                // Links have no bytes: they are in the manifest only.
+                if !entry.is_link() && !seen.contains(&entry.path) && !downloaded.contains(entry.path.as_str()) {
                     bad.push(format!("{} is in the manifest but not in the archive", entry.path));
                 }
             }

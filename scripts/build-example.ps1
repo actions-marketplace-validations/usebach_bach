@@ -14,7 +14,7 @@ try {
     New-Item -ItemType Directory -Force -Path $app | Out-Null
     Copy-Item -Force 'target\release\hello.exe' -Destination $app
 
-    & 'target\release\bach.exe' build 'examples\hello\bach.toml'
+    & 'target\release\bach.exe' build 'examples\hello\bach.toml' --platform windows
     if ($LASTEXITCODE -ne 0) { throw 'bach build failed.' }
 }
 finally {

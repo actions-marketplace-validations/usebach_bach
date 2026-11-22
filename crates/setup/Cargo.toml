@@ -16,9 +16,9 @@ anyhow.workspace = true
 # Not Windows-only: tests in support.rs read manifests from JSON on every OS.
 serde_json.workspace = true
 
-# The runtime is a Windows program; elsewhere it builds to a stub that says so,
+# The runtime is a Windows and macOS program; elsewhere it builds to a stub that says so,
 # so `cargo test --workspace` still works on every OS.
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 gpui = "0.2.2"
 # GPUI already builds it; used to cut a panel picture to its panel's shape.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
@@ -28,6 +28,12 @@ raw-window-handle = "0.6"
 # debug-embed: always embed the fonts and icons, so a debug build is as
 # self-contained as a release.
 rust-embed = { version = "8", features = ["debug-embed"] }
+sha2 = "0.11"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
 # A subset of the features GPUI already builds, so they add no compile time.
 windows = { version = "0.62", features = [
     "Win32_Foundation",
@@ -60,7 +66,6 @@ windows-registry = "0.100"
 # of the two asks for would build bach-setup differently when both are built together, which
 # build-release.ps1 would then reject. Asking for it here keeps the two builds the same program.
 windows-sys = { version = "0.61", features = ["Win32_Security_Authorization"] }
-sha2 = "0.11"
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "3"

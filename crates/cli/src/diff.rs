@@ -36,12 +36,17 @@ struct Side {
 }
 
 fn read(path: &Path) -> Result<Side> {
-    let mut file = File::open(path).with_context(|| format!("couldn't open {}", path.display()))?;
+    let mac = crate::macfile::payload(path)?;
+    let mut file = match &mac {
+        Some(payload) => payload.open()?,
+        None => File::open(path).with_context(|| format!("couldn't open {}", path.display()))?,
+    };
     let Some(layout) = container::locate(&mut file)? else {
         bail!("{} isn't a Bach setup file", path.display());
     };
     let manifest = container::read_manifest(&mut file, &layout)?;
-    let file_size = file.metadata().map(|meta| meta.len()).unwrap_or(0);
+    // A macOS setup file is the .dmg (or .zip), not the payload inside it.
+    let file_size = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
     Ok(Side { manifest, file_size, packed: if layout.has_archive() { layout.archive.len } else { 0 } })
 }
 

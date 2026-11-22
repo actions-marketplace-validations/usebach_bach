@@ -9,6 +9,7 @@ mod extras;
 mod gather;
 mod icon;
 mod layout;
+pub mod macos;
 mod options;
 mod profile;
 mod secrets;
@@ -25,9 +26,10 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 use crate::archive::{Compression, Source};
-use crate::manifest::{self, FileEntry, LogoKind, Manifest};
+use crate::manifest::{self, FileEntry, LogoKind, Manifest, Platform};
 use crate::paths;
 
+pub use macos::{Container as MacContainer, MacBuild, MacSigning};
 pub use options::component_pack_name;
 pub use profile::{list as list_profiles, valid_name as valid_profile_name, Kind as ProfileKind, Profile};
 pub use system::pe_machine;
@@ -51,7 +53,10 @@ struct File {
     /// means the current one.
     config_version: Option<u32>,
     app: AppSection,
-    files: FilesSection,
+    /// The Windows files. Left out when the app only has a `[macos]` build.
+    files: Option<FilesSection>,
+    /// The macOS build (`[macos]`), packed into its own setup file.
+    macos: Option<macos::MacosSection>,
     #[serde(default)]
     installer: InstallerSection,
     #[serde(default)]
@@ -116,7 +121,8 @@ struct AppSection {
     name: String,
     version: String,
     publisher: String,
-    executable: String,
+    /// The Windows program; the macOS build names its own in `[macos]`.
+    executable: Option<String>,
     id: Option<String>,
     description: Option<String>,
     website: Option<String>,
@@ -239,6 +245,12 @@ pub struct Project {
     pub arches: Vec<ArchBuild>,
     /// What the build writes: a setup file, or (a `zip` profile) a ZIP of the files.
     pub kind: ProfileKind,
+    /// The platform this project is the setup file for.
+    pub platform: Platform,
+    /// For a macOS project: the setup app's icon, identifier and signing.
+    pub macos: Option<MacBuild>,
+    /// Which setup files the config describes.
+    pub declared: Declared,
 }
 
 /// An architecture `[arch.NAME]` adds.
@@ -273,6 +285,28 @@ pub struct Overrides {
     /// Builds the setup file for this architecture (`arm64`) from `[arch.arm64]`
     /// instead of the main one.
     pub arch: Option<String>,
+    /// Builds the setup file for this platform (`windows` or `macos`); Windows when None.
+    pub platform: Option<String>,
+}
+
+/// Which setup files the config describes: `bach build` writes each one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Declared {
+    pub windows: bool,
+    pub macos: bool,
+}
+
+/// What `bach.toml` declares, read without checking the rest of it (so
+/// `bach build` knows which setup files to make before it loads each one).
+pub fn declared(text: &str) -> Result<Declared> {
+    #[derive(Deserialize)]
+    struct Probe {
+        files: Option<toml::Value>,
+        macos: Option<toml::Value>,
+    }
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let probe: Probe = toml::from_str(text).map_err(|err| anyhow::anyhow!("{}", err.to_string().trim()))?;
+    Ok(Declared { windows: probe.files.is_some(), macos: probe.macos.is_some() })
 }
 
 /// Reads, checks and gathers a `bach.toml`.
@@ -299,6 +333,10 @@ pub fn parse(text: &str, root: &Path) -> Result<Project> {
 /// [`parse`] with some settings replaced (see [`Overrides`]).
 pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Project> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let platform = macos::platform(overrides.platform.as_deref())?;
+    if platform.is_macos() && (overrides.profile.is_some() || overrides.arch.is_some()) {
+        bail!("the macOS setup file has no profiles or [arch.*] builds; leave --profile and --arch out when building for macOS");
+    }
     let (mut file, profile) = match &overrides.profile {
         None => (toml::from_str::<File>(text).map_err(|err| anyhow::anyhow!("{}", err.to_string().trim()))?, None),
         Some(name) => {
@@ -318,14 +356,71 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
             );
         }
     }
+    let declared = Declared { windows: file.files.is_some(), macos: file.macos.is_some() };
+    if !declared.windows && !declared.macos {
+        bail!("bach.toml has neither [files] (the Windows files) nor [macos] (the macOS files), so there is nothing to build");
+    }
+    let mut files_cfg = file.files.take();
+    let mut mac_cfg = file.macos.take();
+    let mut mac_build = None;
+    let mut mac_executable = None;
+    let mut mac_modes: Vec<String> = Vec::new();
+    let mut mac_agents: Vec<macos::AgentSection> = Vec::new();
+    match platform {
+        Platform::Windows => {
+            if files_cfg.is_none() {
+                bail!(
+                    "bach.toml has no [files], so there is no Windows setup file to build; add [files], or build the macOS one with --platform macos"
+                );
+            }
+            if file.app.executable.is_none() {
+                bail!("app.executable is missing; name the program to start, like executable = \"hello.exe\"");
+            }
+        }
+        Platform::Macos => {
+            let Some(section) = mac_cfg.take() else {
+                bail!("there is no [macos] in bach.toml, so there is no macOS setup file to build");
+            };
+            let app_id = file.app.id.as_deref().unwrap_or(&file.app.name).trim().to_string();
+            mac_build = Some(macos::check(&section, root, &app_id)?);
+            // The macOS build replaces what differs; the rest of the config is shared.
+            let base = files_cfg.take();
+            files_cfg = Some(FilesSection {
+                source: section.source.clone(),
+                exclude: section.exclude.clone().or_else(|| base.as_ref().map(|files| files.exclude.clone())).unwrap_or_default(),
+                allow_secrets: base.map(|files| files.allow_secrets).unwrap_or_default(),
+            });
+            mac_executable = section.executable.clone().or_else(|| file.app.executable.clone());
+            file.uninstall.data = section.data.clone();
+            file.installer.output = section.output.clone();
+            file.run = section.run;
+            file.registry.clear();
+            file.env.clear();
+            file.context_menu.clear();
+            file.migrate.clear();
+            file.services.clear();
+            file.firewall.clear();
+            file.requirements.clear();
+            file.shortcuts.clear();
+            file.protocols.clear();
+            file.file_types.clear();
+            file.signing = None;
+            file.installer.online = None;
+            file.installer.online_output = None;
+            mac_modes = section.executables;
+            mac_agents = section.agents;
+        }
+    }
     let arch = overrides.arch.clone();
     if let Some(name) = &arch {
         let Some(section) = file.arch.get(name) else {
             bail!("there is no [arch.{name}] in bach.toml, so there is no {name} setup file to build");
         };
-        file.files.source = section.source.clone();
-        if let Some(exclude) = &section.exclude {
-            file.files.exclude = exclude.clone();
+        if let Some(files) = &mut files_cfg {
+            files.source = section.source.clone();
+            if let Some(exclude) = &section.exclude {
+                files.exclude = exclude.clone();
+            }
         }
     }
     if let Some(version) = file.config_version.filter(|version| *version != CONFIG_VERSION) {
@@ -343,7 +438,17 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         file.app.version = version.to_string();
     }
     let mut warnings = Vec::new();
-    let app = check_app(&file.app)?;
+    let executable = match platform {
+        Platform::Windows => file.app.executable.clone().unwrap_or_default(),
+        Platform::Macos => mac_executable.clone().unwrap_or_default(),
+    };
+    if executable.trim().is_empty() {
+        bail!(
+            "{} is missing; name the program to start",
+            if platform.is_macos() { "macos.executable (or app.executable)" } else { "app.executable" }
+        );
+    }
+    let app = check_app(&file.app, &executable, platform)?;
     if crate::version::compare(&app.version, &app.version).is_none() {
         warnings.push(format!(
             "app.version is \"{}\", which isn't a version like 1.2.3 (dotted numbers, each up to 18446744073709551615, \
@@ -352,7 +457,9 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
             app.version
         ));
     }
-    let install = options::install(&file.installer, &app)?;
+    let bare_bundle =
+        platform.is_macos() && files_cfg.as_ref().is_some_and(|files| macos::is_one_bundle(&root.join(&files.source), &app.executable));
+    let install = options::install(&file.installer, &app, bare_bundle)?;
     let languages = text::languages(file.installer.languages.as_deref())?;
     let mut locale = text::locale(&file.text, &languages, &mut warnings)?;
     locale.license = text::license(file.installer.license.as_ref(), root, &languages)?;
@@ -361,10 +468,19 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         locale.text.insert(crate::i18n::Key::delete_data_description.name().into(), description);
     }
     for folder in &file.uninstall.data {
-        paths::check_data_folder(folder).context("uninstall.data")?;
-        if !paths::looks_like_apps_own(folder, &[&app.name, &app.id, &app.publisher]) {
+        let (setting, own) = match platform {
+            Platform::Windows => {
+                paths::check_data_folder(folder).context("uninstall.data")?;
+                ("uninstall.data", paths::looks_like_apps_own(folder, &[&app.name, &app.id, &app.publisher]))
+            }
+            Platform::Macos => {
+                paths::mac::check_data_folder(folder).context("macos.data")?;
+                ("macos.data", paths::mac::looks_like_apps_own(folder, &[&app.name, &app.id, &app.publisher]))
+            }
+        };
+        if !own {
             warnings.push(format!(
-                "uninstall.data \"{folder}\" has no folder that looks like the app's name, id or publisher. The uninstaller \
+                "{setting} \"{folder}\" has no folder that looks like the app's name, id or publisher. The uninstaller \
                  deletes it when the user ticks \"delete my data\", so make sure it holds only your app's data"
             ));
         }
@@ -410,6 +526,8 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
 
     let icon = match &file.app.icon {
         None => None,
+        // The Windows icon isn't the macOS app's; `macos.icon` is the .icns.
+        Some(_) if platform.is_macos() => None,
         Some(icon) => {
             let path = existing_file(root, icon, "app.icon")?;
             if !has_extension(&path, "ico") {
@@ -458,6 +576,11 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
 
     let profile_name = profile.as_ref().map(|(name, _, _)| name.as_str());
     let (extension, default_output, default_online) = match (profile_name, kind) {
+        (None, _) if platform.is_macos() => (
+            mac_build.as_ref().map_or("dmg", |mac| mac.container.extension()),
+            macos::DEFAULT_OUTPUT.to_string(),
+            DEFAULT_ONLINE_OUTPUT.to_string(),
+        ),
         (None, _) => ("exe", DEFAULT_OUTPUT.to_string(), DEFAULT_ONLINE_OUTPUT.to_string()),
         (Some(name), ProfileKind::Setup) => {
             ("exe", format!("dist/{{name}}-{name}-Setup-{{version}}.exe"), format!("dist/{{name}}-{name}-Web-Setup.exe"))
@@ -484,7 +607,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
 
     let online_template = file.installer.online_output.as_deref().unwrap_or(&default_online);
     let mut online_output = root.join(fill_template(online_template, &app));
-    if !has_extension(&online_output, "exe") {
+    if !platform.is_macos() && !has_extension(&online_output, "exe") {
         bail!("installer.online_output must end in .exe; it's \"{online_template}\"");
     }
     if update_github.is_some() {
@@ -492,7 +615,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
             online_output.set_file_name(github_asset_name(&name));
         }
     }
-    if online_output == output {
+    if online_output == output && !platform.is_macos() {
         bail!("installer.output and installer.online_output are the same file; give the online installer its own name");
     }
     // The ARM64 setup file is named like the x64 one, with the architecture before the extension:
@@ -512,10 +635,17 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         );
     }
 
-    let source_dir = root.join(&file.files.source);
+    let Some(files_cfg) = files_cfg else {
+        bail!("bach.toml has no [files]");
+    };
+    let source_dir = root.join(&files_cfg.source);
     if !source_dir.is_dir() {
-        let setting = arch.as_ref().map_or_else(|| "files.source".to_string(), |name| format!("arch.{name}.source"));
-        bail!("{setting} is \"{}\", but {} isn't a folder", file.files.source, source_dir.display());
+        let setting = match (platform, &arch) {
+            (Platform::Macos, _) => "macos.source".to_string(),
+            (_, Some(name)) => format!("arch.{name}.source"),
+            _ => "files.source".to_string(),
+        };
+        bail!("{setting} is \"{}\", but {} isn't a folder", files_cfg.source, source_dir.display());
     }
     // Every declared architecture is checked, so `bach check` finds a wrong folder before a build does.
     for (name, section) in &file.arch {
@@ -527,23 +657,49 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
             bail!("arch.{name}.runtime is empty; name the ARM64 bach-setup.exe, or leave it out");
         }
     }
-    for pattern in &file.files.exclude {
+    for pattern in &files_cfg.exclude {
         if pattern.trim().is_empty() {
             bail!("files.exclude has an empty pattern");
         }
     }
-    for pattern in &file.files.allow_secrets {
+    for pattern in &files_cfg.allow_secrets {
         if pattern.trim().is_empty() {
             bail!("files.allow_secrets has an empty pattern");
         }
     }
-    let sources = gather::gather(&source_dir, &file.files.exclude, &output)?;
-    secrets::check(&sources, &file.files.allow_secrets, &mut warnings)?;
-    long_paths(&sources, &install, &mut warnings);
-    if file.signing.is_some() {
-        warnings.extend(unsigned::warning(&sources));
+    let gathered = gather::gather_for(&source_dir, &files_cfg.exclude, &output, platform)?;
+    let mut modes = gathered.modes;
+    for pattern in &mac_modes {
+        if pattern.trim().is_empty() {
+            bail!("macos.executables has an empty pattern");
+        }
+        let before = modes.len();
+        for source in gathered.sources.iter().filter(|source| paths::matches(pattern, &source.packaged)) {
+            modes.entry(source.packaged.clone()).or_insert(0o755);
+        }
+        if modes.len() == before && !gathered.sources.iter().any(|source| paths::matches(pattern, &source.packaged)) {
+            bail!("macos.executables has the pattern \"{pattern}\", which matches no file");
+        }
     }
-    let requirements = extras::requirements(&file.requirements)?;
+    let links = gathered.links;
+    let sources = gathered.sources;
+    secrets::check(&sources, &files_cfg.allow_secrets, &mut warnings)?;
+    if platform.is_windows() {
+        long_paths(&sources, &install, &mut warnings);
+        if file.signing.is_some() {
+            warnings.extend(unsigned::warning(&sources));
+        }
+    }
+    let mut requirements = extras::requirements(&file.requirements)?;
+    if let Some(version) = mac_build.as_ref().and_then(|mac| mac.minimum_version.clone()) {
+        // The Setup app refuses to open on an older macOS (LSMinimumSystemVersion); this makes
+        // the window say so in words, with a way forward, and a silent run exit with a reason.
+        requirements.push(manifest::Requirement {
+            check: manifest::Check::Macos { version: version.clone() },
+            name: format!("macOS {version} or newer"),
+            url: "https://www.apple.com/macos/".to_string(),
+        });
+    }
     for requirement in &requirements {
         if let manifest::extras::Check::Windows { build } = requirement.check {
             if build < manifest::extras::MIN_WINDOWS_BUILD {
@@ -557,14 +713,43 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     if sources.is_empty() {
         bail!("{} has no files to install", source_dir.display());
     }
-    if let Some(clash) = sources.iter().find(|source| source.packaged.eq_ignore_ascii_case(manifest::UNINSTALLER)) {
+    let uninstaller_name = match platform {
+        Platform::Windows => manifest::UNINSTALLER.to_string(),
+        Platform::Macos => format!("Uninstall {}.app", paths::file_name_part(&app.name, &app.id)),
+    };
+    if let Some(clash) = sources.iter().find(|source| {
+        source.packaged.eq_ignore_ascii_case(&uninstaller_name)
+            || source.packaged.to_lowercase().starts_with(&format!("{}/", uninstaller_name.to_lowercase()))
+    }) {
         bail!("{} would replace the uninstaller Bach adds; rename it or add it to files.exclude", clash.path.display());
     }
-    if !sources.iter().any(|source| source.packaged.eq_ignore_ascii_case(&app.executable)) {
-        bail!("app.executable is \"{}\", but there's no such file in {} (or it's excluded)", app.executable, source_dir.display());
+    let setting = if platform.is_macos() { "macos.executable" } else { "app.executable" };
+    let present = |path: &str| sources.iter().any(|source| source.packaged.eq_ignore_ascii_case(path));
+    let in_bundle = |prefix: &str| {
+        let prefix = format!("{}/", prefix.to_lowercase());
+        sources.iter().any(|source| source.packaged.to_lowercase().starts_with(&prefix))
+            || links.iter().any(|(path, _)| path.to_lowercase().starts_with(&prefix))
+    };
+    let executable_ok = match platform {
+        Platform::Windows => present(&app.executable),
+        // A bundle (`Hello.app`) is a folder of files; a plain program is a file.
+        Platform::Macos => {
+            if app.executable.to_lowercase().ends_with(".app") {
+                in_bundle(&app.executable)
+            } else {
+                present(&app.executable)
+            }
+        }
+    };
+    if !executable_ok {
+        bail!("{setting} is \"{}\", but there's no such file or app in {} (or it's excluded)", app.executable, source_dir.display());
     }
 
-    let mut files: Vec<FileEntry> = sources.iter().map(|source| FileEntry::new(&source.packaged, source.size)).collect();
+    let mut files: Vec<FileEntry> = sources
+        .iter()
+        .map(|source| FileEntry { mode: modes.get(&source.packaged).copied(), ..FileEntry::new(&source.packaged, source.size) })
+        .collect();
+    files.extend(links.iter().map(|(path, target)| FileEntry { link: Some(target.clone()), ..FileEntry::new(path, 0) }));
     let components = options::components(
         &file.components,
         &mut files,
@@ -572,7 +757,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         &languages,
         &options::Downloads {
             update_link: update_download_url.as_deref(),
-            flavour: &profile_name.into_iter().chain(arch.as_deref()).collect::<Vec<&str>>(),
+            flavour: &profile_name.into_iter().chain(arch.as_deref()).chain(platform.is_macos().then_some("macos")).collect::<Vec<&str>>(),
             encrypted: access.as_ref().is_some_and(|access| access.encrypt),
         },
     )?;
@@ -596,6 +781,17 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
             );
         }
     }
+    let agent_list: Vec<manifest::MacAgent> = mac_agents
+        .iter()
+        .map(|agent| manifest::MacAgent {
+            name: agent.name.trim().to_string(),
+            file: agent.file.clone().map(|file| file.trim().to_string()).unwrap_or_else(|| app.executable.clone()),
+            arguments: optional(&agent.arguments),
+            run_at_load: agent.run_at_load.unwrap_or(true),
+            keep_alive: agent.keep_alive.unwrap_or(false),
+            interval: agent.interval,
+        })
+        .collect();
     let manifest = Manifest {
         format: crate::FORMAT_VERSION,
         builder: crate::VERSION.into(),
@@ -619,6 +815,11 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         protocols: options::protocols(&file.protocols)?,
         file_types: options::file_types(&file.file_types)?,
         locale,
+        platform,
+        agents: agent_list,
+        mac: mac_build
+            .as_ref()
+            .map(|mac| manifest::MacInfo { bundle_id: mac.bundle_id.clone(), minimum_version: mac.minimum_version.clone() }),
         chosen: None,
         requirements,
         shortcuts: Vec::new(),
@@ -640,7 +841,7 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
     }
     let mut manifest = manifest;
     manifest.shortcuts = extras::shortcuts(&file.shortcuts, &manifest.files)?;
-    manifest.run = extras::run_steps(&file.run, &manifest.files, &manifest.components)?;
+    manifest.run = extras::run_steps(&file.run, &manifest.files, &manifest.components, platform)?;
     warnings.extend(file_list_warning(&manifest.files));
     if manifest.install.scope == manifest::Scope::User {
         for step in manifest.run.iter().filter(|step| step.elevated) {
@@ -683,6 +884,9 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
             })
             .collect(),
         kind,
+        platform,
+        macos: mac_build,
+        declared,
     })
 }
 
@@ -772,7 +976,7 @@ pub fn github_asset_name(name: &str) -> String {
     name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '-' }).collect()
 }
 
-fn check_app(section: &AppSection) -> Result<manifest::App> {
+fn check_app(section: &AppSection, executable: &str, platform: Platform) -> Result<manifest::App> {
     let name = required(&section.name, "app.name")?;
     let version = required(&section.version, "app.version")?;
     let publisher = required(&section.publisher, "app.publisher")?;
@@ -786,8 +990,9 @@ fn check_app(section: &AppSection) -> Result<manifest::App> {
         let shown: String = if id.chars().count() > 40 { id.chars().take(37).chain("...".chars()).collect() } else { id.clone() };
         bail!("{hint} is \"{shown}\", which {problem}. It names a folder and a registry key");
     }
-    let executable = paths::normalize(section.executable.trim()).context("app.executable isn't a usable path")?;
-    if !executable.to_ascii_lowercase().ends_with(".exe") {
+    let setting = if platform.is_macos() { "macos.executable" } else { "app.executable" };
+    let executable = paths::normalize(executable.trim()).with_context(|| format!("{setting} isn't a usable path"))?;
+    if platform.is_windows() && !executable.to_ascii_lowercase().ends_with(".exe") {
         bail!("app.executable is \"{executable}\"; it must be an .exe");
     }
     if let Some(website) = &section.website {

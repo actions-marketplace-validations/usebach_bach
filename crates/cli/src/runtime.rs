@@ -27,11 +27,38 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
+use bach_pack::manifest::Platform;
 use sha2::{Digest, Sha256};
 
 /// The runtime's file name, next to `bach.exe` in a release and in
 /// `target\<profile>` after `cargo build`.
 pub const FILE_NAME: &str = "bach-setup.exe";
+
+/// The macOS runtime's file name in a release: one universal Mach-O program
+/// (arm64 and x86_64), built by the release workflow. After `cargo build` on a
+/// Mac it is `bach-setup`, which is found too.
+pub const MAC_FILE_NAME: &str = "bach-setup-macos";
+
+/// What `cargo build` names the runtime on a Mac.
+const MAC_BUILD_NAME: &str = "bach-setup";
+
+/// The runtime's file name for a platform.
+pub fn file_name(platform: Platform) -> &'static str {
+    match platform {
+        Platform::Windows => FILE_NAME,
+        Platform::Macos => MAC_FILE_NAME,
+    }
+}
+
+/// The SHA-256 of this version's macOS runtime, when the release build knew it.
+const PINNED_MAC_SHA256: Option<&str> = option_env!("BACH_RUNTIME_MACOS_SHA256");
+
+fn pinned(platform: Platform) -> Option<&'static str> {
+    match platform {
+        Platform::Windows => PINNED_SHA256,
+        Platform::Macos => PINNED_MAC_SHA256,
+    }
+}
 
 /// Where releases live. A fork can point `BACH_RELEASES` elsewhere.
 const RELEASES: &str = "https://github.com/usebach/bach/releases/download";
@@ -49,14 +76,19 @@ pub enum Found {
 
 /// The runtime to use, downloading it when there's no other way.
 pub fn find(given: Option<&Path>) -> Result<PathBuf> {
-    match locate(given)? {
+    find_for(Platform::Windows, given)
+}
+
+/// [`find`] for the setup runtime of a platform.
+pub fn find_for(platform: Platform, given: Option<&Path>) -> Result<PathBuf> {
+    match locate_for(platform, given)? {
         Found::Here(path) => Ok(path),
-        Found::Downloadable(url) => download(&url),
+        Found::Downloadable(url) => download(platform, &url),
     }
 }
 
-/// Like [`find`], without downloading.
-pub fn locate(given: Option<&Path>) -> Result<Found> {
+/// Like [`find_for`], without downloading.
+pub fn locate_for(platform: Platform, given: Option<&Path>) -> Result<Found> {
     if let Some(path) = given {
         if !path.is_file() {
             bail!("the setup runtime {} doesn't exist", path.display());
@@ -64,31 +96,37 @@ pub fn locate(given: Option<&Path>) -> Result<Found> {
         return Ok(Found::Here(path.to_path_buf()));
     }
     let here = std::env::current_exe().context("couldn't find where bach is")?;
-    let beside = here.parent().map(|dir| dir.join(FILE_NAME));
-    for candidate in beside.into_iter().chain(checkout_builds(&here)) {
+    let beside = here.parent().map(|dir| dir.join(file_name(platform)));
+    for candidate in beside.into_iter().chain(checkout_builds(&here, platform)) {
         if candidate.is_file() {
             return Ok(Found::Here(candidate));
         }
     }
     // A cached copy counts only while it still matches what was verified.
-    if let Ok(cache) = cached() {
-        if cache.is_file() && cache_is_trusted(&cache, PINNED_SHA256) {
+    if let Ok(cache) = cached(platform) {
+        if cache.is_file() && cache_is_trusted(&cache, pinned(platform)) {
             return Ok(Found::Here(cache));
         }
     }
-    Ok(Found::Downloadable(url()?))
+    Ok(Found::Downloadable(url(platform)?))
 }
 
 /// In a checkout, `bach` may run from `target\debug` while the runtime was
-/// built in `target\release`, or the other way round.
-fn checkout_builds(bach: &Path) -> Vec<PathBuf> {
+/// built in `target\release`, or the other way round. On a Mac `cargo build` names
+/// the macOS runtime `bach-setup`; a program of another system with that name is
+/// never taken for it, because [`read_for`] checks what the file is.
+fn checkout_builds(bach: &Path, platform: Platform) -> Vec<PathBuf> {
     let Some(target) = bach.parent().and_then(Path::parent) else {
         return Vec::new();
     };
     if target.file_name().is_none_or(|name| name != "target") {
         return Vec::new();
     }
-    ["release", "debug"].iter().map(|profile| target.join(profile).join(FILE_NAME)).collect()
+    let names: &[&str] = match platform {
+        Platform::Windows => &[FILE_NAME],
+        Platform::Macos => &[MAC_BUILD_NAME, MAC_FILE_NAME],
+    };
+    ["release", "debug"].iter().flat_map(|profile| names.iter().map(move |name| target.join(profile).join(name))).collect()
 }
 
 /// The download cache: `%LOCALAPPDATA%\bach\runtime\<version>` on Windows,
@@ -97,7 +135,7 @@ fn checkout_builds(bach: &Path) -> Vec<PathBuf> {
 /// There is no fallback to the shared temp folder: on a build server another
 /// user could have planted a file at that predictable path. Without a home
 /// to cache in, pass `--runtime` or set `BACH_RUNTIME`.
-fn cached() -> Result<PathBuf> {
+fn cached(platform: Platform) -> Result<PathBuf> {
     let Some(root) = cache_root() else {
         bail!(
             "there's no folder of yours to cache the setup runtime in ({} isn't set); \
@@ -105,7 +143,7 @@ fn cached() -> Result<PathBuf> {
             if cfg!(windows) { "LOCALAPPDATA" } else { "XDG_CACHE_HOME or HOME" }
         );
     };
-    Ok(root.join("runtime").join(env!("CARGO_PKG_VERSION")).join(FILE_NAME))
+    Ok(root.join("runtime").join(env!("CARGO_PKG_VERSION")).join(file_name(platform)))
 }
 
 /// Bach's own folder in the user's cache (`%LOCALAPPDATA%\bach`,
@@ -148,18 +186,23 @@ pub fn sha256_of(bytes: &[u8]) -> String {
     bach_pack::protect::hex(&Sha256::digest(bytes))
 }
 
-fn url() -> Result<String> {
-    releases_url(std::env::var("BACH_RELEASES").ok().as_deref())
+fn url(platform: Platform) -> Result<String> {
+    releases_url_for(platform, std::env::var("BACH_RELEASES").ok().as_deref())
 }
 
 /// The runtime's address under `releases` (or the default). https only: the
 /// runtime ends up in every installer.
+#[cfg(test)]
 fn releases_url(releases: Option<&str>) -> Result<String> {
+    releases_url_for(Platform::Windows, releases)
+}
+
+fn releases_url_for(platform: Platform, releases: Option<&str>) -> Result<String> {
     let releases = releases.unwrap_or(RELEASES).trim();
     if !releases.to_ascii_lowercase().starts_with("https://") {
         bail!("BACH_RELEASES is \"{releases}\", but it must start with https://, because the runtime is run inside every installer");
     }
-    Ok(format!("{}/v{}/{FILE_NAME}", releases.trim_end_matches('/'), env!("CARGO_PKG_VERSION")))
+    Ok(format!("{}/v{}/{}", releases.trim_end_matches('/'), env!("CARGO_PKG_VERSION"), file_name(platform)))
 }
 
 /// What a download must hash to: the hash built into this `bach`, or else the
@@ -172,34 +215,36 @@ fn expected_hash(pinned: Option<&str>, published: &str) -> String {
 }
 
 /// Downloads the runtime, checks it, and keeps it in the cache for next time.
-fn download(url: &str) -> Result<PathBuf> {
+fn download(platform: Platform, url: &str) -> Result<PathBuf> {
+    let file_name = file_name(platform);
+    let pinned = pinned(platform);
     if std::env::var_os("BACH_NO_DOWNLOAD").is_some() {
-        bail!("{FILE_NAME} isn't next to bach and BACH_NO_DOWNLOAD is set; pass --runtime or set BACH_RUNTIME");
+        bail!("{file_name} isn't next to bach and BACH_NO_DOWNLOAD is set; pass --runtime or set BACH_RUNTIME");
     }
-    let target = cached()?;
+    let target = cached(platform)?;
     let dir = target.parent().context("the cache has no folder")?;
     private_dir(dir).with_context(|| format!("couldn't prepare the cache folder {}", dir.display()))?;
     eprintln!("  Downloading the setup runtime for Bach {} (once)…", env!("CARGO_PKG_VERSION"));
-    let partial = dir.join(format!("{FILE_NAME}.partial"));
-    let checksum = dir.join(format!("{FILE_NAME}.download.sha256"));
+    let partial = dir.join(format!("{file_name}.partial"));
+    let checksum = dir.join(format!("{file_name}.download.sha256"));
     let result = (|| -> Result<()> {
         fetch(url, &partial)?;
-        let published = if PINNED_SHA256.is_some() {
+        let published = if pinned.is_some() {
             String::new()
         } else {
             fetch(&format!("{url}.sha256"), &checksum)?;
             std::fs::read_to_string(&checksum)?
         };
-        let expected = expected_hash(PINNED_SHA256, &published);
+        let expected = expected_hash(pinned, &published);
         let bytes = std::fs::read(&partial)?;
         let actual = sha256_of(&bytes);
         if expected.len() != 64 || expected != actual {
             bail!(
                 "the downloaded runtime doesn't match {}, so it wasn't used",
-                if PINNED_SHA256.is_some() { "the SHA-256 built into this bach" } else { "its published SHA-256" }
+                if pinned.is_some() { "the SHA-256 built into this bach" } else { "its published SHA-256" }
             );
         }
-        check_bare(&bytes, &partial)?;
+        check_bare(&bytes, &partial, platform)?;
         std::fs::write(sidecar(&target), format!("{actual}\n"))?;
         std::fs::rename(&partial, &target)?;
         Ok(())
@@ -208,8 +253,8 @@ fn download(url: &str) -> Result<PathBuf> {
     let _ = std::fs::remove_file(&checksum);
     result.with_context(|| {
         format!(
-            "couldn't get {FILE_NAME} from {url}. Download the Bach {} zip from \
-             https://github.com/usebach/bach/releases and keep bach-setup.exe next to bach, \
+            "couldn't get {file_name} from {url}. Download the Bach {} release from \
+             https://github.com/usebach/bach/releases and keep {file_name} next to bach, \
              or pass --runtime",
             env!("CARGO_PKG_VERSION")
         )
@@ -313,9 +358,9 @@ pub fn fetch_within(url: &str, to: &Path, seconds: Option<u32>) -> Result<()> {
     Ok(())
 }
 
-/// What `bach doctor` says about how this build trusts the runtime.
-pub fn trust_note() -> String {
-    match PINNED_SHA256 {
+/// [`trust_note`] for the runtime of a platform.
+pub fn trust_note_for(platform: Platform) -> String {
+    match pinned(platform) {
         Some(pin) => format!("this bach expects SHA-256 {pin}"),
         None => "this bach has no SHA-256 built in (a build from source); downloads are checked against the .sha256 next to them".into(),
     }
@@ -329,18 +374,31 @@ pub fn hash_of(path: &Path) -> Result<String> {
 /// The runtime's bytes, checked to be a bare runtime and not a setup file
 /// that already carries a payload.
 pub fn read(path: &Path) -> Result<Vec<u8>> {
+    read_for(Platform::Windows, path)
+}
+
+/// [`read`] for the runtime of a platform.
+pub fn read_for(platform: Platform, path: &Path) -> Result<Vec<u8>> {
     let bytes = std::fs::read(path).with_context(|| format!("couldn't read {}", path.display()))?;
-    check_bare(&bytes, path)?;
+    check_bare(&bytes, path, platform)?;
     Ok(bytes)
 }
 
-fn check_bare(bytes: &[u8], path: &Path) -> Result<()> {
-    if !bytes.starts_with(b"MZ") {
-        bail!("{} isn't a Windows executable", path.display());
+/// Whether `bytes` start like a Mach-O program: 64-bit little endian (what both Macs
+/// build), or a universal file holding several of them.
+pub fn is_mach_o(bytes: &[u8]) -> bool {
+    matches!(bytes.get(..4), Some([0xCF, 0xFA, 0xED, 0xFE]) | Some([0xCA, 0xFE, 0xBA, 0xBE]) | Some([0xCA, 0xFE, 0xBA, 0xBF]))
+}
+
+fn check_bare(bytes: &[u8], path: &Path, platform: Platform) -> Result<()> {
+    match platform {
+        Platform::Windows if !bytes.starts_with(b"MZ") => bail!("{} isn't a Windows executable", path.display()),
+        Platform::Macos if !is_mach_o(bytes) => bail!("{} isn't a macOS program (a Mach-O file)", path.display()),
+        _ => {}
     }
     let mut file = std::fs::File::open(path).with_context(|| format!("couldn't open {}", path.display()))?;
     if bach_pack::container::locate(&mut file)?.is_some() {
-        bail!("{} is already an installer; point --runtime at a plain bach-setup.exe", path.display());
+        bail!("{} is already an installer; point --runtime at a plain {}", path.display(), file_name(platform));
     }
     Ok(())
 }
@@ -352,17 +410,31 @@ mod tests {
     #[test]
     fn checkouts_look_in_both_profiles() {
         let bach = Path::new("repo").join("target").join("debug").join("bach.exe");
-        let found = checkout_builds(&bach);
+        let found = checkout_builds(&bach, Platform::Windows);
         assert_eq!(found[0], Path::new("repo").join("target").join("release").join(FILE_NAME));
-        assert!(checkout_builds(Path::new("tools/bach.exe")).is_empty());
+        assert!(checkout_builds(Path::new("tools/bach.exe"), Platform::Windows).is_empty());
+        let mac = checkout_builds(&bach, Platform::Macos);
+        assert_eq!(mac[0], Path::new("repo").join("target").join("release").join("bach-setup"));
     }
 
     #[test]
     fn downloads_name_this_version() {
         let url = releases_url(None).unwrap();
         assert!(url.ends_with(&format!("/v{}/bach-setup.exe", env!("CARGO_PKG_VERSION"))));
+        let mac = releases_url_for(Platform::Macos, None).unwrap();
+        assert!(mac.ends_with(&format!("/v{}/bach-setup-macos", env!("CARGO_PKG_VERSION"))));
         let mirror = releases_url(Some("https://mirror.example/bach/")).unwrap();
         assert!(mirror.starts_with("https://mirror.example/bach/v"));
+    }
+
+    #[test]
+    fn mach_o_files_are_told_from_windows_programs() {
+        assert!(is_mach_o(&[0xCF, 0xFA, 0xED, 0xFE, 0, 0]));
+        assert!(is_mach_o(&[0xCA, 0xFE, 0xBA, 0xBE, 0, 0]));
+        assert!(!is_mach_o(b"MZ\x90\0"));
+        assert!(!is_mach_o(b"#!/bin/sh"));
+        assert!(check_bare(b"MZ\x90", Path::new("x"), Platform::Macos).is_err());
+        assert!(check_bare(&[0xCF, 0xFA, 0xED, 0xFE], Path::new("x"), Platform::Windows).is_err());
     }
 
     #[test]

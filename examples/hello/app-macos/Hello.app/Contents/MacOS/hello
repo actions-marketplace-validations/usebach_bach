@@ -1,0 +1,3 @@
+#!/bin/sh
+# A tiny macOS app for the example installer: it says hello.
+echo "Hello from Bach"

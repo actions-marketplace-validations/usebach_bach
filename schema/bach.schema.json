@@ -6,8 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "app",
-    "files"
+    "app"
   ],
   "properties": {
     "config_version": {
@@ -40,7 +39,7 @@
         },
         "executable": {
           "type": "string",
-          "description": "The program to start, relative to [files] source.",
+          "description": "The Windows program to start, relative to [files] source. Needed for the Windows setup file; the macOS build names its own in [macos].",
           "pattern": "\\.[eE][xX][eE]$"
         },
         "id": {
@@ -86,7 +85,8 @@
           },
           "description": "Patterns for files that look like secrets (.env, keys, .git, bach.toml) but are meant to ship."
         }
-      }
+      },
+      "description": "The Windows files. Leave it out when the app only has a [macos] build."
     },
     "installer": {
       "type": "object",
@@ -6021,6 +6021,310 @@
               "minProperties": 1
             }
           ]
+        },
+        "mac_start_menu": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "mac_start_menu_description": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "mac_start_with_windows": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "mac_start_with_windows_description": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "mac_installed_subtitle": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "mac_error_register": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "mac_error_unregister": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
+        },
+        "mac_error_system": {
+          "description": "Text for every language, or a table of texts by language code.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "en",
+                  "de",
+                  "nl",
+                  "fr",
+                  "es",
+                  "it",
+                  "pt",
+                  "pl",
+                  "ru",
+                  "tr",
+                  "ja",
+                  "ko",
+                  "zh",
+                  "zh-tw",
+                  "sv",
+                  "cs",
+                  "vi",
+                  "id",
+                  "hi"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1
+            }
+          ]
         }
       }
     },
@@ -6274,6 +6578,189 @@
           }
         }
       }
+    },
+    "macos": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source"
+      ],
+      "description": "Optional. The macOS build of the app: bach build --platform macos packs it into a Setup app in a .dmg next to the Windows setup file. The name, version, texts, look, choices and updates are shared with the rest of bach.toml.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "The folder with the macOS files, relative to bach.toml: usually the app bundle (Hello.app) and anything beside it."
+        },
+        "executable": {
+          "type": "string",
+          "description": "The program to start: an app bundle (Hello.app) or a program inside source. app.executable when left out."
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "files.exclude for this folder. The main files.exclude when left out."
+        },
+        "executables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Patterns of files that must be programs, like Hello.app/Contents/MacOS/*. Needed when the folder comes from a computer that doesn't keep the executable bit (a Windows checkout, a zip)."
+        },
+        "output": {
+          "type": "string",
+          "description": "Where the setup file goes; must end in .dmg or .zip. {name}, {version} and {id} are filled in. dist/{name}-Setup-{version}.dmg when left out."
+        },
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Folders like ~/Library/Application Support/Hello that the uninstaller deletes when the user ticks 'Also delete my data'."
+        },
+        "icon": {
+          "type": "string",
+          "description": "A .icns file for the setup app and the uninstaller."
+        },
+        "bundle_id": {
+          "type": "string",
+          "description": "The setup app's bundle identifier, like com.example.hello.setup. Made from the app id when left out."
+        },
+        "minimum_version": {
+          "type": "string",
+          "description": "The oldest macOS the app runs on, like \"12.0\". Setup refuses to install on an older one."
+        },
+        "run": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "file"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "What setup says it is doing: \"Setting up {name}\". The file name by default."
+              },
+              "file": {
+                "type": "string",
+                "description": "A packaged .exe, relative to the install folder."
+              },
+              "arguments": {
+                "type": "string",
+                "description": "The command line, passed as written."
+              },
+              "when": {
+                "enum": [
+                  "install",
+                  "first_install",
+                  "uninstall"
+                ],
+                "description": "install (default): after the files are in place, on a first install and every update. first_install: not on updates. uninstall: before the files are removed."
+              },
+              "success_codes": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "Exit codes that mean it worked. 0 always counts."
+              },
+              "ignore_errors": {
+                "type": "boolean",
+                "description": "Go on when it fails (not with when = \"uninstall\", which never stops removal)."
+              },
+              "component": {
+                "type": "string",
+                "description": "Only run when this optional component is installed."
+              },
+              "elevated": {
+                "type": "boolean",
+                "description": "Run this step with administrator rights: Windows asks once when it starts."
+              },
+              "timeout_minutes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 120,
+                "default": 15,
+                "description": "Minutes before setup ends the step and everything it started. 15 by default, 120 at most."
+              }
+            }
+          },
+          "description": "Programs setup runs for the macOS build, like [[run]] does for Windows: files with the executable permission."
+        },
+        "signing": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How bach build --sign signs the macOS setup app.",
+          "properties": {
+            "identity": {
+              "type": "string",
+              "description": "A code signing identity, like 'Developer ID Application: Example (TEAMID)'. '-' signs ad hoc."
+            },
+            "notarize": {
+              "type": "string",
+              "description": "A notarytool keychain profile. When set, the build submits the .dmg to Apple, waits and staples the ticket."
+            },
+            "installer_identity": {
+              "type": "string",
+              "description": "A 'Developer ID Installer' identity that signs the .pkg bach build --pkg writes."
+            }
+          }
+        },
+        "agents": {
+          "type": "array",
+          "description": "Background programs of the app, run by launchd for the user who installed it: the Mac's counterpart of [[services]]. Each becomes a launch agent app.bach.agent.<app id>.<name>, loaded with the install, replaced by an update and removed with the app.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Names the agent: letters, digits and dashes."
+              },
+              "file": {
+                "type": "string",
+                "description": "The program, a packaged file with the executable permission. app.executable when left out (and that is a program, not a bundle)."
+              },
+              "arguments": {
+                "type": "string",
+                "description": "Its arguments, written like a command line; nothing is expanded and no shell runs."
+              },
+              "run_at_load": {
+                "type": "boolean",
+                "description": "Start it at sign-in and when the install finishes. true when left out."
+              },
+              "keep_alive": {
+                "type": "boolean",
+                "description": "Start it again whenever it ends. false when left out."
+              },
+              "interval": {
+                "type": "integer",
+                "minimum": 10,
+                "description": "Run it again every this many seconds."
+              }
+            }
+          }
+        }
+      }
     }
-  }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "files"
+      ]
+    },
+    {
+      "required": [
+        "macos"
+      ]
+    }
+  ]
 }

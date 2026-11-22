@@ -52,9 +52,9 @@ impl HasDisplayHandle for DialogParent {
         {
             Ok(DisplayHandle::windows())
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "macos")]
         {
-            Err(HandleError::NotSupported)
+            Ok(DisplayHandle::appkit())
         }
     }
 }

@@ -25,6 +25,7 @@ pub mod container;
 pub mod delta;
 pub mod feedsig;
 pub mod i18n;
+pub mod macapp;
 pub mod manifest;
 pub mod paths;
 pub mod pe;

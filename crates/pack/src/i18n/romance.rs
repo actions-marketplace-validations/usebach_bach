@@ -3,6 +3,14 @@
 use super::Strings;
 
 pub const FR: Strings = Strings {
+    mac_start_menu: "Applications",
+    mac_start_menu_description: "Ajouter {name} à votre dossier Applications.",
+    mac_start_with_windows: "Ouvrir à la connexion",
+    mac_start_with_windows_description: "Ouvrir {name} automatiquement à l’ouverture de session.",
+    mac_installed_subtitle: "Retrouvez-le dans votre dossier Applications, ou ouvrez-le maintenant.",
+    mac_error_register: "Impossible d’enregistrer l’emplacement d’installation de {name}.",
+    mac_error_unregister: "Impossible de supprimer l’enregistrement d’installation de {name}.",
+    mac_error_system: "Impossible de modifier un réglage système pour {name}.",
     window_install: "Installation de {name}",
     window_remove: "Désinstaller {name}",
     install_title: "Installer {name}",
@@ -127,6 +135,14 @@ pub const FR: Strings = Strings {
 };
 
 pub const ES: Strings = Strings {
+    mac_start_menu: "Aplicaciones",
+    mac_start_menu_description: "Añade {name} a tu carpeta Aplicaciones.",
+    mac_start_with_windows: "Abrir al iniciar sesión",
+    mac_start_with_windows_description: "Abrir {name} automáticamente al iniciar sesión.",
+    mac_installed_subtitle: "Encuéntralo en tu carpeta Aplicaciones, o ábrelo ahora.",
+    mac_error_register: "No se pudo guardar dónde está instalado {name}.",
+    mac_error_unregister: "No se pudo eliminar el registro de instalación de {name}.",
+    mac_error_system: "No se pudo cambiar un ajuste del sistema para {name}.",
     window_install: "Instalación de {name}",
     window_remove: "Desinstalar {name}",
     install_title: "Instalar {name}",
@@ -251,6 +267,14 @@ pub const ES: Strings = Strings {
 };
 
 pub const IT: Strings = Strings {
+    mac_start_menu: "Applicazioni",
+    mac_start_menu_description: "Aggiungi {name} alla cartella Applicazioni.",
+    mac_start_with_windows: "Apri al login",
+    mac_start_with_windows_description: "Apri {name} automaticamente quando accedi.",
+    mac_installed_subtitle: "Lo trovi nella cartella Applicazioni, oppure aprilo ora.",
+    mac_error_register: "Impossibile salvare dove è installato {name}.",
+    mac_error_unregister: "Impossibile rimuovere la registrazione di installazione di {name}.",
+    mac_error_system: "Impossibile modificare un’impostazione di sistema per {name}.",
     window_install: "Installazione di {name}",
     window_remove: "Disinstalla {name}",
     install_title: "Installa {name}",
@@ -375,6 +399,14 @@ pub const IT: Strings = Strings {
 };
 
 pub const PT: Strings = Strings {
+    mac_start_menu: "Aplicações",
+    mac_start_menu_description: "Adicione {name} à sua pasta Aplicações.",
+    mac_start_with_windows: "Abrir ao iniciar sessão",
+    mac_start_with_windows_description: "Abrir {name} automaticamente ao iniciar sessão.",
+    mac_installed_subtitle: "Encontre-o na pasta Aplicações ou abra-o agora.",
+    mac_error_register: "Não foi possível guardar onde {name} está instalado.",
+    mac_error_unregister: "Não foi possível remover o registo de instalação de {name}.",
+    mac_error_system: "Não foi possível alterar uma definição do sistema para {name}.",
     window_install: "Instalação do {name}",
     window_remove: "Desinstalar {name}",
     install_title: "Instalar {name}",

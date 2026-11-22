@@ -8,6 +8,7 @@ use std::process::Child;
 use anyhow::{bail, Context, Result};
 use bach_pack::archive::Compression;
 use bach_pack::config::{self, Project};
+use bach_pack::manifest::Platform;
 
 use crate::builder::{seal, write_setup, Sealing};
 use crate::{output, runtime};
@@ -25,10 +26,32 @@ pub struct PreviewOptions<'a> {
     pub profile: Option<&'a str>,
 }
 
+/// The window a preview can show: the host's own. A Mac shows the macOS setup
+/// window and needs `[macos]`; Windows shows the Windows one.
+pub(crate) fn host_platform() -> Platform {
+    if cfg!(target_os = "macos") {
+        Platform::Macos
+    } else {
+        Platform::Windows
+    }
+}
+
+/// The setup runtime of the host's platform.
+pub(crate) fn find_runtime(given: Option<&Path>) -> Result<PathBuf> {
+    runtime::find_for(host_platform(), given)
+}
+
 /// The config as the preview wants it: quick to compress, and sealed with a
 /// made-up key, because a preview opens the key page too and any key passes there.
 pub(crate) fn load(config_path: &Path, profile: Option<&str>) -> Result<(Project, Option<Sealing>)> {
-    let mut project = crate::builder::load(config_path, None, profile)?;
+    let platform = host_platform().is_macos().then(|| host_platform().name());
+    let mut project = crate::builder::load_platform(config_path, None, profile, None, platform).map_err(|err| {
+        if platform.is_some() && !config::declared(&std::fs::read_to_string(config_path).unwrap_or_default()).is_ok_and(|d| d.macos) {
+            anyhow::anyhow!("bach preview on a Mac shows the macOS setup window, so bach.toml needs a [macos] section")
+        } else {
+            err
+        }
+    })?;
     if project.kind == config::ProfileKind::Zip {
         bail!("the profile \"{}\" makes a ZIP, which has no window to preview", project.profile.as_deref().unwrap_or_default());
     }
@@ -69,8 +92,8 @@ pub(crate) fn check(options: &PreviewOptions, command: &str) -> Result<()> {
             bail!("--lang is \"{lang}\"; use one of {}", known.join(", "));
         }
     }
-    if !cfg!(windows) {
-        bail!("bach {command} opens a Windows window, so it needs Windows; `bach check` works everywhere");
+    if !cfg!(windows) && !cfg!(target_os = "macos") {
+        bail!("bach {command} opens the setup window, so it needs Windows or macOS; `bach check` works everywhere");
     }
     Ok(())
 }
@@ -79,6 +102,9 @@ pub(crate) fn check(options: &PreviewOptions, command: &str) -> Result<()> {
 /// each preview gets a file of its own (`serial` tells them apart), so an
 /// open window never blocks the next one.
 pub(crate) fn write(project: &Project, sealing: Option<&Sealing>, runtime: &Path, serial: u32) -> Result<PathBuf> {
+    if project.platform.is_macos() {
+        return write_mac(project, sealing, runtime, serial);
+    }
     let dir = std::env::temp_dir().join("bach-preview");
     fs::create_dir_all(&dir)?;
     if let Ok(entries) = fs::read_dir(&dir) {
@@ -93,6 +119,23 @@ pub(crate) fn write(project: &Project, sealing: Option<&Sealing>, runtime: &Path
     };
     write_setup(project, runtime, &output, sealing)?;
     Ok(output)
+}
+
+/// The macOS preview: a Setup app in the temp folder; the program inside it is what opens.
+fn write_mac(project: &Project, sealing: Option<&Sealing>, runtime: &Path, serial: u32) -> Result<PathBuf> {
+    let dir = std::env::temp_dir().join("bach-preview");
+    fs::create_dir_all(&dir)?;
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
+    let id = bach_pack::paths::safe_dir_name(&project.manifest.app.id);
+    let app = dir.join(format!("{id}-{}-{serial}", std::process::id())).join(bach_pack::macapp::setup_app_name(&project.manifest));
+    let mac = project.macos.as_ref().context("a macOS preview needs [macos]")?;
+    let runtime = runtime::read_for(Platform::Macos, runtime)?;
+    crate::builder::mac::write_setup_app(project, mac, &runtime, &app, sealing)?;
+    Ok(app.join(bach_pack::macapp::RUNTIME))
 }
 
 /// Opens the window and doesn't wait for it.
@@ -121,7 +164,7 @@ pub fn preview(config_path: &Path, options: PreviewOptions) -> Result<()> {
     let (project, sealing) = load(config_path, options.profile)?;
     check(&options, "preview")?;
     output::warnings(&project.warnings);
-    let runtime = runtime::find(options.runtime)?;
+    let runtime = find_runtime(options.runtime)?;
     let setup = write(&project, sealing.as_ref(), &runtime, 0)?;
     open(&setup, &options)?;
     say!("Opened the {} preview. Nothing is installed or removed.", if options.uninstall { "uninstaller" } else { "installer" });

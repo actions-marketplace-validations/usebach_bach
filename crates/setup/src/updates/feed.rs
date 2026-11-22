@@ -81,7 +81,10 @@ pub fn fetch_offers(
     let mut entries = Vec::new();
     let mut first_error = None;
     for url in urls {
-        let answer = fetch(url, work, bearer).and_then(|entry| accepted(entry, signer)).map(|entry| pick_arch(entry, arch, signer));
+        let answer = fetch(url, work, bearer)
+            .and_then(|entry| accepted(entry, signer))
+            .map(|entry| pick_arch(entry, arch, signer))
+            .and_then(mac_download_only);
         match answer {
             Ok(entry) => entries.push(entry),
             Err(error) => {
@@ -94,6 +97,19 @@ pub fn fetch_offers(
         return Err(first_error.unwrap_or_else(|| "there is no update feed to ask".to_string()));
     }
     Ok(agreeing(entries))
+}
+
+/// On a Mac only a macOS setup file (`.dmg` or `.zip`) is ever downloaded: a feed that
+/// lists none, because it was published for Windows only, offers this Mac nothing, and
+/// the Windows setup file it does list is never taken for one.
+fn mac_download_only(entry: FeedEntry) -> Result<FeedEntry, String> {
+    if cfg!(target_os = "macos") {
+        let path = entry.url.split(['?', '#']).next().unwrap_or_default().to_ascii_lowercase();
+        if !(path.ends_with(".dmg") || path.ends_with(".zip")) {
+            return Err("the update feed lists no macOS setup file".to_string());
+        }
+    }
+    Ok(entry)
 }
 
 /// The entry for a computer of architecture `arch` (`x64` or `arm64`): the
@@ -231,6 +247,26 @@ pub fn is_newer(version: &str, current: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn a_mac_never_takes_a_windows_download() {
+        let entry = |url: &str| FeedEntry {
+            version: "2.0.0".into(),
+            url: url.into(),
+            sha256: "ab".repeat(32),
+            notes: None,
+            size: None,
+            rollout: None,
+            delta: None,
+            signature: None,
+            published: None,
+            arch: Default::default(),
+        };
+        assert!(super::mac_download_only(entry("https://x.example/Setup-2.0.0.exe")).is_err());
+        assert!(super::mac_download_only(entry("https://x.example/Setup-2.0.0.dmg?raw=1")).is_ok());
+        assert!(super::mac_download_only(entry("https://x.example/Setup-2.0.0.ZIP")).is_ok());
+    }
+
     use super::*;
 
     const SHA: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

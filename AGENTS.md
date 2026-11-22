@@ -13,15 +13,18 @@ remote is unavailable, continue from the local checkout and say so.
 
 ## What Bach is
 
-**Bach builds modern, clean Windows installers.** A developer writes one
-`bach.toml`, runs `bach build`, and gets a single `Setup.exe` with a calm,
-native-looking install window, a built-in updater and a clean uninstaller.
+**Bach builds modern, clean Windows installers, and macOS ones.** A developer
+writes one `bach.toml`, runs `bach build`, and gets a single `Setup.exe` with a
+calm, native-looking install window, a built-in updater and a clean uninstaller.
+With a `[macos]` section the same run also writes a Setup app in a `.dmg`, which
+does the same on a Mac (see "macOS" below).
 
 - **`bach` (crates/cli)** is the command developers run: `init`, `check`,
   `build`, `preview`, `inspect`. It runs on Windows, macOS and Linux.
 - **`bach-setup` (crates/setup)** is the installer and uninstaller window,
-  a native GPUI (Rust) app. Every setup file is a copy of it with a payload
-  appended.
+  a native GPUI (Rust) app. Every Windows setup file is a copy of it with a
+  payload appended; on macOS it is `Contents/MacOS/bach-setup` in a Setup app,
+  with the payload in `Contents/Resources/setup.bach`.
 - **`bach-pack` (crates/pack)** is what both agree on: the config, the
   manifest, the archive, the container format and the path rules. No UI and
   no Windows calls, so it is tested in isolation.
@@ -75,6 +78,9 @@ crates/setup    bach-setup: the installer window
   src/updater.rs  --check-update / --update from the installed app
   src/log.rs      %TEMP%\<id>-setup.log
   src/work/       install (place.rs: all-or-nothing swap), remove, preview
+  src/system_mac/ the same API for macOS (links, launch agents, PATH block,
+                  install record, Keychain, osascript elevation); chosen
+                  with `#[path]` in main.rs, so shared code is platform-free
   src/system/     shortcuts, Settings › Apps, known folders; host.rs
                   (languages, free space, lock), env_path.rs (PATH),
                   integration.rs (autostart, link schemes, file types),
@@ -104,6 +110,8 @@ cargo run -p bach-cli -- doctor examples/hello/bach.toml
 cargo test --workspace
 cargo clippy --workspace --all-targets        # must be warning-free
 powershell -ExecutionPolicy Bypass -File scripts\e2e.ps1   # real install/update/uninstall of a throwaway app
+scripts/e2e-macos.sh                          # the same on a Mac, in a throwaway HOME
+scripts/build-example.sh                      # dist/Hello-Setup-1.0.0.dmg
 powershell -ExecutionPolicy Bypass -File scripts\build-example.ps1   # dist\Hello-Setup-1.0.0.exe
 powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1   # dist\bach-<version>-windows-x64.zip
 gh workflow run release.yml -f bump=minor     # changelog, zip, GitHub release
@@ -150,6 +158,25 @@ user or host environment; this file cannot and should not change it.
    in the same piece of work (see "Documentation").
 7. **Communicate usefully.** Finish with what changed, why, which checks
    passed, which docs pages you updated, and any honest limitations.
+
+## macOS
+
+macOS is a first-class platform, built from the same `bach.toml` (`[macos]`,
+`crates/pack/src/config/macos.rs`). The rules that keep it right:
+
+- **The payload is never appended to a Mach-O program** (it breaks code signing);
+  it is `Contents/Resources/setup.bach`. `bach_pack::macapp` is the one place that
+  knows the bundle layout and `Info.plist`.
+- **Shared code asks `crate::system` and `work::uninstaller`**, never `cfg(windows)`
+  for behaviour. A Windows-only idea (registry, services, MSI, ACLs) is a no-op in
+  `system_mac`, and the config leaves it out of a macOS build.
+- **Mac needs `xcodebuild -downloadComponent MetalToolchain`** before GPUI compiles, if the
+  Xcode in use doesn't have it (`xcrun metal --version` says so).
+- **Tests:** `cargo test --workspace` and clippy must be green on a Mac too, and
+  `scripts/e2e-macos.sh` must pass. Never run a real install on the developer's own
+  profile: that script sets a throwaway `HOME`, and so must any other test.
+- The window can't be screenshotted from a headless session; say so when a window change
+  wasn't looked at, and look at it with `cargo run -p bach-setup -- --preview` when you can.
 
 ## Documentation
 

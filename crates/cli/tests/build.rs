@@ -13,7 +13,11 @@ fn bach() -> Command {
 /// The setup runtime a build can use, if this checkout has built one.
 fn runtime() -> Option<PathBuf> {
     let dir = PathBuf::from(env!("CARGO_BIN_EXE_bach")).parent()?.to_path_buf();
-    ["bach-setup.exe", "bach-setup"].iter().map(|name| dir.join(name)).find(|path| path.is_file())
+    // Only a Windows program: on a Mac `cargo build` also makes a `bach-setup`, which is the macOS runtime.
+    ["bach-setup.exe", "bach-setup"]
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|path| std::fs::read(path).is_ok_and(|bytes| bytes.starts_with(b"MZ")))
 }
 
 /// A project folder with an app to package and the given `bach.toml`.

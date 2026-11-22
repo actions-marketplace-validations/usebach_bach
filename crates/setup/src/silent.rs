@@ -162,3 +162,30 @@ fn offered(package: &Package) -> Vec<String> {
     }
     ids
 }
+
+/// `--cleanup-if-removed`: when the app is gone from its install folder (the user moved it to the
+/// Trash), takes away what setup added around it, the same removal as Uninstall but never the user's
+/// data. Does nothing when the app is there, or when an install or update is at work.
+pub fn cleanup_if_removed(args: &Args, package: Package) -> i32 {
+    let package = Arc::new(package);
+    let manifest = &package.manifest;
+    let launch::Mode::Remove { dir } = launch::mode(args, &package) else {
+        return exit::OK;
+    };
+    // The app is gone, so the usual lookup (which wants the app to be there) finds nothing: ask the record.
+    #[cfg(target_os = "macos")]
+    let dir = if dir.as_os_str().is_empty() { crate::system::recorded_dir(manifest).unwrap_or(dir) } else { dir };
+    if dir.as_os_str().is_empty() || manifest.program_exists(&dir) {
+        return exit::OK;
+    }
+    crate::log::line(&format!("{} is gone from {}, so setup is cleaning up after it.", manifest.app.name, dir.display()));
+    let plan =
+        work::RemovePlan { package: package.clone(), texts: Arc::new(Texts::new(manifest, args.lang.as_deref())), dir, delete_data: false };
+    match work::remove(&plan, &|_, _| {}) {
+        Ok(()) => exit::OK,
+        Err(problem) => {
+            crate::log::line(&format!("Couldn't clean up: {problem}"));
+            exit::FAILED
+        }
+    }
+}

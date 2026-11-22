@@ -12,6 +12,7 @@
 //! update themselves (`--update`) always gets it.
 
 use sha2::{Digest, Sha256};
+#[cfg(windows)]
 use windows_registry::LOCAL_MACHINE;
 
 /// This computer's number for version `version` of `app_id`, from 0 to 99.
@@ -39,6 +40,25 @@ pub fn included(bucket: u8, percent: Option<u8>) -> bool {
 
 /// Windows' own id for this installation; the computer's name as a fallback,
 /// which is worse (names repeat) but never empty.
+#[cfg(target_os = "macos")]
+fn machine_id() -> String {
+    // The platform UUID, which stays the same for the life of the Mac.
+    std::process::Command::new("/usr/sbin/ioreg")
+        .args(["-rd1", "-c", "IOPlatformExpertDevice"])
+        .output()
+        .ok()
+        .and_then(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .find(|line| line.contains("IOPlatformUUID"))
+                .and_then(|line| line.split('"').nth(3).map(str::to_string))
+        })
+        .filter(|id| !id.trim().is_empty())
+        .or_else(|| std::env::var("HOSTNAME").ok())
+        .unwrap_or_else(|| "unknown-computer".to_string())
+}
+
+#[cfg(windows)]
 fn machine_id() -> String {
     LOCAL_MACHINE
         .open(r"SOFTWARE\Microsoft\Cryptography")

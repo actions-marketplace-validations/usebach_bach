@@ -3,6 +3,14 @@
 use super::Strings;
 
 pub const EN: Strings = Strings {
+    mac_start_menu: "Applications",
+    mac_start_menu_description: "Add {name} to your Applications folder.",
+    mac_start_with_windows: "Open at login",
+    mac_start_with_windows_description: "Open {name} automatically when you sign in.",
+    mac_installed_subtitle: "Find it in your Applications folder, or open it now.",
+    mac_error_register: "Couldn't save where {name} is installed.",
+    mac_error_unregister: "Couldn't remove the install record of {name}.",
+    mac_error_system: "Couldn't change a system setting for {name}.",
     window_install: "{name} Setup",
     window_remove: "Remove {name}",
     install_title: "Install {name}",

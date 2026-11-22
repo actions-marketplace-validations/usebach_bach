@@ -444,8 +444,8 @@ impl SetupView {
             return;
         }
         let exe = self.package.manifest.executable_in(&self.dir);
-        match std::process::Command::new(&exe).current_dir(&self.dir).spawn() {
-            Ok(_) => cx.quit(),
+        match crate::system::apps::launch(&exe, &self.dir) {
+            Ok(()) => cx.quit(),
             Err(err) => {
                 let message = self.texts.with(Key::error_open_failed, &[("error", &err.to_string())]);
                 self.stage = Stage::Failed(message.into());
@@ -562,8 +562,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn picked_folders_get_the_app_folder() {
         assert_eq!(install_folder(PathBuf::from(r"D:\Apps"), "Hello"), PathBuf::from(r"D:\Apps\Hello"));
         assert_eq!(install_folder(PathBuf::from(r"D:\Apps\hello"), "Hello"), PathBuf::from(r"D:\Apps\hello"));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn picked_folders_get_the_app_folder() {
+        assert_eq!(install_folder(PathBuf::from("/Volumes/Apps"), "Hello"), PathBuf::from("/Volumes/Apps/Hello"));
+        assert_eq!(install_folder(PathBuf::from("/Volumes/Apps/hello"), "Hello"), PathBuf::from("/Volumes/Apps/hello"));
     }
 }

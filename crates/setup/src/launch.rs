@@ -21,7 +21,9 @@
 
 use std::path::{Path, PathBuf};
 
-use bach_pack::manifest::{Theme, UNINSTALLER};
+use bach_pack::manifest::Theme;
+#[cfg(windows)]
+use bach_pack::manifest::UNINSTALLER;
 
 use crate::package::Package;
 use crate::system::{self, elevate};
@@ -56,6 +58,7 @@ uninstall.exe only
   --update                Download the newest version and open its setup (--silent: install it).
   --auto-update           One background round, as the scheduled task runs it.
   --channel beta|stable|show  Follow the beta or the stable update channel (show: say which).
+  --cleanup-if-removed    macOS: remove what setup added around the app when the app is gone (moved to the Trash).
 
   --help, -h, /?          This text.
 ";
@@ -132,6 +135,9 @@ pub struct Args {
     pub channel: Option<String>,
     /// `--launch`: start the app again after a silent update.
     pub launch: bool,
+    /// `--cleanup-if-removed` (macOS): remove what setup added around the app when the
+    /// app itself is gone (moved to the Trash); nothing when it is still there.
+    pub cleanup_if_removed: bool,
     pub theme: Option<Theme>,
     pub lang: Option<String>,
     /// `--style NAME`: a built-in style to preview instead of the payload's.
@@ -186,6 +192,10 @@ impl Args {
         while index < args.len() {
             let token = &args[index];
             index += 1;
+            // Older macOS passes the process serial number when Finder opens an app.
+            if cfg!(target_os = "macos") && token.starts_with("-psn_") {
+                continue;
+            }
             let Some((name, attached)) = split_flag(token) else {
                 return Err(format!("\"{token}\" isn't an option this setup file knows. Run it with --help to see them."));
             };
@@ -249,6 +259,7 @@ impl Args {
             "auto-update" => self.auto_update = true,
             "json" => self.json = true,
             "launch" => self.launch = true,
+            "cleanup-if-removed" => self.cleanup_if_removed = true,
             "install-dir" => self.install_dir = Some(PathBuf::from(text)),
             "dir" => self.dir = Some(PathBuf::from(text)),
             "with" => self.with.extend(ids(&text)),
@@ -338,6 +349,7 @@ const FLAGS: &[Flag] = &[
     flag(&["auto-update"]),
     flag(&["json"]),
     flag(&["launch"]),
+    flag(&["cleanup-if-removed"]),
     valued(&["install-dir"]),
     // `/D=` is NSIS's, and (see `parse_from`) takes the rest of the line.
     valued(&["dir", "d"]),
@@ -374,7 +386,13 @@ fn split_flag(token: &str) -> Option<(String, Option<String>)> {
 /// preview, `--help` and the update checks change nothing system-wide (an
 /// update starts the new setup file, which asks for itself).
 pub fn needs_elevation(args: &Args, package: &Package) -> bool {
-    package.manifest.install.scope.is_machine() && !args.preview && !args.help && !args.updating() && !elevate::is_elevated()
+    // A Mac administrator writes to /Applications as themselves, so setup never needs to start again as root.
+    cfg!(windows)
+        && package.manifest.install.scope.is_machine()
+        && !args.preview
+        && !args.help
+        && !args.updating()
+        && !elevate::is_elevated()
 }
 
 /// Starts this setup again elevated with the same command line and waits for
@@ -435,7 +453,8 @@ pub fn mode(args: &Args, package: &Package) -> Mode {
     // machine-wide one, which runs elevated: a copy in the user's temp folder
     // is a file the user's own programs can swap before it starts, and
     // Program Files is where only administrators can write.
-    let in_place = args.silent || package.manifest.install.scope.is_machine();
+    // On a Mac a program can be deleted while it runs, so removing never needs a copy to hand over to.
+    let in_place = cfg!(target_os = "macos") || args.silent || package.manifest.install.scope.is_machine();
     if !in_place && hand_over_to_temp_copy(&dir, package, args) {
         std::process::exit(0);
     }
@@ -445,13 +464,28 @@ pub fn mode(args: &Args, package: &Package) -> Mode {
 }
 
 /// The folder this `uninstall.exe` sits in, when it's the installed one.
+#[cfg(windows)]
 fn install_dir_of_this_uninstaller(package: &Package) -> Option<PathBuf> {
     let name = package.exe.file_name()?.to_string_lossy().to_lowercase();
     (name == UNINSTALLER).then(|| package.exe.parent().map(Path::to_path_buf)).flatten()
 }
 
+/// On a Mac the uninstaller is `~/Library/Application Support/Bach/uninstallers/<id>/Uninstall <app>.app`.
+#[cfg(target_os = "macos")]
+fn install_dir_of_this_uninstaller(package: &Package) -> Option<PathBuf> {
+    // The uninstaller lives in the Library, not beside the app: the install record says where the app is,
+    // also after the app was moved to the Trash.
+    crate::system::recorded_dir(&package.manifest)
+}
+
 /// Starts a copy of this executable from the temp folder in remove mode.
 /// True once that copy is running.
+#[cfg(target_os = "macos")]
+fn hand_over_to_temp_copy(_dir: &Path, _package: &Package, _args: &Args) -> bool {
+    false
+}
+
+#[cfg(windows)]
 fn hand_over_to_temp_copy(dir: &Path, package: &Package, args: &Args) -> bool {
     let copy = std::env::temp_dir().join(format!(
         "{}-uninstall-{}.exe",
@@ -490,6 +524,12 @@ mod tests {
 
     fn mistake(line: &str) -> String {
         Args::parse_from(line.split_whitespace().map(String::from).collect()).unwrap_err()
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn the_serial_number_finder_passes_is_ignored() {
+        assert!(args("-psn_0_12345 --silent").silent);
     }
 
     #[test]
@@ -667,8 +707,18 @@ mod tests {
         for flag in FLAGS {
             let name = format!("--{}", flag.names[0]);
             // "norestart" heads the accepted-and-ignored Inno and NSIS switches, which the help names together.
-            let internal = ["json", "launch", "install-dir", "uninstall", "msi-package", "msi-product", "msi-upgrade", "norestart"]
-                .contains(&flag.names[0]);
+            let internal = [
+                "json",
+                "launch",
+                "cleanup-if-removed",
+                "install-dir",
+                "uninstall",
+                "msi-package",
+                "msi-product",
+                "msi-upgrade",
+                "norestart",
+            ]
+            .contains(&flag.names[0]);
             assert!(HELP.contains(&name) || internal, "{name} is parsed but not in the help text");
         }
     }

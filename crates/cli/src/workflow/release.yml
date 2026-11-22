@@ -147,6 +147,9 @@ jobs:
         with:
           version: local
           config: @CONFIG@
+          # This job runs on Windows and builds the Windows installer. A bach.toml with [macos]
+          # builds the macOS Setup app on a Mac runner instead (see docs/guides/ci).
+          args: --platform windows
           app-version: ${{ steps.version.outputs.version }}
           release: ${{ !inputs.dry_run }}
           tag: v${{ steps.version.outputs.version }}
@@ -176,4 +179,4 @@ jobs:
           basic=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic" push origin ":refs/tags/v$VERSION" || true
           echo "::warning::The release failed, so the tag v$VERSION was removed. The version files on the branch already say $VERSION: run the workflow again with bump=current to retry."
-@WINGET@
+@MACOS@@WINGET@

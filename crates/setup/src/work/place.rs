@@ -54,6 +54,10 @@ pub fn clear_leftovers(target: &Path) {
 #[derive(Default)]
 pub struct Transaction {
     staged: Vec<PathBuf>,
+    /// The install folder, when everything staged must stay inside it (see [`Transaction::within`]).
+    root: Option<PathBuf>,
+    /// Folders already checked to lie inside the root.
+    checked: std::collections::HashSet<PathBuf>,
 }
 
 /// Why a move into place failed, and on which file.
@@ -64,10 +68,54 @@ pub struct CommitError {
 }
 
 impl Transaction {
+    /// A transaction that refuses to write anywhere that isn't inside `root`, once symbolic
+    /// links are followed: a link an earlier install (or the user) left in the folder can't
+    /// lead a file out of it.
+    pub fn within(root: &Path) -> Self {
+        Self { root: Some(root.to_path_buf()), ..Self::default() }
+    }
+
+    /// Makes `parent` and checks it is inside the root.
+    fn prepare(&mut self, parent: &Path) -> io::Result<()> {
+        fs::create_dir_all(parent)?;
+        let Some(root) = &self.root else {
+            return Ok(());
+        };
+        if self.checked.contains(parent) {
+            return Ok(());
+        }
+        let outside = || io::Error::new(io::ErrorKind::PermissionDenied, "a link would lead this file out of the install folder");
+        let real = fs::canonicalize(parent)?;
+        if !real.starts_with(fs::canonicalize(root)?) {
+            return Err(outside());
+        }
+        self.checked.insert(parent.to_path_buf());
+        Ok(())
+    }
+
     /// Unpacks one file next to `target`.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn stage(&mut self, target: &Path, body: &mut dyn Read, progress: &mut dyn FnMut(u64)) -> io::Result<()> {
+        self.stage_with(target, body, progress, None)
+    }
+
+    /// Unpacks a symbolic link at `target` that points at `to`, waiting like a file to be moved into place.
+    #[cfg(unix)]
+    pub fn stage_link(&mut self, target: &Path, to: &str) -> io::Result<()> {
         if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)?;
+            self.prepare(parent)?;
+        }
+        let partial = with_suffix(target, NEW);
+        let _ = fs::remove_file(&partial);
+        std::os::unix::fs::symlink(to, &partial)?;
+        self.staged.push(target.to_path_buf());
+        Ok(())
+    }
+
+    /// [`stage`](Self::stage) for a file that has permission bits (`0o755` makes a program).
+    pub fn stage_with(&mut self, target: &Path, body: &mut dyn Read, progress: &mut dyn FnMut(u64), mode: Option<u32>) -> io::Result<()> {
+        if let Some(parent) = target.parent() {
+            self.prepare(parent)?;
         }
         let partial = with_suffix(target, NEW);
         // No flush to disk per file: on an app with thousands of files that
@@ -78,6 +126,7 @@ impl Transaction {
             let mut out = io::BufWriter::with_capacity(256 * 1024, File::create(&partial)?);
             archive::copy_counting(body, &mut out, progress)?;
             out.into_inner().map_err(|err| err.into_error())?;
+            set_mode(&partial, mode)?;
             Ok(())
         })();
         match written {
@@ -216,6 +265,22 @@ fn write_journal(journal: &Path, staged: &[PathBuf]) -> io::Result<()> {
     file.sync_all()
 }
 
+/// Gives a staged file its permission bits (`0o755`), and does nothing on Windows.
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: Option<u32>) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    // Only the owner, group and other bits are taken from a payload, never setuid or sticky.
+    match mode {
+        Some(mode) => fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o777)),
+        None => Ok(()),
+    }
+}
+
+#[cfg(not(unix))]
+fn set_mode(_path: &Path, _mode: Option<u32>) -> io::Result<()> {
+    Ok(())
+}
+
 /// Flushes the files to disk, a few at a time: one by one it takes seconds
 /// per thousand files.
 fn flush(targets: &[PathBuf]) {
@@ -225,6 +290,10 @@ fn flush(targets: &[PathBuf]) {
         for part in targets.chunks(chunk) {
             scope.spawn(move || {
                 for target in part {
+                    // A symbolic link has no bytes of its own to flush (opening it would open what it points at).
+                    if fs::symlink_metadata(target).is_ok_and(|meta| meta.file_type().is_symlink()) {
+                        continue;
+                    }
                     if let Ok(file) = fs::OpenOptions::new().write(true).open(target) {
                         let _ = file.sync_all();
                     }
@@ -292,6 +361,7 @@ fn recover_at(journal: &Path, dir: &Path) -> Recovery {
 /// uninstaller running an update, say): Windows won't overwrite a running
 /// program but lets it be renamed, so it steps aside as `<to>.bach-old`,
 /// which goes now or on the next run.
+#[cfg(windows)]
 pub fn replace_file(from: &Path, to: &Path) -> io::Result<()> {
     match fs::rename(from, to) {
         Ok(()) => Ok(()),
@@ -362,6 +432,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn a_failed_move_puts_everything_back() {
         let dir = temp("rollback");
         let first = dir.join("a.txt");
@@ -443,12 +514,14 @@ mod tests {
     }
 
     /// Holds `path` open without sharing, like a running program.
+    #[cfg(windows)]
     fn hold(path: &Path) -> File {
         use std::os::windows::fs::OpenOptionsExt;
         fs::OpenOptions::new().read(true).share_mode(0).open(path).unwrap()
     }
 
     #[test]
+    #[cfg(windows)]
     fn a_recovery_that_gets_stuck_keeps_the_journal_for_the_next_run() {
         let dir = temp("recover-stuck");
         let a = dir.join("a.txt");
@@ -472,6 +545,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn a_rollback_that_gets_stuck_keeps_the_journal_for_the_next_run() {
         let dir = temp("rollback-stuck");
         let a = dir.join("a.txt");
@@ -505,6 +579,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn a_running_program_can_be_replaced() {
         let dir = temp("replace-running");
         let target = dir.join("uninstall.exe");
@@ -555,5 +630,53 @@ mod tests {
         assert_eq!(left, ["old.txt"], "nothing else is left: {left:?}");
         assert_eq!(std::fs::read_to_string(&old).unwrap(), "the earlier version");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn programs_keep_their_mode_and_links_are_placed_with_the_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp("mode-links");
+        let mut transaction = Transaction::within(&dir);
+        let program = dir.join("App.app/Contents/MacOS/app");
+        transaction.stage_with(&program, &mut &b"#!/bin/sh\n"[..], &mut |_| {}, Some(0o4755)).unwrap();
+        let plain = dir.join("App.app/Contents/Info.plist");
+        transaction.stage(&plain, &mut &b"<plist/>"[..], &mut |_| {}).unwrap();
+        transaction.stage_link(&dir.join("App.app/Contents/current"), "MacOS/app").unwrap();
+        transaction.commit(&journal_path(&dir)).unwrap();
+        // The setuid bit never comes from a payload.
+        assert_eq!(fs::metadata(&program).unwrap().permissions().mode() & 0o7777, 0o755);
+        assert_eq!(fs::metadata(&plain).unwrap().permissions().mode() & 0o111, 0, "an ordinary file isn't a program");
+        assert_eq!(fs::read_link(dir.join("App.app/Contents/current")).unwrap(), Path::new("MacOS/app"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_link_in_the_folder_can_not_lead_a_file_out_of_it() {
+        let dir = temp("link-escape");
+        let outside = temp("link-escape-victim");
+        std::os::unix::fs::symlink(&outside, dir.join("Frameworks")).unwrap();
+        let mut transaction = Transaction::within(&dir);
+        let err = transaction.stage(&dir.join("Frameworks/evil.dylib"), &mut &b"x"[..], &mut |_| {}).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert!(!outside.join("evil.dylib").exists() && !outside.join("evil.dylib.bach-new").exists());
+        fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_replaced_link_comes_back_when_the_update_is_undone() {
+        let dir = temp("link-recover");
+        let link = dir.join("current");
+        std::os::unix::fs::symlink("v1", &link).unwrap();
+        let mut transaction = Transaction::within(&dir);
+        transaction.stage_link(&link, "v2").unwrap();
+        let committed = transaction.commit_open(&journal_path(&dir)).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), Path::new("v2"));
+        committed.rollback();
+        assert_eq!(fs::read_link(&link).unwrap(), Path::new("v1"), "the earlier link is back");
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

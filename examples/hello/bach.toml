@@ -5,6 +5,13 @@
 #   target\release\bach.exe build examples\hello\bach.toml
 #
 # or run scripts\build-example.ps1, which does all three.
+#
+# On a Mac, the [macos] section builds Hello's macOS setup app, in a .dmg:
+#
+#   cargo build --release
+#   target/release/bach build examples/hello/bach.toml --platform macos
+#
+# or run scripts/build-example.sh.
 
 [app]
 name = "Hello"
@@ -23,3 +30,9 @@ output = "../../dist/Hello-Setup-{version}.exe"
 [uninstall]
 data = ['%APPDATA%\Hello']
 data_description = "Hello's settings."
+
+[macos]
+source = "app-macos"
+executable = "Hello.app"
+output = "../../dist/Hello-Setup-{version}.dmg"
+data = ["~/Library/Application Support/Hello"]
