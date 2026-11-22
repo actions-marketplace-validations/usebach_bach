@@ -2,6 +2,36 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.11.0 (2026-11-22)
+
+### New
+
+- Let go of the disk image reliably after laying out its window ([4a0e48b](https://github.com/usebach/bach/commit/4a0e48bd88810405eae768c18e06ac37ef0839c3))
+- Add the macOS end-to-end script and the example app ([a49015a](https://github.com/usebach/bach/commit/a49015a4e4171a401b6f6fc65d8e9194ff5bae52))
+- Add the macOS system layer: links, launch agents, PATH and the install record ([1aa633e](https://github.com/usebach/bach/commit/1aa633efdc60c2424fc5d673bd4495fe70c529b0))
+- Offer a Mac job in the generated release workflow ([92f4b6a](https://github.com/usebach/bach/commit/92f4b6aed54adf89204773694e0aba333bffc714))
+- Add the macOS window texts in every language ([464760d](https://github.com/usebach/bach/commit/464760d7441213dc648e310677acb6bac44f4293))
+- Add the path rules for macOS data folders and links ([596f2b9](https://github.com/usebach/bach/commit/596f2b99364573fdda63063ae7bb6b423e1aa124))
+- Add the macOS platform, file modes and links to the manifest ([0640c34](https://github.com/usebach/bach/commit/0640c3474398ca805e857edb06930cb0d16b29b3))
+
+### Improvements
+
+- Build only the Windows file in the Windows CI and example script ([6cc4a7c](https://github.com/usebach/bach/commit/6cc4a7cb519dffb1855067397c97dd14829c2cf1))
+- Document macOS in the reference, guides and agent notes ([ebe31e2](https://github.com/usebach/bach/commit/ebe31e20b23647ad742be4c92098870183ce4c05))
+- Run the macOS jobs in CI, the release and the action ([5e490a0](https://github.com/usebach/bach/commit/5e490a0238ab1f1fa4450134c58fab2fcaac6949))
+- Update from a downloaded disk image or zip on macOS ([551c727](https://github.com/usebach/bach/commit/551c7275b2e65b6bb467b1bf635cd7f8e7e3918e))
+- Install, update and remove on macOS with permissions and links ([d6570b4](https://github.com/usebach/bach/commit/d6570b44fe81e9ee5931e8e136791b996ce81ded))
+- Run the setup runtime on macOS ([86921ca](https://github.com/usebach/bach/commit/86921caf3593500a4f54c53d96f3084343fecc6b))
+- Test macOS builds end to end in the CLI ([de5423c](https://github.com/usebach/bach/commit/de5423c19786ed3d87c07e0be152b1d9ba6e982b))
+- Read macOS setup files in inspect, verify, diff and preview ([a128cea](https://github.com/usebach/bach/commit/a128cead811fc5e611c40d43aadceed24807e2ea))
+- List the macOS setup file in the update feed ([d6c650d](https://github.com/usebach/bach/commit/d6c650d0d4190193067a422c176625973e9977eb))
+- Build the macOS Setup app in a disk image or a zip ([b2c9ab1](https://github.com/usebach/bach/commit/b2c9ab1e7654cc18552b7f9f344a1f591ac87fe5))
+- Find, download and check the macOS setup runtime ([ce0fe7c](https://github.com/usebach/bach/commit/ce0fe7c2a553de25a167610e04fb468c7d8e5a3a))
+- Describe the [macos] settings in the editor schema ([a91baa3](https://github.com/usebach/bach/commit/a91baa37ab5aa63ae3b95bc1e049bef5597fa028))
+- Read a [macos] section from bach.toml ([2302436](https://github.com/usebach/bach/commit/23024365d6f7110a2e734d5d543d2771f81b74d0))
+
+All changes: [v0.10...v0.11.0](https://github.com/usebach/bach/compare/v0.10...v0.11.0)
+
 ## 0.10.1 (2026-11-21)
 
 ### New
