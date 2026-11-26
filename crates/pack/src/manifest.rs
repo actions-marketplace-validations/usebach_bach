@@ -340,6 +340,12 @@ pub struct FileEntry {
     /// The optional component it belongs to; None means always installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<String>,
+    /// Other components that claim the file too (`installer.shared_files =
+    /// "all"`): it is installed only when `component` and each of these are
+    /// ticked. A Bach older than this field skips it and goes by `component`
+    /// alone, which matters for an online installer built back then.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_needs: Vec<String>,
     /// The file's SHA-256 (lowercase hex). Setup files built since patches
     /// exist record it: an update patch leaves unchanged files where they are
     /// and checks them against this before it relies on them.
@@ -359,7 +365,12 @@ pub struct FileEntry {
 
 impl FileEntry {
     pub fn new(path: impl Into<String>, size: u64) -> Self {
-        Self { path: path.into(), size, component: None, sha256: None, mode: None, link: None }
+        Self { path: path.into(), size, component: None, also_needs: Vec::new(), sha256: None, mode: None, link: None }
+    }
+
+    /// Every component that claims the file; none means it is always installed.
+    pub fn claimed_by(&self) -> impl Iterator<Item = &str> {
+        self.component.iter().chain(&self.also_needs).map(String::as_str)
     }
 
     /// Whether the entry is a symbolic link rather than a file with bytes.

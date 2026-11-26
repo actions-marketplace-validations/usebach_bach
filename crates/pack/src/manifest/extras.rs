@@ -177,7 +177,8 @@ pub struct Updates {
     /// The name of the publisher a downloaded update has to be signed by
     /// (Authenticode): the common name or organisation of the signing
     /// certificate, as Windows shows it. An update that is unsigned, not valid
-    /// for Windows, or signed by anyone else is refused.
+    /// for Windows, or signed by anyone else is refused. On a Mac it is the name
+    /// of an Apple-issued Developer ID Application certificate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signer: Option<String>,
     /// The feed of the beta channel (https): what an installation that chose

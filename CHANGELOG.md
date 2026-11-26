@@ -2,6 +2,45 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.11.2 (2026-11-26)
+
+### New
+
+- Add a Mac script that tries a self-signed publisher on the update check ([eb118a0](https://github.com/usebach/bach/commit/eb118a0d931cbff13f6857ef938b707d4a806b70))
+
+### Fixes
+
+- Fix the refused signature message naming Windows on a Mac ([929fc1f](https://github.com/usebach/bach/commit/929fc1f6d76c08229c7195278b7a7a99ec04dfdc))
+- Fix the macOS update check to accept only an Apple-issued Developer ID ([1c2d72b](https://github.com/usebach/bach/commit/1c2d72b2b65cd4a088dd6dd98aa8c30048a8edf4))
+
+### Improvements
+
+- Say in the config reference what signer accepts on a Mac ([711b11a](https://github.com/usebach/bach/commit/711b11ae4b836a05f23b835445f8a000298323a9))
+- Document signed updates on a Mac ([04d638a](https://github.com/usebach/bach/commit/04d638adc35c6b90044067673f1af966f34ec498))
+- Run the signer check in the macOS CI job ([6f16ae7](https://github.com/usebach/bach/commit/6f16ae70a9c9b2138985c2a8388ad0423a29a834))
+- Test who the macOS update check takes for the publisher ([4489ad2](https://github.com/usebach/bach/commit/4489ad2bad3438a989fb6546a78330e74869a3f5))
+
+All changes: [v0.11...v0.11.2](https://github.com/usebach/bach/compare/v0.11...v0.11.2)
+
+## 0.11.1 (2026-11-26)
+
+### New
+
+- Show every claim in bach check and inspect, and refuse them in an MSI ([9e58e74](https://github.com/usebach/bach/commit/9e58e749fc52ed79d80bfbded09ee322600a0edd))
+- Add installer.shared_files so a file can need several components ([09b33c4](https://github.com/usebach/bach/commit/09b33c4ac470b739f7372e8c995266942d429713))
+
+### Fixes
+
+- Fix the platform field missing from the --json output schema ([6448fe3](https://github.com/usebach/bach/commit/6448fe30f55a33690f6410c194cff98c79c3ce77))
+
+### Improvements
+
+- Document files that need several components ([2eb6f47](https://github.com/usebach/bach/commit/2eb6f479f78029b1fb458ae67dc732348aba3d65))
+- Install shared files only when all their components are ticked ([4a3e267](https://github.com/usebach/bach/commit/4a3e267219dcdbf902eff29dd01b585810d5e42d))
+- Move the component rules into their own file ([b7ea484](https://github.com/usebach/bach/commit/b7ea4840a5ddfee826756fceff6e04ae9b7525bb))
+
+All changes: [v0.11...v0.11.1](https://github.com/usebach/bach/compare/v0.11...v0.11.1)
+
 ## 0.11.0 (2026-11-22)
 
 ### New

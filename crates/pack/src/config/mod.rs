@@ -5,6 +5,7 @@
 //! naming the setting at fault, instead of producing a broken installer.
 //! Paths in the file are relative to the file itself.
 
+mod components;
 mod extras;
 mod gather;
 mod icon;
@@ -29,8 +30,8 @@ use crate::archive::{Compression, Source};
 use crate::manifest::{self, FileEntry, LogoKind, Manifest, Platform};
 use crate::paths;
 
+pub use components::component_pack_name;
 pub use macos::{Container as MacContainer, MacBuild, MacSigning};
-pub use options::component_pack_name;
 pub use profile::{list as list_profiles, valid_name as valid_profile_name, Kind as ProfileKind, Profile};
 pub use system::pe_machine;
 
@@ -62,7 +63,7 @@ struct File {
     #[serde(default)]
     uninstall: UninstallSection,
     #[serde(default)]
-    components: Vec<options::ComponentSection>,
+    components: Vec<components::ComponentSection>,
     #[serde(default)]
     protocols: Vec<options::ProtocolSection>,
     #[serde(default)]
@@ -174,6 +175,8 @@ struct InstallerSection {
     compression_memory: Option<u32>,
     languages: Option<Vec<String>>,
     license: Option<toml::Value>,
+    /// What a file that several components match needs: `"first"` or `"all"`.
+    shared_files: Option<String>,
     desktop_shortcut: Option<toml::Value>,
     start_menu_shortcut: Option<toml::Value>,
     start_with_windows: Option<toml::Value>,
@@ -750,12 +753,14 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         .map(|source| FileEntry { mode: modes.get(&source.packaged).copied(), ..FileEntry::new(&source.packaged, source.size) })
         .collect();
     files.extend(links.iter().map(|(path, target)| FileEntry { link: Some(target.clone()), ..FileEntry::new(path, 0) }));
-    let components = options::components(
+    let shared_files = components::SharedFiles::parse(file.installer.shared_files.as_deref())?;
+    let components = components::components(
         &file.components,
+        shared_files,
         &mut files,
         &app,
         &languages,
-        &options::Downloads {
+        &components::Downloads {
             update_link: update_download_url.as_deref(),
             flavour: &profile_name.into_iter().chain(arch.as_deref()).chain(platform.is_macos().then_some("macos")).collect::<Vec<&str>>(),
             encrypted: access.as_ref().is_some_and(|access| access.encrypt),

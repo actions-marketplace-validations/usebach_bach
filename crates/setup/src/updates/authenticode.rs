@@ -1,4 +1,4 @@
-//! Who signed a downloaded update, as Windows sees it.
+//! Who signed a downloaded update, as the system sees it.
 //!
 //! With `[updates] signer`, an update is only run when its Authenticode
 //! signature is valid for Windows and was made by the named publisher. This
@@ -8,11 +8,14 @@
 //! The check asks Windows' own PowerShell for the signature, never a shell
 //! with the path in its command line: the file's name travels in an
 //! environment variable.
+//!
+//! A Mac asks the same of the Developer ID signature (`codesign.rs`).
 
 use std::path::Path;
+#[cfg(windows)]
 use std::process::Command;
 
-/// What Windows says about a file's signature.
+/// What the system says about a file's signature.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Signature {
     /// `Valid`, `NotSigned`, `HashMismatch`, `NotTrusted`, ...
@@ -42,53 +45,9 @@ pub fn read(file: &Path) -> Result<Signature, String> {
     parse(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// Reads the code signature of the Setup app inside a downloaded `.dmg` or `.zip`:
-/// valid for macOS (`codesign --verify --deep --strict`) and made with a
-/// Developer ID, whose name is the signer. An ad hoc signature is "NotSigned" here,
-/// because it names nobody.
+/// On a Mac the question goes to `codesign`, see [`super::codesign`].
 #[cfg(target_os = "macos")]
-pub fn read(file: &Path) -> Result<Signature, String> {
-    let scratch = std::env::temp_dir().join(format!(
-        "bach-verify-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())
-    ));
-    let result = (|| {
-        let program = super::macsetup::unpack(file, &scratch)?;
-        let app =
-            program.ancestors().find(|part| part.extension().is_some_and(|ext| ext == "app")).ok_or("the download holds no setup app")?;
-        let verified = Command::new("/usr/bin/codesign")
-            .args(["--verify", "--deep", "--strict"])
-            .arg(app)
-            .output()
-            .map_err(|err| format!("couldn't ask macOS who signed the update: {err}"))?;
-        let details = Command::new("/usr/bin/codesign").args(["-dvv"]).arg(app).output().map_err(|err| err.to_string())?;
-        // codesign prints its details on stderr.
-        Ok(parse_codesign(verified.status.success(), &String::from_utf8_lossy(&details.stderr)))
-    })();
-    let _ = std::fs::remove_dir_all(&scratch);
-    result
-}
-
-/// `Authority=Developer ID Application: Example Inc. (ABCDE12345)` is the signing
-/// certificate; its name is the signer, and the team id the organisational unit.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn parse_codesign(valid: bool, details: &str) -> Signature {
-    let authority = details.lines().find_map(|line| line.strip_prefix("Authority=")).map(str::trim);
-    let team = details.lines().find_map(|line| line.strip_prefix("TeamIdentifier=")).map(str::trim).filter(|team| *team != "not set");
-    let adhoc = details.lines().any(|line| line.trim() == "Signature=adhoc");
-    match authority {
-        Some(authority) if valid && !adhoc => {
-            // "Developer ID Application: Example Inc. (ABCDE12345)" -> "Example Inc."
-            let name = authority.split_once(": ").map_or(authority, |(_, rest)| rest);
-            let name = name.rsplit_once(" (").filter(|(_, tail)| tail.ends_with(')')).map_or(name, |(head, _)| head);
-            let unit = team.map(|team| format!(", OU={team}")).unwrap_or_default();
-            Signature { status: "Valid".into(), subject: format!("CN={name}{unit}") }
-        }
-        _ if adhoc || authority.is_none() => Signature { status: "NotSigned".into(), subject: String::new() },
-        _ => Signature { status: "NotTrusted".into(), subject: String::new() },
-    }
-}
+pub use super::codesign::read;
 
 /// The two lines the PowerShell command prints.
 #[cfg(windows)]
@@ -97,6 +56,9 @@ fn parse(text: &str) -> Result<Signature, String> {
     let status = lines.next().filter(|status| !status.is_empty()).ok_or("Windows didn't say who signed the update")?;
     Ok(Signature { status: status.to_string(), subject: lines.next().unwrap_or_default().to_string() })
 }
+
+/// Who judged the signature, for the sentences below.
+const SYSTEM: &str = if cfg!(target_os = "macos") { "macOS" } else { "Windows" };
 
 /// Whether `signature` is a good one by `publisher`.
 pub fn judge(signature: &Signature, publisher: &str) -> Result<(), String> {
@@ -107,7 +69,7 @@ pub fn judge(signature: &Signature, publisher: &str) -> Result<(), String> {
             if signature.subject.is_empty() { "somebody unknown" } else { &signature.subject }
         )),
         "NotSigned" => Err(format!("the update isn't signed, and this app only takes updates signed by {publisher}")),
-        other => Err(format!("Windows doesn't accept the update's signature ({other}), so it isn't installed")),
+        other => Err(format!("{SYSTEM} doesn't accept the update's signature ({other}), so it isn't installed")),
     }
 }
 
@@ -149,19 +111,6 @@ mod tests {
         assert_eq!(parse("Valid\r\nCN=A\r\n").unwrap(), signature("Valid", "CN=A"));
         assert_eq!(parse("NotSigned\r\n\r\n").unwrap(), signature("NotSigned", ""));
         assert!(parse("").is_err());
-    }
-
-    #[test]
-    fn what_codesign_prints_is_read() {
-        let developer = "Executable=/x\nAuthority=Developer ID Application: Example Inc. (ABCDE12345)\nAuthority=Developer ID Certification Authority\nTeamIdentifier=ABCDE12345\n";
-        let found = parse_codesign(true, developer);
-        assert_eq!(found, signature("Valid", "CN=Example Inc., OU=ABCDE12345"));
-        assert!(judge(&found, "Example Inc.").is_ok());
-        assert!(judge(&found, "Somebody Else").is_err());
-        assert_eq!(parse_codesign(false, developer).status, "NotTrusted", "a signature that doesn't verify");
-        let adhoc = "Signature=adhoc\nTeamIdentifier=not set\n";
-        assert_eq!(parse_codesign(true, adhoc).status, "NotSigned");
-        assert_eq!(parse_codesign(true, "").status, "NotSigned");
     }
 
     #[test]

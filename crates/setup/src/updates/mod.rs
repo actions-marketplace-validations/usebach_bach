@@ -19,6 +19,8 @@
 mod apply;
 pub(crate) mod authenticode;
 mod auto;
+#[cfg(any(target_os = "macos", test))]
+mod codesign;
 pub(crate) mod curl;
 pub(crate) mod feed;
 #[cfg(target_os = "macos")]

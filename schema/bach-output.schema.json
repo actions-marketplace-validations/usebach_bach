@@ -16,6 +16,7 @@
     "changed": { "type": "array", "items": { "type": "string" }, "description": "version TARGET: the files that were (or, with dry_run, would be) changed." },
     "publisher": { "type": "string", "description": "inspect." },
     "executable": { "type": "string", "description": "inspect: the program." },
+    "platform": { "type": "string", "enum": ["windows", "macos"], "description": "inspect: the system the setup file installs on." },
     "kind": { "type": "string", "enum": ["installer", "online installer", "uninstaller"], "description": "inspect." },
     "files": { "type": ["integer", "array"], "items": { "type": "string" }, "description": "check, inspect: how many files are installed. version: the files that carry the version." },
     "size": { "type": "integer", "description": "Bytes. check, inspect: what is installed; build: the setup file; feed: the setup file." },

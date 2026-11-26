@@ -38,7 +38,9 @@ pub fn needed<'a>(manifest: &'a Manifest, choices: &Choices, matching: &HashSet<
         .iter()
         .filter(|component| component.download.is_some() && choices.components.contains(&component.id))
         .filter(|component| {
-            manifest.files.iter().any(|file| file.component.as_deref() == Some(component.id.as_str()) && !matching.contains(&file.path))
+            manifest.files.iter().any(|file| {
+                file.component.as_deref() == Some(component.id.as_str()) && choices.installs(file) && !matching.contains(&file.path)
+            })
         })
         .collect()
 }
@@ -189,6 +191,18 @@ mod tests {
         assert!(needed(&manifest, &choices(&["hd"]), &here).is_empty());
         let one_missing: HashSet<String> = ["hd/one.bin".to_string()].into();
         assert_eq!(needed(&manifest, &choices(&["hd"]), &one_missing).len(), 1, "one changed file is enough");
+    }
+
+    #[test]
+    fn a_download_of_shared_files_waits_for_every_component_that_claims_them() {
+        let mut manifest = manifest();
+        for file in manifest.files.iter_mut().filter(|file| file.component.as_deref() == Some("hd")) {
+            file.also_needs = vec!["s".into()];
+        }
+        let none = HashSet::new();
+        assert!(needed(&manifest, &choices(&["hd"]), &none).is_empty(), "nothing of it would be installed");
+        assert!(needed(&manifest, &choices(&["s"]), &none).is_empty(), "its own box is unticked");
+        assert_eq!(needed(&manifest, &choices(&["hd", "s"]), &none).len(), 1);
     }
 
     #[test]

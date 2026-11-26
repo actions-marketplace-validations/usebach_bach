@@ -32,6 +32,19 @@ fn rows(package: &mut msi::Package<std::fs::File>, table: &str) -> Vec<Vec<Strin
 }
 
 #[test]
+fn an_msi_refuses_files_that_need_several_components() {
+    need_runtime!();
+    let extra = "[installer]\nshared_files = \"all\"\n\
+                 [[components]]\nid = \"docs\"\ntitle = \"Docs\"\nfiles = [\"data/**\"]\n\
+                 [[components]]\nid = \"all\"\ntitle = \"All\"\nfiles = [\"data/**\"]\n";
+    let dir = msi_project("msi-shared", "BachMsiShared", extra);
+    let out = run(&dir, &["build", "--fast", "--msi"]);
+    assert!(!out.status.success());
+    assert!(text(&out.stderr).contains("installer.shared_files = \"all\""), "{}", text(&out.stderr));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn an_msi_holds_the_files_the_shortcuts_and_the_upgrade_rules() {
     need_runtime!();
     let extra = "[[registry]]\nkey = 'Software\\BachMsiTest'\nname = \"InstallPath\"\nvalue = '{app}'\n";

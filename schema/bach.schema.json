@@ -302,6 +302,14 @@
         "website_button": {
           "type": "boolean"
         },
+        "shared_files": {
+          "enum": [
+            "first",
+            "all"
+          ],
+          "default": "first",
+          "description": "What a file that several [[components]] match needs. \"first\": it belongs to the first of them. \"all\": it is installed only when every one of them is ticked."
+        },
         "scope": {
           "enum": [
             "user",
@@ -1416,7 +1424,7 @@
         "signer": {
           "type": "string",
           "maxLength": 300,
-          "description": "The publisher a downloaded update has to be signed by (Authenticode): the common name or organisation of the signing certificate, like Example Inc., or its whole subject (CN=..., O=..., L=..., C=...), which has to match exactly. An update that is unsigned, not valid for Windows or signed by anyone else is refused."
+          "description": "The publisher a downloaded update has to be signed by (Authenticode): the common name or organisation of the signing certificate, like Example Inc., or its whole subject (CN=..., O=..., L=..., C=...), which has to match exactly. An update that is unsigned, not valid for Windows or signed by anyone else is refused. On a Mac it needs an Apple-issued Developer ID Application signature with that name; there a whole subject is CN=name, OU=team id."
         }
       }
     },

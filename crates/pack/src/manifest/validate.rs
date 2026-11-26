@@ -208,9 +208,16 @@ fn files(manifest: &Manifest) -> Result<()> {
         if !seen.insert(paths::fold_case(&normal)) {
             bail!("\"{}\" is listed twice", file.path);
         }
-        if let Some(component) = &file.component {
-            if !manifest.components.iter().any(|known| &known.id == component) {
+        if file.component.is_none() && !file.also_needs.is_empty() {
+            bail!("\"{}\" needs more components but belongs to none", file.path);
+        }
+        let mut claimed = HashSet::new();
+        for component in file.claimed_by() {
+            if !manifest.components.iter().any(|known| known.id == component) {
                 bail!("\"{}\" belongs to a component, \"{component}\", that doesn't exist", file.path);
+            }
+            if !claimed.insert(component) {
+                bail!("\"{}\" lists the component \"{component}\" twice", file.path);
             }
         }
     }

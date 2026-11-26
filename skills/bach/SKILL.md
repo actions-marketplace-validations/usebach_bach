@@ -350,6 +350,9 @@ window speaks several).
 - For files most people won't want (language packs, HD textures, demo files): give the `[[components]]`
   entry `download = true` (or an https link). `bach build` writes them to `Name-component-version.bachpack`
   to upload; the installer downloads it only when the box is ticked.
+- For two independent choices over the same files (pick vendors, and one "Tools" box for all of them):
+  set `installer.shared_files = "all"` and let the `[[components]]` patterns overlap; a file is then
+  installed only when every component matching it is ticked. Needs Bach newer than 0.11.0; no `--msi`.
 - For a portable ZIP or a company (machine-wide) version of the same app: add `[profiles.NAME]`
   to `bach.toml` (`kind = "zip"`, or settings that differ), then `bach build --profile NAME` or
   `bach build --all-profiles`; `bach profiles` lists them.

@@ -364,7 +364,8 @@ A bach.toml with `[macos]` also builds a **Setup app**, `Install Hello.app`, in 
   link that leads out of the install folder.
 - **Updates.** The feed lists the macOS file under `arch.macos`, signed separately. The
   installed uninstaller downloads the `.dmg`, checks its SHA-256, copies the Setup app out and runs
-  it with `--silent`. With `[updates] signer`, the Setup app has to be signed with a Developer ID of that name.
+  it with `--silent`. With `[updates] signer`, the Setup app has to be signed with a Developer ID Application
+  certificate of that name that Apple issued.
 - **Safety rules** are the same: packaged paths can't leave the install folder, the uninstaller removes only
   what it installed, and data folders (`macos.data`) must sit in the user's home, in a place apps keep their data, below a folder of the app's own.
 
