@@ -7,7 +7,7 @@ update survives a closed window, a closed app or a power cut.
 There are two ways to update:
 
 - **By hand.** Hand out a newer setup file. Running it over an install
-  updates it in place (see [getting started](getting-started.md#6-ship-updates)).
+  updates it in place (see [getting started](getting-started.md#7-ship-updates)).
 - **By themselves.** The installed app reads an update feed, downloads the
   newer setup file in the background and installs it when the app is closed.
   The rest of this page is about that.
