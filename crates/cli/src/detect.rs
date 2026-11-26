@@ -24,7 +24,8 @@ pub struct Detected {
     pub executable: Option<String>,
     pub source: Option<String>,
     pub exclude: Vec<String>,
-    /// A `[[requirements]]` block the app needs, ready to paste.
+    /// A `[[requirements]]` block ready to paste: active when the app needs it,
+    /// commented out with the reason when only some builds do.
     pub requirements: Option<String>,
 }
 
@@ -314,9 +315,14 @@ fn dotnet(dir: &Path) -> Option<Detected> {
     // net8.0-windows → .NET 8.0, and the Windows Desktop runtime.
     let version: String = framework.trim_start_matches("net").chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
     let desktop = framework.contains("-windows");
+    // Commented out: the release workflow publishes self-contained, so the build
+    // folder carries the runtime and asking users to install it would be wrong.
     let requirements = (version.split('.').count() == 2).then(|| {
         format!(
-            "[[requirements]]\nkind = \"dotnet\"     # or publish --self-contained and drop this\nversion = \"{version}\"\ndesktop = {desktop}\n"
+            "# `dotnet publish -c Release -r win-x64 --self-contained` puts the .NET runtime\n\
+             # into your build, so users need nothing else. Only if you publish with\n\
+             # `--self-contained false`, remove the \"# \" from the four lines below.\n\
+             # [[requirements]]\n# kind = \"dotnet\"\n# version = \"{version}\"\n# desktop = {desktop}\n"
         )
     });
     Some(Detected {
