@@ -162,3 +162,7 @@ fn text(tag: u8, value: &[u8]) -> Option<String> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "codesign_tests.rs"]
+mod tests;
