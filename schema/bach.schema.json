@@ -302,6 +302,14 @@
         "website_button": {
           "type": "boolean"
         },
+        "shared_files": {
+          "enum": [
+            "first",
+            "all"
+          ],
+          "default": "first",
+          "description": "What a file that several [[components]] match needs. \"first\": it belongs to the first of them. \"all\": it is installed only when every one of them is ticked."
+        },
         "scope": {
           "enum": [
             "user",

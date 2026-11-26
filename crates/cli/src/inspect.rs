@@ -107,7 +107,7 @@ pub fn details(manifest: &Manifest, encrypted: bool) {
     field("Options", options.join(", "));
     for component in &manifest.components {
         let title = i18n::resolve(&component.title, "en", &manifest.locale.languages).unwrap_or(&component.id);
-        let count = manifest.files.iter().filter(|file| file.component.as_ref() == Some(&component.id)).count();
+        let count = manifest.files.iter().filter(|file| file.claimed_by().any(|id| id == component.id)).count();
         let ticked = if component.default { ", ticked" } else { "" };
         let files = if count == 1 { "file" } else { "files" };
         let downloaded =

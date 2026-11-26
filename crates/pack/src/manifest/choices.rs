@@ -224,9 +224,10 @@ impl Choices {
         true
     }
 
-    /// Whether these choices install `file`.
+    /// Whether these choices install `file`: every component that claims it
+    /// has to be ticked, and an unclaimed file is always installed.
     pub fn installs(&self, file: &FileEntry) -> bool {
-        file.component.as_ref().is_none_or(|component| self.components.contains(component))
+        file.claimed_by().all(|id| self.components.iter().any(|ticked| ticked == id))
     }
 }
 
@@ -361,6 +362,17 @@ mod tests {
         choices.components.clear();
         // "samples" exists in both, so the answer isn't second-guessed.
         assert!(choices.clone().carry_over(&manifest, &manifest).components.is_empty());
+    }
+
+    #[test]
+    fn a_shared_file_needs_every_component_that_claims_it() {
+        let file = FileEntry { component: Some("tools".into()), also_needs: vec!["vendor".into()], ..FileEntry::new("v/t.txt", 1) };
+        let ticked = |ids: &[&str]| Choices { components: ids.iter().map(|id| id.to_string()).collect(), ..Choices::default() };
+        assert!(ticked(&["tools", "vendor"]).installs(&file));
+        assert!(!ticked(&["tools"]).installs(&file));
+        assert!(!ticked(&["vendor"]).installs(&file));
+        assert!(!ticked(&[]).installs(&file));
+        assert!(ticked(&[]).installs(&FileEntry::new("always.txt", 1)));
     }
 
     #[test]

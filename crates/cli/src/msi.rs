@@ -236,6 +236,12 @@ pub fn plan(project: &Project) -> Result<Plan> {
             "an MSI doesn't carry [[services]] or [[firewall]] yet: Bach's own setup file installs them, so ship that for an app with a service"
         );
     }
+    if manifest.files.iter().any(|file| !file.also_needs.is_empty()) {
+        bail!(
+            "an MSI can't install a file only when several components are ticked (installer.shared_files = \"all\"): \
+             a file belongs to one feature there, so ship Bach's own setup file, or give each file one component"
+        );
+    }
     let version = product_version(&app.version)?;
     if manifest.files.len() > MAX_FILES {
         bail!("an MSI holds at most {MAX_FILES} files here; this app has {}", manifest.files.len());
