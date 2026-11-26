@@ -267,7 +267,7 @@ fn unsupported(draft: &mut Draft, text: &str) {
     for (name, what) in [
         ("code", "[Code] (Pascal script): custom pages, checks and logic have no Bach equivalent"),
         ("registry", "[Registry]: recreate each entry with [[registry]], [[protocols]] or [[file_types]]"),
-        ("components", "[Components] and [Types]: recreate the choices with [[components]]"),
+        ("components", "[Components] and [Types]: recreate the choices with [[components]]; for `Components: a and b`, set installer.shared_files = \"all\""),
         ("dirs", "[Dirs]: empty folders aren't created"),
         ("ini", "[INI]: ini files aren't written"),
         ("installdelete", "[InstallDelete]: files an update should remove: Bach removes files the new version no longer ships"),

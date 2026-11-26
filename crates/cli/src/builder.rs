@@ -109,7 +109,8 @@ fn check_one(config_path: &Path, version: Option<&str>, profile: Option<&str>, p
     summary(&project);
     say!();
     for file in &manifest.files {
-        let component = file.component.as_deref().map(|id| format!("  ({id})")).unwrap_or_default();
+        let ids: Vec<&str> = file.claimed_by().collect();
+        let component = if ids.is_empty() { String::new() } else { format!("  ({})", ids.join(" + ")) };
         say!("  {:>10}  {}{component}", output::size(file.size), file.path);
     }
     output::warnings(&project.warnings);
