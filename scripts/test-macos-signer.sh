@@ -2,7 +2,8 @@
 # Checks on a real Mac that `[updates] signer` takes a publisher's name only from
 # a Developer ID. It makes a self-signed certificate with such a name in a
 # keychain of its own, signs a Setup app with it and asks the update check about
-# it. Then it asks about an installed app that has a real Developer ID.
+# it, and checks that `bach build --sign` refuses it too. Then it asks about an
+# installed app that has a real Developer ID.
 #
 # It adds that keychain to your search list while it runs, and takes it out
 # again. The key in it is made here and thrown away.
@@ -74,7 +75,11 @@ fi
 /usr/bin/codesign -dvv "$app" 2>&1 | grep -E '^(Authority|TeamIdentifier)=' || true
 
 BACH_SELF_SIGNED_APP="$work/Hello.zip" \
-  cargo test -p bach-setup a_self_signed_publisher_name_is_refused -- --ignored
+  cargo test -p bach-pack a_self_signed_publisher_name_is_refused -- --ignored
+
+# The publisher's side: `bach build --sign` with that certificate stops.
+BACH_SELF_SIGNED_IDENTITY="$name" \
+  cargo test -p bach-cli --test macos a_self_signed_identity_fails_a_build_with_a_signer -- --ignored
 
 for found in "/Applications/Firefox.app=Mozilla Corporation" "/Applications/Google Chrome.app=Google LLC" "/Applications/Visual Studio Code.app=Microsoft Corporation"; do
   # Only an intact copy says anything: one that was written into after it was
@@ -82,7 +87,7 @@ for found in "/Applications/Firefox.app=Mozilla Corporation" "/Applications/Goog
   if [ -d "${found%=*}" ] && /usr/bin/codesign --verify --deep --strict "${found%=*}" 2>/dev/null; then
     echo "Checking a real Developer ID: ${found%=*}"
     BACH_DEVELOPER_ID_APP="${found%=*}" BACH_DEVELOPER_ID_NAME="${found#*=}" \
-      cargo test -p bach-setup a_real_developer_id_is_accepted -- --ignored
+      cargo test -p bach-pack a_real_developer_id_is_accepted -- --ignored
     exit 0
   fi
 done

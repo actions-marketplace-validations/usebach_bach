@@ -5,6 +5,8 @@
 //!   file (name, version, files, options, look, texts).
 //! - [`i18n`]: every text the setup window shows, in every language.
 //! - [`archive`]: the compressed stream of files.
+//! - [`codesign`]: who signed a macOS Setup app, as the builder and the
+//!   installed app's update check both ask it.
 //! - [`container`]: how the archive, the logo and the manifest are appended
 //!   to the setup runtime's executable, and found again.
 //! - [`paths`]: the rules every packaged path and data folder must follow.
@@ -20,6 +22,7 @@
 //! the format is tested in isolation.
 
 pub mod archive;
+pub mod codesign;
 pub mod config;
 pub mod container;
 pub mod delta;

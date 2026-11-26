@@ -1,11 +1,11 @@
-//! A downloaded macOS setup file (`.dmg` or `.zip`) made runnable: the Setup app
-//! inside it is copied out to a folder of its own, so it can run (and a window can
-//! stay open) after the disk image is gone.
+//! A macOS setup file (`.dmg` or `.zip`) opened up: the Setup app inside it is
+//! copied out to a folder of its own, so it can run (and a window can stay open)
+//! after the disk image is gone, and so its signature can be read.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use bach_pack::macapp;
+use crate::macapp;
 
 /// Copies the Setup app out of `file` into `into` (which is created, and is not
 /// cleaned here) and gives back the path of its program.
@@ -75,7 +75,7 @@ pub fn payload_of(program: &Path) -> Option<PathBuf> {
     Some(app.join(macapp::PAYLOAD))
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 

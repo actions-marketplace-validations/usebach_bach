@@ -1499,7 +1499,8 @@ Wrote dist/Hello-Setup-1.0.0.dmg (9.3 MB)
   program, so the signature covers it. Without `--sign`, a Mac host seals the app ad hoc; Gatekeeper then asks
   users to confirm the first open. `--sign` with a Developer ID identity (and `notarize`) makes it open without that.
   Signing needs a Mac. `[updates] signer` accepts an update only when its Setup app is signed with an Apple-issued Developer ID of that name
-  ([Signed updates on a Mac](updates.md#signed-updates-on-a-mac)).
+  ([Signed updates on a Mac](updates.md#signed-updates-on-a-mac)). With `signer`, `bach build --sign` stops when the certificate isn't
+  one, and a macOS build without `--sign` warns that installed copies will refuse it.
 - **Updates.** The macOS file is listed in the feed under `arch.macos`, with its own link, SHA-256,
   size and signature, so one `latest.json` serves Windows and macOS (`bach feed SETUP.exe --macos FILE.dmg`
   writes it when you build the files separately). An app that only builds for macOS gets a feed whose own entry is the macOS file.
