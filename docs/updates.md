@@ -378,6 +378,31 @@ works; its update would be refused by apps that have a `signer`. The first
 version with `signer` has to be installed by hand (older copies don't know the
 setting).
 
+### Signed updates on a Mac
+
+On a Mac the same `signer` asks `codesign` about the Setup app in the downloaded
+`.dmg` or `.zip`. The signature has to cover every file (`--verify --deep
+--strict`) and come from a Developer ID Application certificate that Apple
+issued. A self-signed or ad hoc signature, an Apple Development or Apple
+Distribution certificate and one from a certificate authority of your own are
+refused, whatever name they carry.
+
+The name is read from that certificate: `Example Inc.` for
+`Developer ID Application: Example Inc. (ABCDE12345)`. A Mac knows only two
+parts of a whole subject, the name as `CN` and the team id as `OU`, so
+`signer = "CN=Example Inc., OU=ABCDE12345"` pins your team. A name with a comma
+is quoted there (`CN="Example, Inc.", OU=ABCDE12345`) and written as it is when
+`signer` is the plain name.
+
+One `signer` serves Windows and macOS. A whole subject matches only the platform
+it was written for, so an app that ships on both needs the plain name, and both
+certificates have to carry it.
+
+`bach build` doesn't compare the macOS signature with `signer`, so sign every
+Setup app you publish with `--sign` and your Developer ID
+([Sign the macOS Setup app](signing.md#sign-the-macos-setup-app)). The check
+doesn't ask whether the app was notarized.
+
 ### Changing the key
 
 A key has to be replaced when it leaks, or is lost. Because installed copies only
@@ -633,6 +658,6 @@ On a Mac the installed `Uninstall <app>.app` does what `uninstall.exe` does: `--
 `--download-update`, `--apply-update`, `--update` and `--auto-update` (a launch agent runs it every
 four hours when "Automatic updates" is on). It downloads the `.dmg`, checks its SHA-256, opens it, copies the Setup app
 out and runs that with `--silent`, then removes the copy. `[updates] signer` makes it run only a Setup app
-signed with a Developer ID of that name (`codesign --verify --deep --strict` must pass). Update patches (`--patch-from`) and staged
+signed with an Apple-issued Developer ID of that name ([Signed updates on a Mac](#signed-updates-on-a-mac)). Update patches (`--patch-from`) and staged
 rollouts' Windows-only machine ids are not used for macOS: a rollout uses the Mac's hardware UUID.
 
