@@ -110,7 +110,8 @@ fn check_signature(file: &Path, publisher: Option<&str>) -> Result<()> {
     if let Some(publisher) = publisher.filter(|_| !subject.is_empty()) {
         if !bach_pack::manifest::extras::subject_names(subject, publisher) {
             bail!(
-                "{} is signed by \"{subject}\", but [updates] signer says {publisher}; installed apps would refuse every update.                  Sign with that publisher's certificate, or change [updates] signer",
+                "{} is signed by \"{subject}\", but [updates] signer says {publisher}; installed apps would refuse every update. \
+                 Sign with that publisher's certificate, or change [updates] signer",
                 file.display()
             );
         }
