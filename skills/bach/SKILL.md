@@ -21,7 +21,9 @@ A `bach.toml` with a `[macos]` section (`source` = the folder with `Hello.app`,
 `bach build` also write a Setup app in a `.dmg` (a `.zip` away from a Mac) that installs
 per user into `~/Applications`, updates in place, and uninstalls with `Uninstall <app>.app`.
 `bach build --platform macos` builds only that; `--sign` signs (and, with
-`[macos.signing] notarize`, notarizes) it on a Mac. Registry, services, MSI and the other
+`[macos.signing] notarize`, notarizes) it on a Mac. With `[updates] signer`, installed Macs take only
+an update signed with an Apple-issued Developer ID of that name: `--sign` with any other certificate
+fails, and a macOS build without `--sign` warns. Registry, services, MSI and the other
 Windows-only sections are left out of a macOS build. Reference: `docs/config.md#macos`.
 
 ## 1. Get the `bach` command
