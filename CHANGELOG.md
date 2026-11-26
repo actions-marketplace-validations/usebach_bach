@@ -2,6 +2,26 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.11.2 (2026-11-26)
+
+### New
+
+- Add a Mac script that tries a self-signed publisher on the update check ([eb118a0](https://github.com/usebach/bach/commit/eb118a0d931cbff13f6857ef938b707d4a806b70))
+
+### Fixes
+
+- Fix the refused signature message naming Windows on a Mac ([929fc1f](https://github.com/usebach/bach/commit/929fc1f6d76c08229c7195278b7a7a99ec04dfdc))
+- Fix the macOS update check to accept only an Apple-issued Developer ID ([1c2d72b](https://github.com/usebach/bach/commit/1c2d72b2b65cd4a088dd6dd98aa8c30048a8edf4))
+
+### Improvements
+
+- Say in the config reference what signer accepts on a Mac ([711b11a](https://github.com/usebach/bach/commit/711b11ae4b836a05f23b835445f8a000298323a9))
+- Document signed updates on a Mac ([04d638a](https://github.com/usebach/bach/commit/04d638adc35c6b90044067673f1af966f34ec498))
+- Run the signer check in the macOS CI job ([6f16ae7](https://github.com/usebach/bach/commit/6f16ae70a9c9b2138985c2a8388ad0423a29a834))
+- Test who the macOS update check takes for the publisher ([4489ad2](https://github.com/usebach/bach/commit/4489ad2bad3438a989fb6546a78330e74869a3f5))
+
+All changes: [v0.11...v0.11.2](https://github.com/usebach/bach/compare/v0.11...v0.11.2)
+
 ## 0.11.1 (2026-11-26)
 
 ### New
