@@ -113,6 +113,11 @@ without Gatekeeper's warning. Store the profile once with `xcrun notarytool stor
 a Mac seals the Setup app ad hoc: it runs, but a downloaded copy asks the user to confirm the first open.
 The payload is inside the bundle (`Contents/Resources/setup.bach`), so the signature covers it.
 
+With [`[updates] signer`](updates.md#signed-updates-on-a-mac), installed copies take an update only when its
+Setup app is signed with a Developer ID Application certificate that Apple issued and that carries that name.
+A self-signed certificate doesn't count, even with the same name. `bach build` doesn't check this for macOS, so
+publish only Setup apps you built with `--sign` and that identity.
+
 ## Check a Bach download
 
 Every file of a Bach release (the zip, `bach-setup.exe`, the example installer,

@@ -1053,7 +1053,7 @@ download_url = "https://example.com/hello/{file}"   # {file}: the setup file's n
 | `next_public_key` | none | A second public key that is trusted too, to hand over to a new key without stranding installed copies (needs `public_key`, and must differ from it). See [Changing the key](updates.md#changing-the-key). |
 | `max_age_days` | none | How many days old a signed feed entry may be (1 to 3650; needs `public_key`). `bach feed` signs the time it ran with each entry, and an installed app ignores an entry older than this, so a taken-over feed host can't keep serving an old, validly signed entry (a version with a known bug, or no newer version at all). Left out: no limit. You have to run `bach feed` again within that time, release or not (a scheduled workflow does it). See [Signed feeds](updates.md#signed-feeds). |
 | `beta_feed` | none | The `https` link of the beta channel's feed, written like `feed` (`bach feed FILE --out latest-beta.json`). A person who runs `uninstall.exe --channel beta` follows it instead of `feed` and `mirrors`. See [Beta versions](updates.md#beta-versions). |
-| `signer` | none | The publisher a downloaded update has to be signed by (Authenticode): the common name or organisation of the signing certificate, like `Example Inc.` (or its whole subject, `CN=..., O=..., L=..., C=...`, which has to match exactly). Windows must accept the signature, and an unsigned update or one by another publisher is refused. See [Signed updates](updates.md#signed-updates-authenticode). |
+| `signer` | none | The publisher a downloaded update has to be signed by (Authenticode): the common name or organisation of the signing certificate, like `Example Inc.` (or its whole subject, `CN=..., O=..., L=..., C=...`, which has to match exactly). Windows must accept the signature, and an unsigned update or one by another publisher is refused. On a Mac the update needs a Developer ID Application signature that Apple issued, with that name. See [Signed updates](updates.md#signed-updates-authenticode) and [on a Mac](updates.md#signed-updates-on-a-mac). |
 | `mirrors` | none | More feeds to ask when `feed` can't be reached, each the `https` link of a full feed with its own download link. The first feed that answers decides the newest version; a mirror only offers another place to download the *same* file (same version and SHA-256), so a weaker mirror can't widen what an installed app trusts. |
 | `auto` | `true` | Keep the app up to date in the background: `true` (the install page offers "Automatic updates", ticked), `false` (offered, unticked), `"always"` or `"never"`. |
 
@@ -1498,7 +1498,8 @@ Wrote dist/Hello-Setup-1.0.0.dmg (9.3 MB)
 - **Signing.** The payload sits in the Setup app's `Contents/Resources`, never appended to the
   program, so the signature covers it. Without `--sign`, a Mac host seals the app ad hoc; Gatekeeper then asks
   users to confirm the first open. `--sign` with a Developer ID identity (and `notarize`) makes it open without that.
-  Signing needs a Mac. `[updates] signer` accepts an update only when its Setup app is signed with a Developer ID of that name.
+  Signing needs a Mac. `[updates] signer` accepts an update only when its Setup app is signed with an Apple-issued Developer ID of that name
+  ([Signed updates on a Mac](updates.md#signed-updates-on-a-mac)).
 - **Updates.** The macOS file is listed in the feed under `arch.macos`, with its own link, SHA-256,
   size and signature, so one `latest.json` serves Windows and macOS (`bach feed SETUP.exe --macos FILE.dmg`
   writes it when you build the files separately). An app that only builds for macOS gets a feed whose own entry is the macOS file.

@@ -251,6 +251,11 @@ jobs:
       - name: Install, repair, update and remove for real
         run: scripts/e2e-macos.sh release
 
+      # `[updates] signer`, against a self-signed certificate made on the spot
+      # and a real Developer ID app of the runner's.
+      - name: Check who an update may be signed by
+        run: scripts/test-macos-signer.sh
+
       - name: Test install.sh
         run: sh scripts/test-install.sh target/debug/bach
 
