@@ -36,7 +36,8 @@ code as it is; where a protection does not exist yet, it says so.
   update is deleted if it does not match the feed's size and SHA-256. The access
   key of a protected app goes only to the host it was meant for, redirects are
   followed by hand so it is never sent elsewhere, and it is kept sealed with the
-  Windows Data Protection API.
+  Windows Data Protection API. With `[updates] signer`, a downloaded update must
+  also carry a valid Authenticode signature from that publisher.
 - **Administrator rights.** Setup asks only when the app says so
   (`installer.scope = "machine"`, an `elevated` step or an elevated `[[migrate]]`).
   A machine-wide install folder must be inside Program Files, and its access list,
@@ -50,10 +51,11 @@ code as it is; where a protection does not exist yet, it says so.
 ## Known gaps
 
 - An update feed is only as trustworthy as its host unless the app has an
-  `[updates] public_key`. Without one, a compromised host can point to another
-  file together with that file's hash, and the updater will accept it. With one,
-  every entry must carry the publisher's signature (see
-  [signed feeds](updates.md#signed-feeds)). A key can be handed over with `next_public_key` in two releases
+  `[updates] public_key` or `signer`. Without either, a compromised host can
+  point to another file together with that file's hash, and the updater will
+  accept it. With a `public_key`, every entry must carry the publisher's
+  signature (see [signed feeds](updates.md#signed-feeds)). A key can be handed
+  over with `next_public_key` in two releases
   (see [Changing the key](updates.md#changing-the-key)), but not revoked remotely.
   A signature has no time unless `[updates] max_age_days` is set: without it a
   taken-over host can keep serving an older entry that is still validly signed

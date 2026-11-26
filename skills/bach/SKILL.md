@@ -179,7 +179,7 @@ install_subtitle = { en = "Fast and private.", de = "Schnell und privat." }
 footer = "Made by {publisher}"
 
 [[requirements]]                          # checked before installing
-kind = "webview2"                         # also "dotnet" (version, desktop), "vcredist", "file", "registry"
+kind = "webview2"                         # also "dotnet" (version, desktop), "vcredist", "windows" (build), "file", "registry"
 
 [[shortcuts]]                             # more Start menu shortcuts
 name = "My App Docs"

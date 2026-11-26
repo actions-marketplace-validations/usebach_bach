@@ -1,21 +1,17 @@
 # Getting started with Bach
 
-This guide takes you from an app on your disk to a `Setup.exe` you can
-share. It takes about five minutes.
+This guide takes you from a built app to a `Setup.exe` you can give to other
+people. You don't need Rust or an installer script. The same walkthrough, with
+more detail and a sample app, is in the
+[quickstart](https://usebach.app/docs/quickstart).
 
-## 1. Get Bach
+## 1. Install Bach
 
-You don't need Rust, and no step asks for administrator rights. With
-Node.js 18 or newer, on Windows, macOS or Linux:
+With Node.js 18 or newer, on Windows, macOS or Linux:
 
 ```bash
 npm install --global @usebach/cli
 ```
-
-Update it with `npm update --global @usebach/cli` and remove it with
-`npm uninstall --global @usebach/cli`. (If npm's global folder isn't yours,
-give npm one that is with `npm config set prefix ~/.npm-global` rather than
-using `sudo`.)
 
 Without Node.js, in PowerShell:
 
@@ -23,60 +19,48 @@ Without Node.js, in PowerShell:
 irm https://raw.githubusercontent.com/usebach/bach/main/install.ps1 | iex
 ```
 
-It puts two files in `%LOCALAPPDATA%\Programs\bach-cli` and adds that folder to
-your `PATH`:
+The script puts `bach.exe` (the command you run) and `bach-setup.exe` (the
+install window every setup file is built from) in
+`%LOCALAPPDATA%\Programs\bach-cli`, and adds that folder to your `PATH`. Open a
+new terminal afterwards.
 
-- `bach.exe`, the command you run.
-- `bach-setup.exe`, the installer window every setup file is built from.
+Neither way asks for administrator rights. The
+[install docs](https://usebach.app/docs/installation) cover macOS and Linux
+scripts, Scoop, a zip file and installing for every user.
 
-To make `bach` available to every user of the PC instead, set
-`$env:BACH_SCOPE = 'system'` before that line. It installs to
-`%ProgramFiles%\bach-cli`, and Windows asks for permission once, for that
-copy only. If you decline, Bach is installed for you alone. On macOS and
-Linux, `--system` does the same into `/usr/local/bin`, using `sudo` only if
-that folder isn't writable by you:
-`curl -fsSL https://raw.githubusercontent.com/usebach/bach/main/install.sh | sh -s -- --system`.
+Check that it works:
 
-Prefer doing it by hand? Download `bach-<version>-windows-x64.zip` from the
-[releases page](https://github.com/usebach/bach/releases), unzip it
-somewhere permanent and keep the two files together. On macOS or Linux (for
-CI), run
-`curl -fsSL https://raw.githubusercontent.com/usebach/bach/main/install.sh | sh`;
-`bach` downloads `bach-setup.exe` itself the first time it builds. `bach init`
-reads the name, version and publisher from `package.json`, `Cargo.toml`,
-`tauri.conf.json` or the `.csproj` and tidies the name so the config passes
-`bach check`: an npm scope is dropped (`@scope/my-app` becomes "My App" and the
-program `my-app.exe`), and characters an app name can't hold are replaced. A
-name with nothing usable left falls back to the folder's name.
-
-Run `bach doctor` to see that everything is in place.
-
-Setup files run on Windows 10 version 1809 (build 17763) and newer, and on
-Windows 11, on x64 and ARM64.
+```bash
+bach --version
+```
 
 ## 2. Build your app into a folder
 
-Bach installs the contents of one folder. Build or copy your app into it,
-with the `.exe` and everything it needs next to it (DLLs, assets, data
-files). For example:
+Bach packages an app that is already built. It installs everything in one
+folder, so that folder needs your program and every file it uses:
 
-```
+```text
 my-app/
-  bach.toml
   build/
     my-app.exe
     resources/
 ```
 
+Use the folder your build tool writes to. Don't point Bach at your project
+folder, or you'd ship source code and caches.
+
 ## 3. Write bach.toml
 
-In your project folder, run:
+`bach.toml` is the one file that tells Bach what to package. In your project
+folder, run:
 
 ```bash
 bach init
 ```
 
-Open the `bach.toml` it wrote. Only two sections are required:
+For Rust, Tauri, Wails, Electron, .NET, Flutter, PyInstaller, Qt, Godot and
+Unity projects, it fills in the name, version, publisher, program and build
+folder from your project files. Check them. These are the required settings:
 
 ```toml
 [app]
@@ -89,16 +73,45 @@ executable = "my-app.exe"  # the program to start, inside the files folder
 source = "build"           # everything in this folder is installed
 ```
 
-Check it:
+Then check it:
 
 ```bash
 bach check
 ```
 
-`bach check` lists every file the installer will install, or tells you in a
-sentence what's wrong, naming the setting at fault.
+`bach check` lists every file and option the installer will have. If something
+is wrong, you get one sentence naming the setting.
 
-## 4. Make it yours (optional)
+In a GitHub checkout, `bach init` also turns on automatic updates and adds a
+release workflow. Delete the `[updates]` section if you don't want updates yet.
+
+## 4. Preview the window
+
+```bash
+bach preview
+```
+
+This opens the window your users will see. Nothing is installed, even if you
+click **Install**. Preview needs Windows or a Mac.
+
+## 5. Build and test
+
+```bash
+bach build
+```
+
+The setup file is written to `dist\My App-Setup-1.0.0.exe`. This is the file
+you give to people.
+
+Running it really installs your app, for your Windows account only, without an
+administrator prompt. You can remove it again from **Settings › Apps**.
+
+Other people who download the file may see **Windows protected your PC** until
+you [sign it](signing.md).
+
+## 6. Make it yours
+
+All of this is optional:
 
 ```toml
 [app]
@@ -122,82 +135,35 @@ data = ['%APPDATA%\My App']
 data_description = "Your settings and saved projects."
 ```
 
-Optional parts, link schemes, file types and every text in the window are
-in the [config reference](config.md).
+`bach styles` lists 14 built-in styles, and `bach preview --style aurora` shows
+one on your app. `bach watch` keeps the preview open and reopens it every time
+you save. Every setting is in the [config reference](config.md).
 
-See it without installing anything:
+## 7. Ship updates
 
-```bash
-bach preview
-```
+Raise `version`, build again and give people the new file. Running it updates
+the app in place: it keeps the folder and the user's choices, and removes files
+the new version no longer has. If something goes wrong, the old version is put
+back.
 
-```bash
-bach preview --uninstall --theme dark --lang de
-```
+Keep `app.name` (or `app.id`, if you set it) the same across versions. Bach
+uses it to recognize the installed app.
 
-Want another look? `bach styles` lists the 14 built-in styles, and
-`bach preview --style aurora` shows one on your app before you set
-`installer.style` (see [`[style]`](config.md#style)).
-
-Designing the window? `bach watch` keeps it open and shows every change
-again as soon as you save: `bach.toml`, and the logo, license or text files it
-names. A mistake in the config is printed and the window stays as it was until
-the next save fixes it. Press Ctrl+C to stop; close the last window yourself.
-
-```bash
-bach watch
-```
-
-## 5. Build
-
-```bash
-bach build
-```
-
-The setup file lands in `dist\My App-Setup-1.0.0.exe` (change it with
-`[installer] output`). Run it to try the real thing; remove it again from
-**Settings › Apps**.
-
-## 6. Ship updates
-
-Raise `version` in `bach.toml`, rebuild, and hand out the new setup file.
-Running it over an install updates it in place: it keeps the folder and the
-user's choices, and removes files the new version no longer ships. If
-anything goes wrong midway, the earlier version stays exactly as it was.
-Keep `[app] id` (it defaults to the name) the same across versions; it's
-how Bach recognises the install.
-
-To have installed apps update themselves, host the project on GitHub and add
-this to `bach.toml`:
+To have installed apps update themselves from GitHub releases:
 
 ```toml
 [updates]
 github = "owner/repo"
 ```
 
-Then release from GitHub. In a GitHub checkout `bach init` already wrote
-`.github/workflows/bach-release.yml` (`bach workflow` adds it to an existing
-project): commit and push it, then press **Actions › Release › Run workflow**.
-It raises the version in every file that has one, builds your app and the
-setup file, tags the release and publishes it. Installed apps find it,
-download it in the background and install it when the app is closed. See
-[releasing](releasing.md) for the options, and [updates](updates.md) for what
-your app can do to update on quit and for a workflow of your own.
+See [releasing](releasing.md) for the one-click release and
+[updates](updates.md) for other hosts and what your app can do.
 
-## Tips
+## Next
 
-- **SmartScreen.** Windows warns about unsigned downloads from new
-  publishers. Sign your setup file to build trust: see [signing](signing.md).
-- **Close the app first.** If the app is running, setup says so and offers
-  "Try again" instead of replacing files in use.
-- **Leave out build leftovers** with `[files] exclude = ["*.pdb", "*.log"]`.
-- **CI.** `bach build` exits with a non-zero code and a readable message on
-  any problem, so it fits in a pipeline as is, on Windows, macOS or Linux.
-- **Scripts and agents.** `bach check`, `build`, `inspect`, `feed`, `doctor` and `version` take
-  `--json`: stdout is then one JSON object, nothing else, with `ok`, what the
-  command made (`setup`, `online_setup`, `patch`, `feed`, `version`, `sha256`,
-  `size`) and `warnings`. After an error it is `{"ok": false, "error": "…"}` and
-  the exit code is non-zero. The fields are listed in
-  `schema/bach-output.schema.json`; read them instead of cutting up text lines.
-- **IT departments.** Every setup file installs without a window with
-  `--silent` (or `/S`); see [silent installs](config.md#silent-installs).
+- Run `bach doctor` if a build doesn't work.
+- [Sign your setup file](signing.md).
+- For scripts and deployment tools, every setup file installs without a window
+  with `--silent`; see [silent installs](config.md#silent-installs).
+- For CI, `bach build` exits with a non-zero code and a readable message on any
+  problem, and `--json` prints a machine-readable result.
