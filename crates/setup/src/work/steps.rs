@@ -46,6 +46,8 @@ pub fn due_for_install<'a>(manifest: &'a Manifest, first_install: bool, choices:
             RunWhen::Uninstall => false,
         })
         .filter(|step| step.component.as_ref().is_none_or(|component| choices.components.contains(component)))
+        // A program that several components claim is there only when all are ticked.
+        .filter(|step| manifest_file(manifest, step).is_none_or(|file| choices.installs(file)))
         .collect()
 }
 
@@ -609,6 +611,18 @@ mod tests {
         assert_eq!(due_for_install(&manifest, false, &none).len(), 1, "an update skips first_install");
         assert_eq!(due_for_install(&manifest, true, &with_extras).len(), 3, "the optional one joins when ticked");
         assert_eq!(due_for_removal(&manifest).len(), 1);
+    }
+
+    #[test]
+    fn a_step_whose_program_other_components_claim_too_waits_for_them() {
+        let mut optional = step("");
+        optional.file = "extras/more.exe".into();
+        optional.component = Some("extras".into());
+        let mut manifest = manifest_with(vec![optional]);
+        manifest.files[2].also_needs = vec!["vendor".into()];
+        let ticked = |ids: &[&str]| Choices { components: ids.iter().map(|id| id.to_string()).collect(), ..Choices::default() };
+        assert!(due_for_install(&manifest, true, &ticked(&["extras"])).is_empty(), "its program isn't installed");
+        assert_eq!(due_for_install(&manifest, true, &ticked(&["extras", "vendor"])).len(), 1);
     }
 
     #[test]
