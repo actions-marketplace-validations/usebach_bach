@@ -35,10 +35,34 @@ pub(super) struct Downloads<'a> {
     pub encrypted: bool,
 }
 
-/// Checks the components and marks each file with the first component whose
-/// patterns match it.
+/// `installer.shared_files`: what a file needs when the patterns of more than
+/// one component match it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SharedFiles {
+    /// It belongs to the first of them; the later ones don't count.
+    First,
+    /// It belongs to all of them, and is installed only when all are ticked.
+    All,
+}
+
+impl SharedFiles {
+    pub(super) fn parse(value: Option<&str>) -> Result<Self> {
+        match value {
+            None | Some("first") => Ok(Self::First),
+            Some("all") => Ok(Self::All),
+            Some(other) => bail!(
+                "installer.shared_files is \"{other}\"; use \"first\" (a file belongs to the first component that matches it) \
+                 or \"all\" (it is installed only when every component that matches it is ticked)"
+            ),
+        }
+    }
+}
+
+/// Checks the components and marks each file with the components whose
+/// patterns match it: the first one, or all of them (`shared_files`).
 pub(super) fn components(
     sections: &[ComponentSection],
+    shared_files: SharedFiles,
     files: &mut [FileEntry],
     app: &manifest::App,
     languages: &[String],
@@ -46,7 +70,6 @@ pub(super) fn components(
 ) -> Result<Vec<Component>> {
     let builtin = [OPTION_DESKTOP, OPTION_START_MENU, OPTION_AUTOSTART, OPTION_PATH, OPTION_AUTO_UPDATE];
     let mut seen = HashSet::new();
-    let mut components = Vec::new();
     for (index, section) in sections.iter().enumerate() {
         let at = format!("components[{index}]");
         let id = section.id.trim();
@@ -62,19 +85,22 @@ pub(super) fn components(
         if section.files.is_empty() || section.files.iter().any(|pattern| pattern.trim().is_empty()) {
             bail!("{at}.files needs at least one pattern, like \"samples/**\"");
         }
-        let mut matched = 0usize;
-        for file in files.iter_mut().filter(|file| file.component.is_none()) {
-            if section.files.iter().any(|pattern| paths::matches(pattern, &file.path)) {
-                if file.path.eq_ignore_ascii_case(&app.executable) {
-                    bail!("{at}.files includes app.executable ({}), which must always be installed", app.executable);
-                }
-                file.component = Some(id.to_string());
-                matched += 1;
-            }
+        claim(section, &at, id, shared_files, files, app)?;
+    }
+    // A shared file travels in one place only. When a component that claims it
+    // is downloaded, that is its download, so the setup file stays small.
+    let downloaded: HashSet<&str> =
+        sections.iter().filter(|section| is_downloaded(section.download.as_ref())).map(|section| section.id.trim()).collect();
+    for file in files.iter_mut() {
+        let Some(first) = file.component.as_mut().filter(|first| !downloaded.contains(first.as_str())) else { continue };
+        if let Some(other) = file.also_needs.iter_mut().find(|other| downloaded.contains(other.as_str())) {
+            std::mem::swap(first, other);
         }
-        if matched == 0 {
-            bail!("{at}.files matches no files (that another component hasn't claimed first)");
-        }
+    }
+    let mut components = Vec::new();
+    for (index, section) in sections.iter().enumerate() {
+        let at = format!("components[{index}]");
+        let id = section.id.trim();
         let download = component_download(section.download.as_ref(), &at, id, app, files, downloads)?;
         components.push(Component {
             id: id.to_string(),
@@ -85,6 +111,52 @@ pub(super) fn components(
         });
     }
     Ok(components)
+}
+
+/// Marks the files `section` matches as `id`'s.
+fn claim(
+    section: &ComponentSection,
+    at: &str,
+    id: &str,
+    shared_files: SharedFiles,
+    files: &mut [FileEntry],
+    app: &manifest::App,
+) -> Result<()> {
+    let mut matched = 0usize;
+    let mut taken = false;
+    for file in files.iter_mut() {
+        if !section.files.iter().any(|pattern| paths::matches(pattern, &file.path)) {
+            continue;
+        }
+        if file.path.eq_ignore_ascii_case(&app.executable) {
+            bail!("{at}.files includes app.executable ({}), which must always be installed", app.executable);
+        }
+        if file.component.is_none() {
+            file.component = Some(id.to_string());
+        } else if shared_files == SharedFiles::All {
+            file.also_needs.push(id.to_string());
+        } else {
+            taken = true;
+            continue;
+        }
+        matched += 1;
+    }
+    if matched == 0 {
+        match shared_files {
+            SharedFiles::All => bail!("{at}.files matches no files"),
+            SharedFiles::First if taken => bail!(
+                "{at}.files matches no files that another component hasn't claimed first; to install those only when \
+                 both are ticked, set installer.shared_files = \"all\""
+            ),
+            SharedFiles::First => bail!("{at}.files matches no files (that another component hasn't claimed first)"),
+        }
+    }
+    Ok(())
+}
+
+/// Whether `download` asks for one (`true` or a link).
+fn is_downloaded(value: Option<&toml::Value>) -> bool {
+    !matches!(value, None | Some(toml::Value::Boolean(false)))
 }
 
 /// The name of the archive that holds a downloaded component's files:
@@ -125,7 +197,11 @@ fn component_download(
     if downloads.encrypted {
         bail!("{at}.download can't be used with [access] encrypt: the downloaded files would not be locked. Pack the files into the setup file, or turn encrypt off");
     }
+    let carried: Vec<&FileEntry> = files.iter().filter(|file| file.component.as_deref() == Some(id)).collect();
+    if carried.is_empty() {
+        bail!("{at}.download has nothing to download: other downloads already carry all of its files, so leave download out here");
+    }
     // Until the archive is built its size is about the files'; `bach preview` and `bach check` show that.
-    let size = files.iter().filter(|file| file.component.as_deref() == Some(id)).fold(0u64, |sum, file| sum.saturating_add(file.size));
+    let size = carried.iter().fold(0u64, |sum, file| sum.saturating_add(file.size));
     Ok(Some(manifest::ComponentDownload { url, sha256: "0".repeat(64), size }))
 }

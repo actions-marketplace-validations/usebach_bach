@@ -175,6 +175,8 @@ struct InstallerSection {
     compression_memory: Option<u32>,
     languages: Option<Vec<String>>,
     license: Option<toml::Value>,
+    /// What a file that several components match needs: `"first"` or `"all"`.
+    shared_files: Option<String>,
     desktop_shortcut: Option<toml::Value>,
     start_menu_shortcut: Option<toml::Value>,
     start_with_windows: Option<toml::Value>,
@@ -751,8 +753,10 @@ pub fn parse_with(text: &str, root: &Path, overrides: &Overrides) -> Result<Proj
         .map(|source| FileEntry { mode: modes.get(&source.packaged).copied(), ..FileEntry::new(&source.packaged, source.size) })
         .collect();
     files.extend(links.iter().map(|(path, target)| FileEntry { link: Some(target.clone()), ..FileEntry::new(path, 0) }));
+    let shared_files = components::SharedFiles::parse(file.installer.shared_files.as_deref())?;
     let components = components::components(
         &file.components,
+        shared_files,
         &mut files,
         &app,
         &languages,
