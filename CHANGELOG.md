@@ -2,6 +2,25 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.11.1 (2026-11-26)
+
+### New
+
+- Show every claim in bach check and inspect, and refuse them in an MSI ([9e58e74](https://github.com/usebach/bach/commit/9e58e749fc52ed79d80bfbded09ee322600a0edd))
+- Add installer.shared_files so a file can need several components ([09b33c4](https://github.com/usebach/bach/commit/09b33c4ac470b739f7372e8c995266942d429713))
+
+### Fixes
+
+- Fix the platform field missing from the --json output schema ([6448fe3](https://github.com/usebach/bach/commit/6448fe30f55a33690f6410c194cff98c79c3ce77))
+
+### Improvements
+
+- Document files that need several components ([2eb6f47](https://github.com/usebach/bach/commit/2eb6f479f78029b1fb458ae67dc732348aba3d65))
+- Install shared files only when all their components are ticked ([4a3e267](https://github.com/usebach/bach/commit/4a3e267219dcdbf902eff29dd01b585810d5e42d))
+- Move the component rules into their own file ([b7ea484](https://github.com/usebach/bach/commit/b7ea4840a5ddfee826756fceff6e04ae9b7525bb))
+
+All changes: [v0.11...v0.11.1](https://github.com/usebach/bach/compare/v0.11...v0.11.1)
+
 ## 0.11.0 (2026-11-22)
 
 ### New
