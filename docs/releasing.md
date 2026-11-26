@@ -62,6 +62,9 @@ current with Dependabot (`package-ecosystem: github-actions`). `bach workflow
    `package`) for Electron, `dotnet publish -c Release -r win-x64
    --self-contained` for .NET. For a project Bach doesn't recognise the
    **Build your app** step holds a `TODO`: put your build commands there.
+   For .NET, `bach init` also writes a `dotnet` requirement; a self-contained
+   publish doesn't need the runtime, so delete that `[[requirements]]` block or
+   change the step to `--self-contained false`.
 5. Pushes the commit and the tag together. Nothing is pushed if an earlier
    step failed.
 6. Builds the setup file with the [Bach action](updates.md#action-settings),

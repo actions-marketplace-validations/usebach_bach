@@ -388,7 +388,8 @@ bach build --runtime path/to/arm64/bach-setup.exe
 (`BACH_RUNTIME` does the same.) The runtime copies files and writes registry
 values, so it doesn't care what architecture your app is; which one to ship is
 your choice. Requirements that look for a runtime are architecture-specific:
-`kind = "vcredist"` looks for the x64 redistributable.
+`kind = "vcredist"` looks for the x64 redistributable, and on ARM64 computers
+accepts the ARM64 or the x64 one.
 
 ## Signing
 
