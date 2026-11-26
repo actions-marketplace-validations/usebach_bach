@@ -233,6 +233,10 @@ Each option takes one of four values:
 | `add_to_path` | `"never"` | Adds the app's folder to the user's `PATH`, so command-line tools run from any terminal. Only that one entry is ever added or removed; the rest of `PATH` is kept byte for byte. |
 | `path_folder` | the install folder | The folder, inside the install folder, that goes on `PATH`, like `"bin"`. |
 
+`shared_files` (`"first"` by default, or `"all"`) says what a file that several
+`[[components]]` match needs. See
+[files that need several components](#files-that-need-several-components).
+
 Every shortcut setup writes (the Start menu one, the desktop one and those of
 `[[shortcuts]]`) carries the app's AppUserModelID: the app id with every
 character other than letters, digits, `.`, `_` and `-` turned into a `.` (at
@@ -483,9 +487,79 @@ files = ["samples/**"]              # patterns, like [files] exclude
 default = true                      # ticked on a first install
 ```
 
-A file belongs to the first component whose pattern matches it. A component
-must match at least one file, and `app.executable` can't be in one. Unticking
-a component on an update removes its files.
+A file belongs to the first component whose pattern matches it, unless
+[`installer.shared_files`](#files-that-need-several-components) says otherwise.
+A component must match at least one file, and `app.executable` can't be in one.
+Unticking a component on an update removes its files.
+
+### Files that need several components
+
+Say the app ships tools for several vendors, and people should pick vendors and,
+separately, whether they want the tools. One component per vendor and kind would
+repeat "Tools" under every vendor. Instead, let components overlap and set
+`shared_files = "all"` in `[installer]`: a file that several components match is
+installed only when **every one of them** is ticked.
+
+| `installer.shared_files` | A file that several components match |
+| --- | --- |
+| `"first"` (default) | belongs to the first of them; the later ones don't count |
+| `"all"` | belongs to all of them, and is installed only when all are ticked |
+
+```toml
+[installer]
+shared_files = "all"
+
+# Two switches, one box each.
+[[components]]
+id = "app"
+title = "Applications"
+files = ["vendor*/app/**"]
+default = true
+
+[[components]]
+id = "tools"
+title = "Tools"
+description = "Docs, manuals and utilities, for every selected vendor."
+files = ["vendor*/tools/**"]
+
+# One component per vendor, claiming its whole folder.
+[[components]]
+id = "vendor1"
+title = "Vendor 1"
+files = ["vendor1/**"]
+default = true
+
+[[components]]
+id = "vendor2"
+title = "Vendor 2"
+files = ["vendor2/**"]
+```
+
+| File | Installed when ticked |
+| --- | --- |
+| `vendor1/app/editor.exe` | `app` and `vendor1` |
+| `vendor2/tools/manual.pdf` | `tools` and `vendor2` |
+| `vendor1/about.txt` | `vendor1` |
+
+The order of the components doesn't change what is installed. `bach check`
+lists such a file with every component it needs, like `(tools + vendor2)`.
+
+- Unticking `tools` on an update removes the tools of every vendor.
+- Silent installs pick them like any component:
+  `--with vendor1,vendor2 --without tools`.
+- A `[[run]]` step whose program is shared runs only when that program is
+  installed.
+- With [`download`](#components-that-are-downloaded), a shared file travels in
+  the download of the component that has it (the first in the list when several
+  do), and is fetched only when all its components are ticked. A download holds
+  that component's files for every vendor, whichever are ticked. A component
+  whose files all travel in other downloads can't have `download` itself.
+- A [Windows Installer package](#windows-installer-packages-msi) can't express
+  this, so `bach build --msi` refuses it.
+- It needs a Bach newer than 0.11.0. An [online installer](#online-and-offline-installers)
+  that an older Bach built doesn't know the rule and goes by one component of
+  each file, so publish the newly built one together with the release that first
+  uses `"all"`.
 
 ### Components that are downloaded
 
@@ -1794,7 +1868,8 @@ the setup log.
 What it doesn't carry, and says so when your config uses it (`not in the MSI:`):
 `[[migrate]]`, `[updates]` (an MSI is updated by installing a newer MSI),
 `[uninstall]` data folders, the `download` of a component (its files are in the
-package), requirements other than a Windows build in a quiet install (WebView2,
+package), files that need several components (`installer.shared_files = "all"`, which
+stops the build), requirements other than a Windows build in a quiet install (WebView2,
 .NET, VC++, file and registry checks: the window checks them), a
 run step's other exit codes (Windows Installer accepts `0`) and an `elevated` run
 step in a per-user package (it never has administrator rights). Use the setup
