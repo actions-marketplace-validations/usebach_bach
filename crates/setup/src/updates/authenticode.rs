@@ -57,6 +57,9 @@ fn parse(text: &str) -> Result<Signature, String> {
     Ok(Signature { status: status.to_string(), subject: lines.next().unwrap_or_default().to_string() })
 }
 
+/// Who judged the signature, for the sentences below.
+const SYSTEM: &str = if cfg!(target_os = "macos") { "macOS" } else { "Windows" };
+
 /// Whether `signature` is a good one by `publisher`.
 pub fn judge(signature: &Signature, publisher: &str) -> Result<(), String> {
     match signature.status.as_str() {
@@ -66,7 +69,7 @@ pub fn judge(signature: &Signature, publisher: &str) -> Result<(), String> {
             if signature.subject.is_empty() { "somebody unknown" } else { &signature.subject }
         )),
         "NotSigned" => Err(format!("the update isn't signed, and this app only takes updates signed by {publisher}")),
-        other => Err(format!("Windows doesn't accept the update's signature ({other}), so it isn't installed")),
+        other => Err(format!("{SYSTEM} doesn't accept the update's signature ({other}), so it isn't installed")),
     }
 }
 
