@@ -74,7 +74,7 @@ fi
 /usr/bin/codesign -dvv "$app" 2>&1 | grep -E '^(Authority|TeamIdentifier)=' || true
 
 BACH_SELF_SIGNED_APP="$work/Hello.zip" \
-  cargo test -p bach-setup a_self_signed_publisher_name_is_refused -- --ignored
+  cargo test -p bach-pack a_self_signed_publisher_name_is_refused -- --ignored
 
 for found in "/Applications/Firefox.app=Mozilla Corporation" "/Applications/Google Chrome.app=Google LLC" "/Applications/Visual Studio Code.app=Microsoft Corporation"; do
   # Only an intact copy says anything: one that was written into after it was
@@ -82,7 +82,7 @@ for found in "/Applications/Firefox.app=Mozilla Corporation" "/Applications/Goog
   if [ -d "${found%=*}" ] && /usr/bin/codesign --verify --deep --strict "${found%=*}" 2>/dev/null; then
     echo "Checking a real Developer ID: ${found%=*}"
     BACH_DEVELOPER_ID_APP="${found%=*}" BACH_DEVELOPER_ID_NAME="${found#*=}" \
-      cargo test -p bach-setup a_real_developer_id_is_accepted -- --ignored
+      cargo test -p bach-pack a_real_developer_id_is_accepted -- --ignored
     exit 0
   fi
 done

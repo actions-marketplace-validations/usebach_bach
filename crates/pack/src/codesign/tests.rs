@@ -1,4 +1,3 @@
-use super::super::authenticode::judge;
 use super::*;
 
 /// A throwaway certificate shaped like a Developer ID one: `UID`, `CN=Developer ID
@@ -26,11 +25,11 @@ fn the_signer_is_read_from_the_certificate() {
     let signature = found(true, Some(CERTIFICATE));
     assert_eq!(signature.status, "Valid");
     assert_eq!(signature.subject, "CN=\"Müller, Inc.\", OU=ABCDE12345");
-    assert!(judge(&signature, "Müller, Inc.").is_ok());
-    assert!(judge(&signature, "CN=\"Müller, Inc.\", OU=ABCDE12345").is_ok(), "the whole subject pins the team");
-    assert!(judge(&signature, "CN=\"Müller, Inc.\", OU=ZZZZZ99999").is_err(), "another team");
-    assert!(judge(&signature, "Müller").is_err(), "a part of a name with a comma isn't the name");
-    assert!(judge(&signature, "Somebody Else").is_err());
+    assert!(signature.is_by("Müller, Inc."));
+    assert!(signature.is_by("CN=\"Müller, Inc.\", OU=ABCDE12345"), "the whole subject pins the team");
+    assert!(!signature.is_by("CN=\"Müller, Inc.\", OU=ZZZZZ99999"), "another team");
+    assert!(!signature.is_by("Müller"), "a part of a name with a comma isn't the name");
+    assert!(!signature.is_by("Somebody Else"));
 }
 
 #[test]
@@ -38,7 +37,7 @@ fn a_name_cant_add_pairs_to_the_subject() {
     for name in ["Mallory, O=Example Inc.", "Example Inc., Mallory GmbH", "Mallory\", O=Example Inc., X=\""] {
         let signature = found(true, Some(&certificate_of(&format!("Developer ID Application: {name} (ZZZZZ99999)"))));
         assert_eq!(signature.status, "Valid", "{name}");
-        assert!(judge(&signature, "Example Inc.").is_err(), "{name}: {}", signature.subject);
+        assert!(!signature.is_by("Example Inc."), "{name}: {}", signature.subject);
     }
 }
 
@@ -47,7 +46,7 @@ fn without_apples_requirement_a_name_counts_for_nothing() {
     let imitation = certificate_of("Developer ID Application: Example Inc. (ABCDE12345)");
     let refused = found(false, Some(&imitation));
     assert_eq!(refused, Signature { status: "NotTrusted".into(), subject: String::new() });
-    assert!(judge(&refused, "Example Inc.").is_err());
+    assert!(!refused.is_by("Example Inc."));
     assert_eq!(found(false, None).status, "NotSigned", "unsigned or ad hoc");
     assert_eq!(found(true, None).status, "NotSigned", "no certificate, nobody to name");
 }
@@ -74,9 +73,8 @@ mod on_a_mac {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
-    use bach_pack::macapp;
-
     use super::*;
+    use crate::macapp;
 
     fn run(command: &mut Command) {
         let output = command.output().unwrap();
@@ -125,7 +123,7 @@ mod on_a_mac {
         let file = PathBuf::from(std::env::var_os("BACH_SELF_SIGNED_APP").expect("BACH_SELF_SIGNED_APP"));
         let signature = read(&file).unwrap();
         assert_eq!(signature.status, "NotTrusted", "{signature:?}");
-        assert!(judge(&signature, "Example Inc.").is_err());
+        assert!(!signature.is_by("Example Inc."));
     }
 
     /// The other side: a real Developer ID app passes. The script names one that is installed.
@@ -139,6 +137,6 @@ mod on_a_mac {
         std::fs::remove_dir_all(&work).unwrap();
         assert_eq!(signature.status, "Valid", "{signature:?}");
         let publisher = std::env::var("BACH_DEVELOPER_ID_NAME").expect("BACH_DEVELOPER_ID_NAME");
-        assert!(judge(&signature, &publisher).is_ok(), "{signature:?}");
+        assert!(signature.is_by(&publisher), "{signature:?}");
     }
 }

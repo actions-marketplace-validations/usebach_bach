@@ -9,20 +9,14 @@
 //! with the path in its command line: the file's name travels in an
 //! environment variable.
 //!
-//! A Mac asks the same of the Developer ID signature (`codesign.rs`).
+//! A Mac asks the same of the Developer ID signature (`bach_pack::codesign`,
+//! which `bach build` uses too).
 
 use std::path::Path;
 #[cfg(windows)]
 use std::process::Command;
 
-/// What the system says about a file's signature.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Signature {
-    /// `Valid`, `NotSigned`, `HashMismatch`, `NotTrusted`, ...
-    pub status: String,
-    /// The signing certificate's subject, like `CN=Example Inc., O=Example`.
-    pub subject: String,
-}
+pub use bach_pack::codesign::Signature;
 
 /// Reads the signature of `file`.
 #[cfg(windows)]
@@ -45,9 +39,9 @@ pub fn read(file: &Path) -> Result<Signature, String> {
     parse(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// On a Mac the question goes to `codesign`, see [`super::codesign`].
+/// On a Mac the question goes to `codesign`.
 #[cfg(target_os = "macos")]
-pub use super::codesign::read;
+pub use bach_pack::codesign::read;
 
 /// The two lines the PowerShell command prints.
 #[cfg(windows)]
@@ -62,8 +56,10 @@ const SYSTEM: &str = if cfg!(target_os = "macos") { "macOS" } else { "Windows" }
 
 /// Whether `signature` is a good one by `publisher`.
 pub fn judge(signature: &Signature, publisher: &str) -> Result<(), String> {
+    if signature.is_by(publisher) {
+        return Ok(());
+    }
     match signature.status.as_str() {
-        "Valid" if bach_pack::manifest::extras::subject_names(&signature.subject, publisher) => Ok(()),
         "Valid" => Err(format!(
             "the update is signed by \"{}\", not by {publisher}, so it isn't installed",
             if signature.subject.is_empty() { "somebody unknown" } else { &signature.subject }
