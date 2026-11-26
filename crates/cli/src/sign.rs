@@ -37,6 +37,7 @@ pub fn command(options: Options) -> Result<()> {
 
 /// Signs `file` with the program and arguments of `signing`.
 /// `publisher` is `[updates] signer`: when it is set, the file has to be signed by that publisher.
+/// For a macOS setup file that means the Setup app inside it (`mac_signer`).
 pub fn sign(signing: &Signing, file: &Path, publisher: Option<&str>) -> Result<()> {
     let arguments = arguments(signing, file, |name| std::env::var(name).ok())?;
     // The command as it will run, with secrets shown as the variable's name,
@@ -63,10 +64,11 @@ pub fn sign(signing: &Signing, file: &Path, publisher: Option<&str>) -> Result<(
     }
     // signtool is the tool whose job is known: a file it didn't sign is a failure. Another
     // program (a cloud signer, a script) may sign differently or not at all on purpose.
-    if is_signtool(&signing.program) {
-        check_signature(file, publisher)?;
-    } else {
-        say!("Signature not checked: {} isn't signtool", signing.program);
+    match publisher.filter(|_| crate::mac_signer::is_setup_file(file)) {
+        // An installed Mac looks at the app inside, whatever signed the file around it.
+        Some(publisher) => crate::mac_signer::check_file(file, publisher)?,
+        None if is_signtool(&signing.program) => check_signature(file, publisher)?,
+        None => say!("Signature not checked: {} isn't signtool", signing.program),
     }
     Ok(())
 }

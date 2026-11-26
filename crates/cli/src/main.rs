@@ -45,6 +45,7 @@ mod import;
 mod inspect;
 mod intune;
 mod key;
+mod mac_signer;
 mod macfile;
 mod msi;
 mod output;

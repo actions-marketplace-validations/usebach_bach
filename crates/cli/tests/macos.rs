@@ -133,6 +133,60 @@ fn windows_only_options_and_wrong_runtimes_are_refused_with_a_reason() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// [`project`] with `[updates] signer`, and `[macos.signing]` when `identity` names one.
+fn signer_project(name: &str, identity: Option<&str>) -> PathBuf {
+    let dir = project(name);
+    let signing = identity.map(|identity| format!("[macos.signing]\nidentity = \"{identity}\"\n")).unwrap_or_default();
+    std::fs::write(dir.join("bach.toml"), format!("{CONFIG}signer = \"Example Inc.\"\n{signing}")).unwrap();
+    dir
+}
+
+fn warnings(out: &std::process::Output) -> String {
+    let object: serde_json::Value = serde_json::from_str(&text(&out.stdout)).unwrap();
+    object["warnings"].to_string()
+}
+
+#[test]
+fn an_unsigned_build_warns_that_installed_copies_would_refuse_it() {
+    let dir = signer_project("mac-signer-unsigned", None);
+    let out = build(&dir, &[]);
+    assert!(out.status.success(), "{}\n{}", text(&out.stdout), text(&out.stderr));
+    let said = warnings(&out);
+    assert!(said.contains("[updates] signer is Example Inc.") && said.contains("will refuse"), "{said}");
+
+    // Without a signer there is nothing to refuse.
+    std::fs::write(dir.join("bach.toml"), CONFIG).unwrap();
+    let out = build(&dir, &[]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(!warnings(&out).contains("signer"), "{}", warnings(&out));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The build asks macOS who signed what it just signed, and stops before it writes anything.
+#[test]
+#[cfg(target_os = "macos")]
+fn an_ad_hoc_signature_fails_a_build_with_a_signer() {
+    let dir = signer_project("mac-signer-adhoc", Some("-"));
+    let out = build(&dir, &["--sign"]);
+    let error = text(&out.stderr);
+    assert!(!out.status.success() && error.contains("ad hoc") && error.contains("[updates] signer"), "{error}");
+    assert!(!dir.join("out/Hello-1.0.0.zip").exists(), "a refused build leaves no setup file");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Run by `scripts/test-macos-signer.sh`: a self-signed certificate named like a Developer ID.
+#[test]
+#[cfg(target_os = "macos")]
+#[ignore = "needs scripts/test-macos-signer.sh"]
+fn a_self_signed_identity_fails_a_build_with_a_signer() {
+    let identity = std::env::var("BACH_SELF_SIGNED_IDENTITY").expect("BACH_SELF_SIGNED_IDENTITY");
+    let dir = signer_project("mac-signer-self", Some(&identity));
+    let out = build(&dir, &["--sign"]);
+    let error = text(&out.stderr);
+    assert!(!out.status.success() && error.contains("that Apple issued"), "{error}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 #[cfg(target_os = "macos")]
 fn a_pkg_puts_the_app_in_applications_with_its_permissions() {

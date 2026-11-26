@@ -68,6 +68,8 @@ pub(super) fn build(options: BuildOptions, mut project: Project, started: Instan
     let output = tidy(&output);
     let packs = write_packs(&mut project, &output)?;
 
+    // What the installed app will ask of this file before it takes it as an update.
+    let publisher = project.manifest.updates.as_ref().and_then(|updates| updates.signer.clone());
     let staging = staging_dir(&output);
     let _ = fs::remove_dir_all(&staging);
     let result = (|| -> Result<(Written, PathBuf)> {
@@ -76,6 +78,10 @@ pub(super) fn build(options: BuildOptions, mut project: Project, started: Instan
         let signing = mac.signing.as_ref().filter(|_| sign);
         if let Some(signing) = signing {
             codesign(&app_dir, &signing.identity, true)?;
+            // Before the disk image and the wait for Apple's notary: a refused certificate ends it here.
+            if let Some(publisher) = &publisher {
+                crate::mac_signer::check_app(&app_dir, publisher)?;
+            }
         } else if cfg!(target_os = "macos") {
             // Seal the bundle so its resources are part of its (ad hoc) signature.
             codesign(&app_dir, "-", false)?;
@@ -127,6 +133,9 @@ pub(super) fn build(options: BuildOptions, mut project: Project, started: Instan
         say!("Not signed with your identity: bach.toml has [macos.signing], but signing runs only with --sign (or BACH_SIGN=1).");
     } else if sign && mac.signing.is_none() {
         bail!("--sign was given, but bach.toml has no [macos.signing] section that says how to sign");
+    }
+    if let Some(publisher) = publisher.as_deref().filter(|_| !sign) {
+        crate::mac_signer::warn_unsigned(publisher);
     }
     // The update feed lists this file for Macs.
     if project.manifest.updates.is_some() {
