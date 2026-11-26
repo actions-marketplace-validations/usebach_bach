@@ -7,7 +7,7 @@ update survives a closed window, a closed app or a power cut.
 There are two ways to update:
 
 - **By hand.** Hand out a newer setup file. Running it over an install
-  updates it in place (see [getting started](getting-started.md#6-ship-updates)).
+  updates it in place (see [getting started](getting-started.md#7-ship-updates)).
 - **By themselves.** The installed app reads an update feed, downloads the
   newer setup file in the background and installs it when the app is closed.
   The rest of this page is about that.
@@ -398,10 +398,19 @@ One `signer` serves Windows and macOS. A whole subject matches only the platform
 it was written for, so an app that ships on both needs the plain name, and both
 certificates have to carry it.
 
-`bach build` doesn't compare the macOS signature with `signer`, so sign every
-Setup app you publish with `--sign` and your Developer ID
-([Sign the macOS Setup app](signing.md#sign-the-macos-setup-app)). The check
-doesn't ask whether the app was notarized.
+`bach build` asks the same question before you publish. With `--sign`, right
+after it signed the Setup app, it stops when installed copies would refuse the
+certificate: an ad hoc signature, one that isn't an Apple-issued Developer ID
+Application, or another publisher's name. Without `--sign` it writes the file
+and warns that installed copies will refuse it, which is what a publisher who
+signs only for Windows sees. Sign every Setup app you publish with `--sign`
+and your Developer ID
+([Sign the macOS Setup app](signing.md#sign-the-macos-setup-app)). Neither
+check asks whether the app was notarized.
+
+`bach sign` on a `.dmg` or `.zip` looks at the Setup app inside too, after
+your `[signing]` program ran: signing the file around the app changes nothing
+for an installed copy. Away from a Mac it can't look, and says so in a warning.
 
 ### Changing the key
 

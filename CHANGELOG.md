@@ -2,6 +2,23 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.11.3 (2026-11-26)
+
+### Fixes
+
+- Fix outdated facts about requirements, errors and update trust in the docs ([48be13c](https://github.com/usebach/bach/commit/48be13c8a531cf341d1417ff7a284b3d7831f6c4))
+- Fix the gap in the message about a wrong publisher's signature ([68e547c](https://github.com/usebach/bach/commit/68e547ccee428ddbb0fa3e7eb24fee7d7c790328))
+
+### Improvements
+
+- Point the npm package's docs link at usebach.app ([0c38666](https://github.com/usebach/bach/commit/0c386660fe60f95c977f692c54c7b765e8f27936))
+- Rewrite the getting started guide in plain English ([d00a572](https://github.com/usebach/bach/commit/d00a5722990bd3c768f71cac745d41069dab1426))
+- Document the signer check of a Mac build ([c7f481a](https://github.com/usebach/bach/commit/c7f481a092a2ab320067d0464b347969a3f0ce01))
+- Fail a signed Mac build, and warn on an unsigned one, that installed apps would refuse ([3fdfdfe](https://github.com/usebach/bach/commit/3fdfdfe9d99cf014af2c46f8ba31143811e9fcab))
+- Move the Mac signature check to bach-pack so the builder can ask it too ([5c8058e](https://github.com/usebach/bach/commit/5c8058e661bad3e07c31310b7a09c776f2192cfa))
+
+All changes: [v0.11...v0.11.3](https://github.com/usebach/bach/compare/v0.11...v0.11.3)
+
 ## 0.11.2 (2026-11-26)
 
 ### New

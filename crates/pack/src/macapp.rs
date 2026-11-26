@@ -11,6 +11,8 @@
 //!   Contents/Resources/AppIcon.icns    optional
 //! ```
 
+pub mod unpack;
+
 use crate::manifest::{Manifest, Platform};
 use crate::paths;
 

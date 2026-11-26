@@ -115,8 +115,21 @@ The payload is inside the bundle (`Contents/Resources/setup.bach`), so the signa
 
 With [`[updates] signer`](updates.md#signed-updates-on-a-mac), installed copies take an update only when its
 Setup app is signed with a Developer ID Application certificate that Apple issued and that carries that name.
-A self-signed certificate doesn't count, even with the same name. `bach build` doesn't check this for macOS, so
-publish only Setup apps you built with `--sign` and that identity.
+A self-signed certificate doesn't count, even with the same name. `bach build` checks it, so you find out before
+your users do. With `--sign`, a certificate they would refuse stops the build:
+
+```text
+error: The Setup app is signed by "CN=Other Company, OU=ABCDE12345", so installed Macs would refuse it as an update from Example Inc. ([updates] signer); set [macos.signing] identity to that publisher's Developer ID Application certificate and build with --sign, or change [updates] signer.
+```
+
+Without `--sign` the build succeeds and warns:
+
+```text
+warning: [updates] signer is Example Inc., but this Setup app has no Developer ID signature, so installed Macs will refuse it as an update; before you publish it, set [macos.signing] identity to that publisher's Developer ID Application certificate and build with --sign, or change [updates] signer.
+```
+
+The name has to be on both certificates when you ship for Windows and macOS
+([Signed updates on a Mac](updates.md#signed-updates-on-a-mac)).
 
 ## Check a Bach download
 

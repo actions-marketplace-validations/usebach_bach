@@ -91,7 +91,7 @@ fn from_dmg(path: &Path) -> Result<Payload> {
     }
 }
 
-fn zip_holds_payload(path: &Path) -> bool {
+pub(crate) fn zip_holds_payload(path: &Path) -> bool {
     let Ok(file) = File::open(path) else {
         return false;
     };

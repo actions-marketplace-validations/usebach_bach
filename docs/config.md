@@ -664,7 +664,7 @@ version = "8.0"
 desktop = true               # the Windows Desktop runtime (WinForms, WPF)
 
 [[requirements]]
-kind = "vcredist"            # the Visual C++ 2015-2022 redistributable (x64)
+kind = "vcredist"            # the Visual C++ 2015-2022 runtime (x64; on ARM64 PCs, ARM64 or x64)
 
 [[requirements]]
 kind = "file"                # any file; %VARIABLES% are filled in
@@ -1218,7 +1218,8 @@ a text is given in only one, `bach check` points it out.
 | `install_failed`, `update_failed`, `remove_failed` | {name} couldn't be installed (updated, removed) |
 | `error_still_open`, `error_in_use` (`{path}`), `error_busy`, `error_disk_full` (`{size}`, `{free}`), `error_no_access` (`{path}`) | The errors people meet most. |
 | `error_create`, `error_write`, `error_delete`, `error_shortcut`, `error_delete_data`, `error_not_found` (all `{path}`) | Errors about one file or folder; Windows' own reason follows them. |
-| `error_read_setup`, `error_damaged`, `error_uninstaller`, `error_register`, `error_unregister`, `error_system`, `error_open_failed` (`{error}`) | The rarer errors. |
+| `error_read_setup`, `error_damaged`, `error_uninstaller`, `error_register`, `error_unregister`, `error_system` | The rarer errors. |
+| `error_open_failed` (`{error}`) | Installed, but the app didn't start. |
 | `error_msi` (`{code}`) | What the window says when Windows Installer, which the `.msi` package hands its work to, stops with an error. |
 | `problem_title`, `problem_damaged` (`{error}`) | The page a damaged setup file shows. |
 | `downgrade_title`, `downgrade_subtitle` (`{old_version}`), `downgrade_button` | Installing over a newer version. `downgrade_button` also confirms the next one. |
@@ -1499,7 +1500,8 @@ Wrote dist/Hello-Setup-1.0.0.dmg (9.3 MB)
   program, so the signature covers it. Without `--sign`, a Mac host seals the app ad hoc; Gatekeeper then asks
   users to confirm the first open. `--sign` with a Developer ID identity (and `notarize`) makes it open without that.
   Signing needs a Mac. `[updates] signer` accepts an update only when its Setup app is signed with an Apple-issued Developer ID of that name
-  ([Signed updates on a Mac](updates.md#signed-updates-on-a-mac)).
+  ([Signed updates on a Mac](updates.md#signed-updates-on-a-mac)). With `signer`, `bach build --sign` stops when the certificate isn't
+  one, and a macOS build without `--sign` warns that installed copies will refuse it.
 - **Updates.** The macOS file is listed in the feed under `arch.macos`, with its own link, SHA-256,
   size and signature, so one `latest.json` serves Windows and macOS (`bach feed SETUP.exe --macos FILE.dmg`
   writes it when you build the files separately). An app that only builds for macOS gets a feed whose own entry is the macOS file.

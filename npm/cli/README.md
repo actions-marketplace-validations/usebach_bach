@@ -88,6 +88,6 @@ Without Node.js, the install scripts do the same job:
 
 ## Links
 
-- Documentation: https://bach.mintlify.app/docs
+- Documentation: https://usebach.app/docs
 - Source and issues: https://github.com/usebach/bach
 - License: MIT
