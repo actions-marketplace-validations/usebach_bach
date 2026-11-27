@@ -2,6 +2,18 @@
 
 What changed in each release of Bach, newest first. The release workflow writes this from the commit history.
 
+## 0.11.4 (2026-11-27)
+
+### Fixes
+
+- Fix bach init asking .NET users for a runtime the release already ships ([e75e74c](https://github.com/usebach/bach/commit/e75e74c168fda0ae236e442a51582df7c781a684))
+
+### Improvements
+
+- Document that the .NET requirement starts commented out ([3c1eb86](https://github.com/usebach/bach/commit/3c1eb8619ebccc83758c3f04a598cf0154b6ac1e))
+
+All changes: [v0.11...v0.11.4](https://github.com/usebach/bach/compare/v0.11...v0.11.4)
+
 ## 0.11.3 (2026-11-26)
 
 ### Fixes
