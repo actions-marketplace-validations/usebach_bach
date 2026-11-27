@@ -624,6 +624,31 @@ mod tests {
         }
     }
 
+    /// What the release builds and what `bach init` asks users to have must
+    /// agree: a self-contained publish carries the runtime, so nothing requires it.
+    #[test]
+    fn a_dotnet_release_and_its_config_agree_on_the_runtime() {
+        let csproj = "<Project><PropertyGroup><TargetFramework>net8.0-windows</TargetFramework></PropertyGroup></Project>";
+        let dir = project("dotnet-runtime", &[("A.csproj", csproj)]);
+        write(&Options { dir: &dir, force: false, pin: Pin::Float, winget: None, macos: false }).unwrap();
+        assert!(written(&dir).contains("dotnet publish -c Release -r win-x64 --self-contained\n"));
+        let found = crate::detect::detect(&dir);
+        let config = crate::template::fill(found.as_ref(), "A", &dir);
+        let parsed: toml::Table = config.parse().unwrap();
+        assert!(!parsed.contains_key("requirements"), "{config}");
+
+        // For a framework-dependent publish the block is there to uncomment.
+        let block: Vec<&str> =
+            config.lines().skip_while(|line| *line != "# [[requirements]]").take(4).map(|line| line.strip_prefix("# ").unwrap()).collect();
+        let block: toml::Table = block.join("\n").parse().unwrap();
+        let requirement = &block["requirements"][0];
+        assert_eq!(
+            (requirement["kind"].as_str(), requirement["version"].as_str(), requirement["desktop"].as_bool()),
+            (Some("dotnet"), Some("8.0"), Some(true))
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn a_project_in_a_subfolder_runs_from_there() {
         let dir = project("mono", &[("desktop/README", "x")]);

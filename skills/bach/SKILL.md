@@ -86,8 +86,10 @@ next to it (DLLs, resources). Find or produce that folder first, for example:
 
 Run `bach init` (it won't overwrite an existing file). In a Rust, Tauri,
 Wails, Electron, .NET, Flutter, PyInstaller, Qt, Godot or Unity project it fills in name, version, publisher, the program,
-the build folder, leftovers to exclude and needed runtimes (WebView2, .NET)
-from the project's own files; check them, then edit. The window always starts
+the build folder, leftovers to exclude and needed runtimes (WebView2, Visual C++)
+from the project's own files; check them, then edit. For .NET the `dotnet`
+requirement is commented out, because a self-contained publish carries the
+runtime: uncomment it only if you publish with `--self-contained false`. The window always starts
 in Bach's own style (`bach`), whatever the project: set `installer.style` only
 when the developer asks for another look. Minimal by hand:
 
